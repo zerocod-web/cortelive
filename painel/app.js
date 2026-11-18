@@ -202,6 +202,39 @@
     el("pre-log-instalacao").textContent = inst.log_recente || "Aguardando início…";
   }
 
+  // --- Botão "Parar" de cada live ---
+  function renderizarListaLives(sessao, rodando) {
+    const ul = el("lista-lives");
+    const lives = Array.isArray(sessao.lives) ? sessao.lives : [];
+    if (!rodando || lives.length < 1) {
+      ul.hidden = true;
+      ul.textContent = "";
+      return;
+    }
+    ul.hidden = false;
+    ul.textContent = "";
+    lives.forEach((lv) => {
+      const li = document.createElement("li");
+      li.className = "item-live";
+      const nome = document.createElement("span");
+      nome.className = "item-live-nome";
+      nome.textContent = lv.canal || "Live";
+      const est = document.createElement("span");
+      est.className = "item-live-estado";
+      const cortes = Number(lv.cortes) || 0;
+      est.textContent = (lv.estado || "") + " · " + cortes + (cortes === 1 ? " corte" : " cortes");
+      const bt = document.createElement("button");
+      bt.type = "button";
+      bt.className = "btn btn-perigo btn-parar-live";
+      bt.dataset.liveId = lv.id;
+      bt.disabled = !lv.pode_parar;
+      bt.textContent = lv.pode_parar ? "Parar" : "Parada";
+      bt.setAttribute("aria-label", "Parar a live " + (lv.canal || ""));
+      li.append(nome, est, bt);
+      ul.appendChild(li);
+    });
+  }
+
   // --- Mesa de Corte + Status ao Vivo ---
   function atualizarMesaCorte(dados) {
     el("info-hardware-modo").textContent = dados.modo_descricao || "Hardware detectado automaticamente";
@@ -216,6 +249,7 @@
 
     btnCortar.hidden = rodando;
     btnParar.hidden = !rodando;
+    renderizarListaLives(sessao, rodando);
     const finalizando = estado === "encerrando" || estado === "encerrada";
     btnParar.disabled = finalizando;
     el("texto-btn-parar").textContent = finalizando ? "FINALIZANDO CORTES…" : "PARAR SESSÃO";
@@ -1159,6 +1193,15 @@
         el("btn-cortar").disabled = false;
       }
       await carregarEstado();
+    });
+
+    el("lista-lives").addEventListener("click", async (ev) => {
+      const bt = ev.target.closest(".btn-parar-live");
+      if (!bt || bt.disabled) return;
+      bt.disabled = true;
+      bt.textContent = "Parando…";
+      const res = await api("/api/parar-live", "POST", { id: bt.dataset.liveId });
+      if (res.ok === false) mostrarAvisoSistema("Não foi possível parar a live", res.erro);
     });
 
     el("btn-parar").addEventListener("click", async () => {

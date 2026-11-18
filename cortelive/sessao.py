@@ -37,8 +37,12 @@ class Sessao:
         self.resumo = None
         self.erro = None
         self._parar_ev = threading.Event()
+        self._descartar_ev = threading.Event()
         self._fim_ev = threading.Event()
         self._cap = self._fl = None
+        self._proc_render = None
+        self._proc_lock = threading.Lock()
+        self._descartados_parada = 0
         self._res, self._falhas = [], []
         self._ultimo_corte = None
         self._estado_forcado = "iniciando"
@@ -50,8 +54,27 @@ class Sessao:
         self._th.start()
         return self
 
-    def parar(self):
+    def parar(self, descartar_cortes=False):
+        if descartar_cortes:
+            self._descartar_ev.set()
+            with self._proc_lock:
+                pr = self._proc_render
+            if pr is not None and pr.poll() is None:
+                try:
+                    pr.kill()
+                except OSError:
+                    pass
         self._parar_ev.set()
+        cap = self._cap
+        if cap and not cap.acabou.is_set():
+            cap.solicitar_parada("parado pelo usuário")
+        if self.args.canal:
+            try:
+                from . import servicos
+                if servicos._trans is not None:
+                    servicos._trans.cancelar(self.args.canal)
+            except Exception:
+                pass
 
     def aguardar(self, timeout=None):
         self._fim_ev.wait(timeout)
@@ -63,7 +86,9 @@ class Sessao:
         if estado not in ("encerrada", "erro") and cap is not None:
             estado = cap.estado
         return {"canal": self.args.canal, "pasta": str(self.pasta) if self.pasta else None, "estado": estado,
+                "fonte": self.args.url or (str(self.args.arquivo) if self.args.arquivo else None),
                 "cortes": len(self._res), "falhas": len(self._falhas),
+                "cortes_descartados_parada": self._descartados_parada,
                 "live_s": round(cap.fim_live, 1) if cap else 0.0,
                 "atraso_transcricao_s": round(max(0.0, cap.fim_live - fl.feito_ate), 1) if cap and fl else None,
                 "ultimo_corte": self._ultimo_corte,
@@ -91,6 +116,9 @@ class Sessao:
             except Exception:
                 pass
         finally:
+            if self._cap:
+                self._cap.parar.set()
+                self._cap.join()
             self._fim_ev.set()
             self._avisar()
 
@@ -177,19 +205,82 @@ class Sessao:
                               f"nota {fraco['nota']:.1f}) para a fila não crescer.")
             tem_job.set()
 
+        class _CorteDescartado(Exception):
+            pass
+
+        def _limpar_parciais_corte(nome_base):
+            for parcial in dint.glob(f"{nome_base}*"):
+                try:
+                    parcial.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+        def _rodar_render_proc(pedido_arq):
+            cmd = [sys.executable, "-m", "cortelive.render_job", str(pedido_arq)]
+            if os.name == "nt":
+                cmd = [sys.executable, "-m", "cortelive.processos", *cmd]
+            proc = subprocess.Popen(
+                cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                cwd=str(AQUI.parent), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            with self._proc_lock:
+                self._proc_render = proc
+            try:
+                if self._descartar_ev.is_set():
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+                    proc.wait()
+                    raise _CorteDescartado()
+                prazo = time.time() + cfg["travou_render_s"]
+                while proc.poll() is None:
+                    if self._descartar_ev.wait(0.2):
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass
+                        proc.wait()
+                        raise _CorteDescartado()
+                    if time.time() >= prazo:
+                        try:
+                            proc.kill()
+                        except OSError:
+                            pass
+                        proc.wait()
+                        raise subprocess.TimeoutExpired(cmd, cfg["travou_render_s"])
+                return proc.returncode
+            finally:
+                with self._proc_lock:
+                    self._proc_render = None
+
         def renderizador():
             while True:
+                if self._descartar_ev.is_set():
+                    with lk:
+                        restantes = list(pendentes)
+                        pendentes.clear()
+                        tem_job.clear()
+                    for j in restantes:
+                        cap.prender(j["segs"], False)
+                    if restantes:
+                        self._descartados_parada += len(restantes)
+                        log.aviso(f"Live parada: {len(restantes)} corte(s) na fila descartado(s).")
+                    return
                 with lk:
                     job = pendentes.pop(0) if pendentes else None
                     if not job:
                         tem_job.clear()
                 if not job:
-                    if acabar_render.is_set():
+                    if acabar_render.is_set() or self._descartar_ev.is_set():
                         return
-                    tem_job.wait(1)
+                    tem_job.wait(0.4)
                     continue
                 try:
                     resultados.append(fazer_corte(job))
+                except _CorteDescartado:
+                    self._descartados_parada += 1
+                    log.aviso(f"Corte em andamento ({_hms(job['evento'])}) descartado porque a live foi parada.")
                 except Exception as e:
                     falhas.append({"momento": _hms(job["evento"]), "erro": str(e)[:300]})
                     log.aviso(f"Corte do momento {_hms(job['evento'])} falhou e foi pulado: {str(e)[:200]}")
@@ -203,16 +294,25 @@ class Sessao:
             t0 = time.time()
             # legenda completa: se o corte pega um trecho que o watchdog pulou, espera ele ser retranscrito
             while fl.buraco_em(ini, fim) and time.time() - t0 < 120:
-                time.sleep(1)
+                if self._descartar_ev.wait(0.5):
+                    raise _CorteDescartado()
+                if self._parar_ev.is_set():
+                    break
             if fl.buraco_em(ini, fim):
                 log.aviso(f"{nome}: trecho ainda sem transcrição após 2 min; legenda pode ter falha.")
             job["palavras"] = fl.palavras_entre(ini, fim)
             # cam ainda sendo medida (primeiro 1,5 min): espera, para o corte não sair sem cam à toa
             while cam_status == "procurar" and time.time() - t0 < 150 and not cap.acabou.is_set():
-                time.sleep(1)
+                if self._descartar_ev.wait(0.5):
+                    raise _CorteDescartado()
+                if self._parar_ev.is_set():
+                    break
+            if self._descartar_ev.is_set():
+                raise _CorteDescartado()
             bruto = buf / f"{nome}_trecho.mkv"
             base = trecho.juntar(job["segs"], bruto)
             pedido = buf / f"{nome}.json"
+            res_arq = pedido.with_suffix(".res")
             # legenda queimada sem vírgula/ponto (mantém ? e !); palavra que vira só pontuação sai
             pal_rel = [{"w": t, "start": w["s"] - base, "end": w["e"] - base} for w in job["palavras"]
                        if (t := re.sub(r"[.,;:…\"“”]+", "", w["w"]).strip())]
@@ -222,16 +322,19 @@ class Sessao:
                                           "nome": nome, "faixa_legenda": cfg.get("faixa_legenda"),
                                           "faixa_cor": cfg.get("faixa_cor")}, ensure_ascii=False), encoding="utf-8")
             try:
-                p = servicos.render().executar(
-                    subprocess.run, [sys.executable, "-m", "cortelive.render_job", str(pedido)],
-                    timeout=cfg["travou_render_s"], capture_output=True, cwd=str(AQUI.parent))
+                rc = servicos.render().executar(_rodar_render_proc, pedido)
+            except _CorteDescartado:
+                pedido.unlink(missing_ok=True)
+                res_arq.unlink(missing_ok=True)
+                _limpar_parciais_corte(nome)
+                raise
             except subprocess.TimeoutExpired:
+                _limpar_parciais_corte(nome)
                 raise RuntimeError(f"render passou de {cfg['travou_render_s']} s (watchdog cancelou)")
             finally:
                 bruto.unlink(missing_ok=True)
-            res_arq = pedido.with_suffix(".res")
             if not res_arq.exists():
-                raise RuntimeError(f"render morreu sem resposta (código {p.returncode})")
+                raise RuntimeError(f"render morreu sem resposta (código {rc})")
             r = json.loads(res_arq.read_text(encoding="utf-8"))
             pedido.unlink(missing_ok=True); res_arq.unlink(missing_ok=True)
             if not r.get("ok"):
@@ -286,9 +389,15 @@ class Sessao:
 
         th_r = threading.Thread(target=log.herdar(renderizador), daemon=True)
         th_r.start()
-        cap.start()
-        log.info("Acompanhando a live." + (" Para parar: Ctrl+C." if self.terminal else ""))
         self._cap, self._fl, self._res, self._falhas = cap, fl, resultados, falhas
+        if self._parar_ev.is_set():
+            cap.motivo_fim = "parado pelo usuário"
+            cap.estado = "encerrada"
+            cap.parar.set()
+            cap.acabou.set()
+        else:
+            cap.start()
+        log.info("Acompanhando a live." + (" Para parar: Ctrl+C." if self.terminal else ""))
 
         estado = {"avaliado_ate": 0.0, "ultimo_fim": -1e9}
         hist_notas = {}
@@ -366,6 +475,8 @@ class Sessao:
 
         def transcrever(fim, final=False):
             nonlocal exe
+            if self._parar_ev.is_set():
+                return
             gatilho = buf / "TRAVAR_TRANSCRICAO"     # só para teste de robustez: simula motor travado
             if gatilho.exists():
                 gatilho.unlink(missing_ok=True)
@@ -373,8 +484,21 @@ class Sessao:
                 fut = exe.submit(lambda: (time.sleep(cfg["travou_transcricao_s"] + 60), fl.avancar(fim, final)))
             else:
                 fut = exe.submit(fl.avancar, fim, final)
+            prazo = time.time() + cfg["travou_transcricao_s"]
             try:
-                fut.result(timeout=cfg["travou_transcricao_s"])
+                while True:
+                    if self._parar_ev.is_set():
+                        exe.shutdown(wait=False, cancel_futures=True)
+                        return
+                    restante = prazo - time.time()
+                    if restante <= 0:
+                        raise cf.TimeoutError()
+                    try:
+                        fut.result(timeout=min(0.3, restante))
+                        return
+                    except cf.TimeoutError:
+                        if time.time() >= prazo:
+                            raise
             except cf.TimeoutError:
                 reinicios_fala[0] += 1
                 log.aviso(f"Transcrição travou (> {cfg['travou_transcricao_s']} s). Reiniciando o motor; "
@@ -382,7 +506,11 @@ class Sessao:
                 fl.pular_ate(fim)
                 exe.shutdown(wait=False, cancel_futures=True)
                 exe = cf.ThreadPoolExecutor(max_workers=1, initializer=log.usar, initargs=(log.atual(),))
+            except InterruptedError:
+                return
             except Exception as e:
+                if self._parar_ev.is_set():
+                    return
                 log.aviso(f"Erro na transcrição (trecho pulado): {e}")
                 fl.pular_ate(fim)
 
@@ -434,11 +562,13 @@ class Sessao:
                          f" (guardado para o canal '{canal}')")
 
         try:
-            while True:
+            while not self._parar_ev.is_set():
                 try:
-                    seg = fila.get(timeout=1)
+                    seg = fila.get(timeout=0.25)
                 except queue.Empty:
                     seg = None
+                if self._parar_ev.is_set():
+                    break
                 if seg:
                     try:
                         aud = fala.audio_de(seg.arquivo)
@@ -449,31 +579,30 @@ class Sessao:
                     self._avisar()
                     sin.novo_audio(seg.ini, aud)
                     tentar_cam(seg)
-                    if seg.fim - fl.feito_ate >= sv.bloco_s or (fila.empty() and seg.fim - fl.feito_ate >= sv.bloco_s / 2):
+                    if not self._parar_ev.is_set() and (
+                        seg.fim - fl.feito_ate >= sv.bloco_s or (fila.empty() and seg.fim - fl.feito_ate >= sv.bloco_s / 2)
+                    ):
                         transcrever(seg.fim)
+                        if self._parar_ev.is_set():
+                            break
                         try:
                             avaliar()
                         except Exception as e:
                             log.aviso(f"Erro avaliando momentos (seguindo): {e}")
-                        if fl.buracos and fila.empty():
+                        if not self._parar_ev.is_set() and fl.buracos and fila.empty():
                             preencher_buracos()
-                if self._parar_ev.is_set() and not cap.parar.is_set():
-                    log.info("Parando… terminando os cortes em andamento.")
-                    cap.motivo_fim = "parado pelo usuário"
-                    cap.parar.set()
                 if args.minutos and time.time() - t_sessao > args.minutos * 60 and not cap.parar.is_set():
                     log.info(f"Tempo pedido ({args.minutos:g} min) acabou.")
-                    cap.motivo_fim = f"tempo pedido ({args.minutos:g} min) acabou"
-                    cap.parar.set()
+                    cap.solicitar_parada(f"tempo pedido ({args.minutos:g} min) acabou")
                 if cap.acabou.is_set() and fila.empty():
-                    transcrever(cap.fim_live, final=True)
-                    preencher_buracos()
-                    avaliar(final=True)
+                    if not self._parar_ev.is_set():
+                        transcrever(cap.fim_live, final=True)
+                        preencher_buracos()
+                        avaliar(final=True)
                     break
         except KeyboardInterrupt:
             log.info("Parando (Ctrl+C)… terminando os cortes em andamento.")
-            cap.parar.set()
-            cap.motivo_fim = "parado pelo usuário"
+            cap.solicitar_parada("parado pelo usuário")
         acabar_render.set()
         tem_job.set()
         th_r.join()
@@ -493,6 +622,7 @@ class Sessao:
             "canal": canal, "fonte": args.url or str(args.arquivo), "motivo_fim": cap.motivo_fim,
             "duracao_sessao_s": round(time.time() - t_sessao, 1), "live_acompanhada_s": round(cap.fim_live, 1),
             "cortes": len(resultados), "falhas": falhas, "descartados_por_fila": descartados,
+            "cortes_descartados_parada": self._descartados_parada,
             "quedas_da_captura": [{"no_ponto_s": a, "fora_s": b} for a, b in cap.quedas],
             "reinicios_transcricao": reinicios_fala[0],
             "mensagens_chat": chat.total if chat else None,

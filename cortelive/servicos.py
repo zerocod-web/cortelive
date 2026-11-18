@@ -136,6 +136,15 @@ class ServicoTranscricao:
         with self.cv:
             self.cv.notify_all()
 
+    def cancelar(self, sid):
+        with self.cv:
+            q = self.filas.pop(sid, None)
+            if not q:
+                return
+            for p in q:
+                p.erro = InterruptedError("live parada")
+                p.pronto.set()
+
     # --- worker ---------------------------------------------------------------------------------
     def _iniciar_worker(self):
         self.gen += 1

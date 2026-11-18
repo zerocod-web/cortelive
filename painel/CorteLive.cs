@@ -59,6 +59,7 @@ namespace CorteLivePainel
         private static DateTime UltimoHeartbeat = DateTime.UtcNow;
         private static bool JanelaAbertaAlgumaVez = false;
         private static DateTime? JanelaFechadaEm = null;
+        private static Process ProcJanela = null;
 
         // Estado de instalação
         private static readonly object LockInst = new object();
@@ -86,6 +87,7 @@ namespace CorteLivePainel
         private static string SessaoDetalheServicos = "";
         private static string SessaoErro = null;
         private static readonly List<string> SessaoLinhasLog = new List<string>();
+        private static readonly List<Dictionary<string, object>> SessaoLives = new List<Dictionary<string, object>>();
 
 #if MODO_DEV
         // Estado de postagem / dry-run ao vivo na aba Dev
@@ -227,6 +229,11 @@ namespace CorteLivePainel
                 while (!Encerrando)
                 {
                     Thread.Sleep(250);
+                    if (DeveEncerrarPorJanelaFechada())
+                    {
+                        Encerrando = true;
+                        break;
+                    }
                 }
                 LimparAoSair();
                 return 0;
@@ -236,7 +243,7 @@ namespace CorteLivePainel
             AbrirJanelaPainel(Porta);
 
             System.Windows.Forms.Timer timerVida = new System.Windows.Forms.Timer();
-            timerVida.Interval = 1500;
+            timerVida.Interval = 1000;
             timerVida.Tick += delegate
             {
                 if (Encerrando)
@@ -245,17 +252,11 @@ namespace CorteLivePainel
                     Application.ExitThread();
                     return;
                 }
-                bool ocupado = InstRodando || SessaoRodando;
-                if (!ocupado && JanelaFechadaEm.HasValue)
+                if (DeveEncerrarPorJanelaFechada())
                 {
-                    double seg = (DateTime.UtcNow - JanelaFechadaEm.Value).TotalSeconds;
-                    double desdeHb = (DateTime.UtcNow - UltimoHeartbeat).TotalSeconds;
-                    if (seg >= 4.0 && desdeHb >= 3.5)
-                    {
-                        Encerrando = true;
-                        timerVida.Stop();
-                        Application.ExitThread();
-                    }
+                    Encerrando = true;
+                    timerVida.Stop();
+                    Application.ExitThread();
                 }
             };
             timerVida.Start();
@@ -357,6 +358,26 @@ namespace CorteLivePainel
                 File.WriteAllText(arq, json, Encoding.UTF8);
             }
             catch { }
+        }
+
+        private static bool DeveEncerrarPorJanelaFechada()
+        {
+            if (InstRodando) return false;
+            double desdeHb = (DateTime.UtcNow - UltimoHeartbeat).TotalSeconds;
+            if (JanelaFechadaEm.HasValue)
+            {
+                double seg = (DateTime.UtcNow - JanelaFechadaEm.Value).TotalSeconds;
+                if (seg >= 2.0 && desdeHb >= 1.8) return true;
+            }
+            if (!Headless && JanelaAbertaAlgumaVez && ProcJanela != null)
+            {
+                try
+                {
+                    if (ProcJanela.HasExited && desdeHb >= 4.0) return true;
+                }
+                catch { }
+            }
+            return false;
         }
 
         private static void LimparAoSair()
@@ -502,7 +523,7 @@ namespace CorteLivePainel
                     psi.FileName = nav;
                     psi.Arguments = sbArgs.ToString();
                     psi.UseShellExecute = false;
-                    Process.Start(psi);
+                    ProcJanela = Process.Start(psi);
                     return;
                 }
             }
@@ -1009,6 +1030,7 @@ namespace CorteLivePainel
             {
                 UltimoHeartbeat = DateTime.UtcNow;
                 JanelaAbertaAlgumaVez = true;
+                JanelaFechadaEm = null;
                 EnviarJson(ns, 200, MontarEstado());
                 return;
             }
@@ -1037,6 +1059,13 @@ namespace CorteLivePainel
             {
                 PararSessaoInterno(false);
                 EnviarJson(ns, 200, new { ok = true });
+                return;
+            }
+            if (rota == "/api/parar-live" && metodo == "POST")
+            {
+                Dictionary<string, object> body = LerCorpoJson(corpo);
+                string erro = PararLiveInterno(ValorStr(body, "id"));
+                EnviarJson(ns, erro == null ? 200 : 400, new { ok = erro == null, erro = erro });
                 return;
             }
             if (rota == "/api/abrir-video" && metodo == "POST")
@@ -1559,7 +1588,8 @@ namespace CorteLivePainel
                     detalhe_servicos = SessaoDetalheServicos,
                     erro = SessaoErro,
                     log_recente = logS,
-                    log_completo = logCompleto
+                    log_completo = logCompleto,
+                    lives = SessaoLives.ToArray()
                 };
             }
 
@@ -1853,7 +1883,7 @@ namespace CorteLivePainel
             lock (LockSessao)
             {
                 if (SessaoRodando) return "Já existe uma sessão de corte em andamento.";
-                SessaoRodando = true;
+                SessaoRodando = true; SessaoLives.Clear();
                 SessaoEstado = "iniciando";
                 SessaoCanal = "";
                 SessaoLiveS = 0.0;
@@ -2012,6 +2042,19 @@ namespace CorteLivePainel
                                     atraso = Convert.ToDouble(lv["atraso_transcricao_s"]);
                                 }
                             }
+                            SessaoLives.Clear();
+                            foreach (object o2 in arr)
+                            {
+                                Dictionary<string, object> lv2 = o2 as Dictionary<string, object>;
+                                if (lv2 == null) continue;
+                                Dictionary<string, object> item = new Dictionary<string, object>();
+                                item["id"] = lv2.ContainsKey("id") ? Convert.ToString(lv2["id"]) : "";
+                                item["canal"] = lv2.ContainsKey("canal") && lv2["canal"] != null ? Convert.ToString(lv2["canal"]) : "";
+                                item["estado"] = lv2.ContainsKey("estado") && lv2["estado"] != null ? Convert.ToString(lv2["estado"]) : "";
+                                item["cortes"] = lv2.ContainsKey("cortes") && lv2["cortes"] != null ? Convert.ToInt32(lv2["cortes"]) : 0;
+                                item["pode_parar"] = lv2.ContainsKey("pode_parar") && lv2["pode_parar"] is bool && (bool)lv2["pode_parar"];
+                                SessaoLives.Add(item);
+                            }
                             SessaoCortes = somaCortes;
                             SessaoLiveS = maiorLiveS;
                             SessaoAtrasoS = atraso;
@@ -2035,6 +2078,37 @@ namespace CorteLivePainel
                     SessaoErro = limpa.Substring(5).Trim();
                 }
             }
+        }
+
+        private static string PararLiveInterno(string id)
+        {
+            id = (id ?? "").Trim().ToLowerInvariant();
+            if (id.Length != 32) return "Live não encontrada.";
+            foreach (char c in id)
+            {
+                if (!Uri.IsHexDigit(c)) return "Live não encontrada.";
+            }
+            Process p = null;
+            lock (LockSessao) { p = ProcSessao; }
+            if (p == null) return "Nenhuma live em andamento.";
+            try
+            {
+                p.StandardInput.WriteLine("parar-live " + id);
+                p.StandardInput.Flush();
+            }
+            catch { return "Não foi possível parar essa live agora."; }
+            lock (LockSessao)
+            {
+                foreach (Dictionary<string, object> it in SessaoLives)
+                {
+                    if (Convert.ToString(it["id"]) == id)
+                    {
+                        it["estado"] = "encerrando";
+                        it["pode_parar"] = false;
+                    }
+                }
+            }
+            return null;
         }
 
         private static void PararSessaoInterno(bool imediato)

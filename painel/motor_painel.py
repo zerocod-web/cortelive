@@ -5,6 +5,8 @@ emite linhas JSON de telemetria (@@STATUS@@{...}) a cada segundo e aceita 'parar
 para encerrar de forma limpa terminando os cortes que já estão renderizando.
 """
 import argparse
+import queue
+import uuid
 import base64
 import hmac
 import json
@@ -515,18 +517,48 @@ def emitir(dados: dict):
     print("@@STATUS@@" + json.dumps(dados, ensure_ascii=False), flush=True)
 
 
-def escutar_stdin(parar_ev: threading.Event, entrada):
+def _iter_linhas_stdin(entrada):
+    if hasattr(entrada, "readline"):
+        while True:
+            linha = entrada.readline()
+            if not linha:
+                break
+            yield linha
+    else:
+        yield from entrada
+
+
+def escutar_stdin(parar_ev: threading.Event, entrada, comandos,
+                  acordar_ev: threading.Event | None = None,
+                  fechar_ev: threading.Event | None = None):
+    parada_normal = False
     try:
-        for linha in entrada:
+        for linha in _iter_linhas_stdin(entrada):
             cmd = linha.strip().lower()
             if cmd in ("parar", "stop", "sair", "quit"):
-                parar_ev.set()
-                break
-    except Exception:
-        pass
+                parada_normal = True
+                return
+            if cmd == "fechar":
+                if fechar_ev is not None:
+                    fechar_ev.set()
+                return
+            acao, _, ident = cmd.partition(" ")
+            if acao == "parar-live" and len(ident) == 32 and all(c in "0123456789abcdef" for c in ident):
+                comandos.put(ident)
+                if acordar_ev is not None:
+                    acordar_ev.set()
+    finally:
+        # Fechar a ponta de escrita (painel encerrado) também encerra imediatamente todas as lives.
+        if not parada_normal and fechar_ev is not None:
+            fechar_ev.set()
+        parar_ev.set()
+        if acordar_ev is not None:
+            acordar_ev.set()
 
 
-def iniciar_escuta(parar_ev: threading.Event):
+def iniciar_escuta(parar_ev: threading.Event, comandos,
+                   acordar_ev: threading.Event | None = None,
+                   fechar_ev: threading.Event | None = None):
     entrada = sys.stdin
     if entrada is None:
         return
@@ -536,7 +568,11 @@ def iniciar_escuta(parar_ev: threading.Event):
         entrada = os.fdopen(os.dup(sys.stdin.fileno()), encoding="utf-8", errors="replace")
         with open(os.devnull, "rb") as nulo:
             os.dup2(nulo.fileno(), sys.stdin.fileno())
-    threading.Thread(target=escutar_stdin, args=(parar_ev, entrada), daemon=True).start()
+    threading.Thread(
+        target=escutar_stdin,
+        args=(parar_ev, entrada, comandos, acordar_ev, fechar_ev),
+        daemon=True,
+    ).start()
 
 
 def status_servicos(modo_resumo: str):
@@ -584,7 +620,7 @@ def main(argv=None):
     a = p.parse_args(argv)
 
     from cortelive import cli, hw, render, servicos
-    from cortelive.sessao import Sessao
+    from cortelive.processos import conter_processos
     from cortelive import multi
 
     try:
@@ -625,107 +661,175 @@ def main(argv=None):
     if a.encoder:
         os.environ["CORTELIVE_ENCODER"] = a.encoder
 
-    emitir({"estado": "iniciando", "mensagem": "Detectando placa de vídeo e preparando motor de voz…", "lives": []})
+    conter_processos()
+    parar_ev = threading.Event()
+    acordar_ev = threading.Event()
+    fechar_ev = threading.Event()
+    comandos = queue.Queue()
+    iniciar_escuta(parar_ev, comandos, acordar_ev, fechar_ev)
+
+    # Identificadores estáveis gerados já na largada para que cada live apareça no painel com botão Parar imediato.
+    entradas_iniciais = []
+    vistos_fontes = set()
+    canais_usados = set()
+    for arq in arquivos:
+        if arq in vistos_fontes:
+            continue
+        vistos_fontes.add(arq)
+        canal = multi.nome_canal(arq, True)
+        base, n = canal, 2
+        while canal in canais_usados:
+            canal, n = f"{base}_{n}", n + 1
+        canais_usados.add(canal)
+        entradas_iniciais.append((uuid.uuid4().hex, arq, True, canal))
+    for u in urls:
+        if u in vistos_fontes:
+            continue
+        vistos_fontes.add(u)
+        canal = multi.nome_canal(u, False)
+        base, n = canal, 2
+        while canal in canais_usados:
+            canal, n = f"{base}_{n}", n + 1
+        canais_usados.add(canal)
+        entradas_iniciais.append((uuid.uuid4().hex, u, False, canal))
+
+    ids_por_fonte = {fonte: ident for ident, fonte, _, _ in entradas_iniciais}
+    lives_largada = [
+        {
+            "id": ident, "canal": canal, "fonte": fonte, "estado": "iniciando",
+            "pode_parar": True, "cortes": 0, "cortes_descartados_parada": 0,
+            "live_s": 0.0, "atraso_transcricao_s": None, "aviso": None,
+        }
+        for ident, fonte, _, canal in entradas_iniciais
+    ]
+    emitir({
+        "estado": "iniciando",
+        "mensagem": "Detectando placa de vídeo e preparando motor de voz…",
+        "lives": lives_largada,
+    })
     modo = hw.detectar(a.encoder, a.fala, a.modelo_whisper, None, a.gpu)
     modo_resumo = modo.resumo()
     servicos.configurar(cfg, modo)
 
-    parar_ev = threading.Event()
-    iniciar_escuta(parar_ev)
+    paradas_antes = set()
+    while not comandos.empty():
+        paradas_antes.add(comandos.get_nowait())
 
-    total_fontes = len(urls) + len(arquivos)
-    if total_fontes == 1:
-        arq = arquivos[0] if arquivos else None
-        url = urls[0] if urls else None
-        ns = types.SimpleNamespace(
-            url=url, arquivo=arq, canal=None, cam=None,
-            minutos=a.minutos, detalhado=a.detalhado,
-            duracao_min=a.duracao_min, duracao_max=a.duracao_max,
-            modelo=a.modelo, legenda=a.legenda, saida=a.saida, sem_chat=a.sem_chat,
-        )
-        s = Sessao(args=ns, cfg=postagem, terminal=True).iniciar()
-        try:
-            while not s._fim_ev.wait(1.0):
-                if parar_ev.is_set():
-                    print("Parando a pedido do painel… finalizando cortes em andamento.", flush=True)
-                    emitir({
-                        "estado": "encerrando",
-                        "mensagem": "Finalizando cortes em andamento…",
-                        "lives": [s.status()],
-                        **status_servicos(modo_resumo),
-                    })
-                    s.parar()
-                    s.aguardar(timeout=240)
-                    break
-                st = s.status()
-                emitir({
-                    "estado": st.get("estado") or "ao vivo",
-                    "lives": [st],
-                    **status_servicos(modo_resumo),
-                })
-        except KeyboardInterrupt:
-            s.parar()
-            s.aguardar(timeout=120)
-        finally:
-            try:
-                servicos.desligar()
-            except Exception:
-                pass
-        st_final = s.status()
-        if s.erro and not parar_ev.is_set():
-            emitir({"estado": "erro", "erro": str(s.erro), "lives": [st_final], **status_servicos(modo_resumo)})
-            return 1
-        emitir({"estado": "encerrada", "lives": [st_final], **status_servicos(modo_resumo)})
+    if parar_ev.is_set() or len(paradas_antes) >= len(entradas_iniciais):
+        for item in lives_largada:
+            item["estado"] = "parada"
+            item["pode_parar"] = False
+        emitir({"estado": "encerrada", "lives": lives_largada, "modo": modo_resumo})
         return 0
 
-    # Múltiplas lives simultâneas via Supervisor existente
-    ns_multi = types.SimpleNamespace(
+    arquivos_ativos = [f for ident, f, eh_arq, _ in entradas_iniciais if eh_arq and ident not in paradas_antes]
+    urls_ativas = [f for ident, f, eh_arq, _ in entradas_iniciais if not eh_arq and ident not in paradas_antes]
+    unica = len(entradas_iniciais) == 1
+    ns = types.SimpleNamespace(
         minutos=a.minutos, detalhado=a.detalhado,
         duracao_min=a.duracao_min, duracao_max=a.duracao_max,
         modelo=a.modelo, legenda=a.legenda, saida=a.saida, sem_chat=a.sem_chat,
     )
-    criar_sessao_original = multi.criar_sessao
 
     def criar_sessao_painel(*args):
-        sessao = criar_sessao_original(*args)
+        sessao = multi.criar_sessao(*args)
         sessao.cfg_extra.update(postagem)
+        sessao.terminal = unica
         return sessao
 
-    multi.criar_sessao = criar_sessao_painel
-    try:
-        sup = multi.Supervisor(urls, arquivos, None, ns_multi, painel=False)
-        return acompanhar_multiplas(sup, parar_ev, modo_resumo)
-    finally:
-        multi.criar_sessao = criar_sessao_original
+    sup = multi.Supervisor(urls_ativas, arquivos_ativos, None, ns, painel=False,
+                           repetir=not unica, criar=criar_sessao_painel)
+    # Preserva no painel os cartões de lives paradas ainda durante o aquecimento inicial
+    for ident, fonte, eh_arq, canal in entradas_iniciais:
+        if ident in paradas_antes and fonte not in sup.lives:
+            lv_parada = multi.Live(fonte, eh_arq, canal, ns, criar_sessao_painel)
+            lv_parada.encerrar = True
+            lv_parada.terminou = True
+            sup.lives[fonte] = lv_parada
+    return acompanhar_multiplas(
+        sup, parar_ev, modo_resumo, comandos, unica=unica,
+        acordar_ev=acordar_ev, fechar_ev=fechar_ev, ids_por_fonte=ids_por_fonte,
+    )
 
 
-def acompanhar_multiplas(sup, parar_ev, modo_resumo):
+def _aviso_descarte(qtd: int) -> str | None:
+    if qtd <= 0:
+        return None
+    if qtd == 1:
+        return "1 corte em andamento foi descartado ao parar."
+    return f"{qtd} cortes em andamento foram descartados ao parar."
+
+
+def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
+                         acordar_ev: threading.Event | None = None,
+                         fechar_ev: threading.Event | None = None,
+                         ids_por_fonte: dict | None = None):
+    lives = {
+        (ids_por_fonte or {}).get(fonte) or uuid.uuid4().hex: lv
+        for fonte, lv in sup.lives.items()
+    }
+
+    def estados():
+        dados = []
+        for ident, lv in lives.items():
+            st = dict(lv.st())
+            encerrando = lv.encerrar
+            if encerrando:
+                st["estado"] = "parada" if lv.terminou else "encerrando"
+            elif not lv.terminou and lv.proximo_inicio is not None:
+                st["estado"] = "esperando live"
+            desc = lv.cortes_descartados() if hasattr(lv, "cortes_descartados") else (st.get("cortes_descartados_parada") or 0)
+            st.update(
+                id=ident,
+                canal=lv.canal,
+                fonte=lv.fonte,
+                cortes=lv.cortes(),
+                cortes_descartados_parada=desc,
+                aviso=_aviso_descarte(desc),
+                pode_parar=not encerrando and not lv.terminou,
+            )
+            dados.append(st)
+        return dados
+
     try:
-        while True:
-            if parar_ev.is_set():
-                emitir({"estado": "encerrando", "mensagem": "Parando todas as lives…", "lives": [], **status_servicos(modo_resumo)})
-                break
+        while not parar_ev.is_set():
+            if acordar_ev is not None:
+                acordar_ev.clear()
+            while not comandos.empty():
+                lv = lives.get(comandos.get_nowait())
+                if lv and not lv.terminou and not lv.encerrar:
+                    lv.parar(descartar_cortes=True)
             sup.vigiar()
-            lives_st = []
-            for lv in sup.lives.values():
-                st = lv.st()
-                st["cortes"] = lv.cortes()
-                st["reinicios"] = lv.reinicios
-                lives_st.append(st)
-            emitir({
-                "estado": "ao vivo" if any(not l.terminou for l in sup.lives.values()) else "encerrada",
-                "lives": lives_st,
-                **status_servicos(modo_resumo),
-            })
-            if all(l.terminou for l in sup.lives.values()):
+            dados = estados()
+            ativas = [st for st in dados if st["pode_parar"]]
+            pendentes = [lv for lv in lives.values() if not lv.terminou]
+            estado = ("ao vivo" if any(st.get("estado") == "ao vivo" for st in ativas)
+                      else ativas[0].get("estado") if ativas
+                      else "encerrando" if pendentes else "encerrada")
+            emitir({"estado": estado, "lives": dados, **status_servicos(modo_resumo)})
+            if not pendentes:
                 break
-            time.sleep(1.0)
+            if acordar_ev is not None:
+                acordar_ev.wait(0.4)
+            else:
+                parar_ev.wait(0.4)
     except KeyboardInterrupt:
-        pass
-    sup.fechar()
-    lives_finais = [lv.st() for lv in sup.lives.values()]
-    emitir({"estado": "encerrada", "lives": lives_finais, **status_servicos(modo_resumo)})
-    return 0
+        parar_ev.set()
+    finally:
+        descartar_tudo = fechar_ev is not None and fechar_ev.is_set()
+        if parar_ev.is_set():
+            for lv in lives.values():
+                if not lv.terminou:
+                    lv.parar(descartar_cortes=descartar_tudo)
+            if not descartar_tudo:
+                emitir({"estado": "encerrando", "lives": estados(),
+                        "mensagem": "Parando as lives e finalizando cortes em andamento…"})
+        sup.fechar(descartar_cortes=descartar_tudo, silencioso=True)
+
+    dados = estados()
+    erro = dados[0].get("motivo_fim") if unica and dados[0].get("estado") == "erro" else None
+    emitir({"estado": "erro" if erro else "encerrada", "erro": erro, "lives": dados, "modo": modo_resumo})
+    return int(bool(erro))
 
 
 # =============================================================================

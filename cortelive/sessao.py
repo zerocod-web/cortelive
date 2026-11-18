@@ -219,7 +219,8 @@ class Sessao:
             pedido.write_text(json.dumps({"video": str(bruto.resolve()), "inicio": ini - base, "fim": fim - base,
                                           "palavras": pal_rel, "modelo": cfg["modelo"], "legenda": cfg["legenda"],
                                           "cam": list(cam) if cam else None, "saida_dir": str(dint.resolve()),
-                                          "nome": nome}, ensure_ascii=False), encoding="utf-8")
+                                          "nome": nome, "faixa_legenda": cfg.get("faixa_legenda"),
+                                          "faixa_cor": cfg.get("faixa_cor")}, ensure_ascii=False), encoding="utf-8")
             try:
                 p = servicos.render().executar(
                     subprocess.run, [sys.executable, "-m", "cortelive.render_job", str(pedido)],
@@ -427,7 +428,7 @@ class Sessao:
                 camauto.salvar(canal, cam, "automática")
                 with cap.lock:
                     cap.presos -= {i for i, s in cap.segs.items() if Path(s.arquivo) in {a for _, a in amostras_cam}}
-                log.info(f"Cam do streamer: {'achei em ' + ','.join(map(str, cam)) if cam else ('confiança baixa (' + camauto.ULTIMO.get('motivo', '?') + ') — usando layout sem cam, jogo com fundo desfocado')}"
+                log.info(f"Cam do streamer: {'achei em ' + ','.join(map(str, cam)) if cam else ('confiança baixa (' + camauto.ULTIMO.get('motivo', '?') + ') — usando o enquadramento definido pelo modelo de corte')}"
                          f" (guardado para o canal '{canal}')")
 
         try:

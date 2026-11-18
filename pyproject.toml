@@ -16,7 +16,7 @@ cortelive = "cortelive.cli:main"
 packages = ["cortelive"]
 
 [tool.setuptools.package-data]
-cortelive = ["presets/*/*.json", "fontes/*", "config.toml"]
+cortelive = ["presets/*/*.json", "presets/faixas/*.png", "fontes/*", "config.toml"]
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

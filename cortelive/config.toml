@@ -9,6 +9,8 @@ antes_do_momento = 22       # quantos segundos antes do momento bom o corte come
 depois_do_momento = 14      # quantos segundos depois ele termina
 modelo = "cam-em-cima"      # cam-em-cima | jogo-fundo-desfocado | jogo-tela-cheia-crop
 legenda = "opus"            # opus | karaoke | minimal (ou o nome de um estilo que você criou)
+faixa_legenda = "rasgada"   # cam-em-cima: rasgada | blur | nenhuma
+faixa_cor = "vermelha"      # vermelha | creme
 pasta_saida = "cortes"
 
 # --- Detecção do momento bom -------------------------------------------------------------------

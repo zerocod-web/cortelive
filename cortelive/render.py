@@ -5,6 +5,7 @@ um 4º estilo = copiar um arquivo). A ideia de agrupar palavras e destacar a ati
 subtitles.py do OpenShorts (MIT); o código aqui é próprio.
 """
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -30,16 +31,76 @@ def _px(frac, total):
     return int(round(frac * total / 2) * 2)
 
 
+# Escala da cam: lanczos (mais nítido que o bicubic padrão ao ampliar 1,8-3x) e um unsharp leve só
+# na cam nítida (o fundo desfocado e o jogo ficam como estão).
+ESCALA_CAM = "flags=lanczos"
+NITIDEZ_CAM = "unsharp=5:5:0.5:5:5:0.0"
+
+# --- faixa atrás da legenda (cam-em-cima) ------------------------------------------------------
+# PNG RGBA 1080x220 em presets\faixas; o papel é opaco das linhas ~36 a ~178 (medido nos 4 arquivos),
+# o resto é a borda rasgada e transparência. Sem o PNG, cai numa faixa lisa da mesma cor.
+FAIXAS = PRESETS / "faixas"
+FAIXA_ALT, FAIXA_OPACO = 220, (36, 178)
+FAIXA_COR_LISA = {"vermelha": "0xBA0000", "creme": "0xEFE6D2"}
+FAIXA_FOLGA = 12  # papel opaco passa N px além do blur em cima e embaixo
+
+
+def _jogo_janela(m, sw, sh):
+    """Janela do jogo (nw, nh, jx, jy) e a altura que ela ocupa no painel depois de escalada."""
+    W, H = m["largura"], m["altura"]
+    hj = H - m.get("altura_cam", 640)
+    j = m["jogo"]
+    jx, jy, jw, jh = _px(j["x"], sw), _px(j["y"], sh), _px(j["w"], sw), _px(j["h"], sh)
+    vista = m.get("jogo_vista", 0.0)  # opcional: alarga a janela do jogo além do retângulo
+    nw = min(sw, max(jw, _px(vista, sw)))
+    nh = jh
+    if nw / nh < W / hj:  # janela já mais estreita que o painel: crop puro
+        nw = _px(nh * W / hj / sw, sw)
+    jx = min(max(0, jx + (jw - nw) // 2), sw - nw) // 2 * 2
+    jy = min(max(0, jy + (jh - nh) // 2), sh - nh) // 2 * 2
+    hg = min(hj, int(round(nh * W / nw / 2)) * 2)
+    return nw, nh, jx, jy, hg
+
+
+def faixa_arquivo(cor="vermelha", variacao=0):
+    """PNG da faixa na cor pedida; as variações de rasgo (_v2, _v3...) alternam pelo número do corte."""
+    arqs = sorted(FAIXAS.glob(f"faixa_rasgada_{cor}*.png"))
+    if not arqs:
+        return None
+    return arqs[int(variacao or 0) % len(arqs)]
+
+
+def geometria_faixa(m, sw, sh):
+    """Onde a faixa fica no quadro final: cobre o blur entre a cam e o jogo (com folga), nunca
+    menor que o PNG original. Devolve {y, h, centro, blur} (centro = onde a legenda fica)."""
+    hc = m.get("altura_cam", 640)
+    hj = m["altura"] - hc
+    hg = _jogo_janela(m, sw, sh)[4]
+    blur = max(0, (hj - hg) // 2)
+    centro = hc + blur / 2
+    a, b = FAIXA_OPACO
+    h = max(FAIXA_ALT, -(-(blur + 2 * FAIXA_FOLGA) * FAIXA_ALT // (b - a)))
+    h += h % 2
+    y = max(0, int(round(centro - h * (a + b) / 2 / FAIXA_ALT)))
+    return {"y": y, "h": h, "centro": int(round(centro)), "blur": blur}
+
+
 def filtro_modelo(m, sw, sh):
+    """Filtro do quadro vertical. Com m['_faixa'] = {modo, y, h, arquivo, cor}: 'rasgada' sobrepõe o
+    PNG (entrada [1:v] do ffmpeg; sem arquivo, faixa lisa), 'nenhuma' tira o blur atrás do jogo."""
     W, H = m["largura"], m["altura"]
     t = m["tipo"]
     if t == "cam-em-cima":
-        c, j = m["cam"], m["jogo"]
+        c = m["cam"]
         hc = m.get("altura_cam", 640)
         hj = H - hc
+        fx = m.get("_faixa") or {}
+        # com faixa (rasgada/nenhuma) as sobras em volta da cam e do jogo ficam pretas lisas;
+        # só o modo "blur" (o antigo) mantém o fundo desfocado
+        preto = fx.get("modo") in ("rasgada", "nenhuma")
+        fundo_cam = "drawbox=c=black:t=fill" if preto else "boxblur=20:2,eq=brightness=-0.15"
         cx, cy, cw, ch = _px(c["x"], sw), _px(c["y"], sh), _px(c["w"], sw), _px(c["h"], sh)
         # cam: sub-recorte com a proporção do painel (W:hc), centrado no rosto quando há rosto
-        alvo_c = W / hc
         q = m.get("cam_quadro")  # (x, y, w, h) relativo ao recorte da cam, calculado por enquadrar_cam
         pad = 0
         bx, by, bw, bh = cx, cy, cw, ch  # cam inteira (fundo desfocado quando precisa encolher)
@@ -49,27 +110,35 @@ def filtro_modelo(m, sw, sh):
         if pad:
             ih = hc - pad
             cam_f = (f"split=2[ca][cb];[ca]crop={bw}:{bh}:{bx}:{by},scale={W}:{hc}:force_original_aspect_ratio=increase,"
-                     f"crop={W}:{hc},boxblur=20:2,eq=brightness=-0.15[cf];"
-                     f"[cb]crop={cw}:{ch}:{cx}:{cy},scale=-2:{ih}[ct];[cf][ct]overlay=(W-w)/2:{pad}")
+                     f"crop={W}:{hc},{fundo_cam}[cf];"
+                     f"[cb]crop={cw}:{ch}:{cx}:{cy},scale=-2:{ih}:{ESCALA_CAM},{NITIDEZ_CAM}[ct];"
+                     f"[cf][ct]overlay=(W-w)/2:{pad}")
+        elif not q:
+            # Sem rosto detectado, encaixa a janela toda para preservar o topo da cabeça.
+            cam_f = (f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{hc}:force_original_aspect_ratio=decrease:"
+                     f"force_divisible_by=2:{ESCALA_CAM},pad={W}:{hc}:(ow-iw)/2:(oh-ih)/2:black,{NITIDEZ_CAM}")
         else:
-            cam_f = f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{hc}:force_original_aspect_ratio=increase,crop={W}:{hc}"
+            cam_f = (f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{hc}:force_original_aspect_ratio=increase:{ESCALA_CAM},"
+                     f"crop={W}:{hc},{NITIDEZ_CAM}")
         # jogo: janela mais larga que o painel (mostra mais da ação), encaixada pela largura
         # sobre a mesma janela desfocada preenchendo o painel (sem faixa preta)
-        jx, jy, jw, jh = _px(j["x"], sw), _px(j["y"], sh), _px(j["w"], sw), _px(j["h"], sh)
-        vista = m.get("jogo_vista", 0.0)  # opcional: alarga a janela do jogo além do retângulo
-        nw = min(sw, max(jw, _px(vista, sw)))
-        nh = jh
-        if nw / nh < W / hj:  # janela já mais estreita que o painel: crop puro
-            nw = _px(nh * W / hj / sw, sw)
-        jx = min(max(0, jx + (jw - nw) // 2), sw - nw) // 2 * 2
-        jy = min(max(0, jy + (jh - nh) // 2), sh - nh) // 2 * 2
-        return (f"[0:v]split=3[a][b][c];"
+        nw, nh, jx, jy, _hg = _jogo_janela(m, sw, sh)
+        fundo = "drawbox=c=black:t=fill" if preto else "boxblur=24:2,eq=brightness=-0.12"
+        base = (f"[0:v]split=3[a][b][c];"
                 f"[a]{cam_f}[cam];"
                 f"[b]crop={nw}:{nh}:{jx}:{jy},scale={W}:{hj}:force_original_aspect_ratio=increase,crop={W}:{hj},"
-                f"boxblur=24:2,eq=brightness=-0.12[jf];"
+                f"{fundo}[jf];"
                 f"[c]crop={nw}:{nh}:{jx}:{jy},scale={W}:-2:force_original_aspect_ratio=decrease[jt];"
-                f"[jf][jt]overlay=(W-w)/2:(H-h)/2[jogo];"
-                f"[cam][jogo]vstack=2,setsar=1,format=yuv420p[v]")
+                f"[jf][jt]overlay=(W-w)/2:(H-h)/2[jogo];")
+        if fx.get("modo") == "rasgada" and fx.get("arquivo"):
+            return (base + f"[cam][jogo]vstack=2[pilha];[1:v]scale={W}:{fx['h']}:flags=lanczos,format=rgba[fx];"
+                    f"[pilha][fx]overlay=0:{fx['y']},setsar=1,format=yuv420p[v]")
+        if fx.get("modo") == "rasgada":  # PNG faltando: faixa lisa na mesma posição (o corte não para)
+            a, b = FAIXA_OPACO
+            y, h = fx["y"] + fx["h"] * a // FAIXA_ALT, fx["h"] * (b - a) // FAIXA_ALT
+            cor = FAIXA_COR_LISA.get(fx.get("cor"), FAIXA_COR_LISA["vermelha"])
+            return base + f"[cam][jogo]vstack=2,drawbox=x=0:y={y}:w={W}:h={h}:c={cor}:t=fill,setsar=1,format=yuv420p[v]"
+        return base + "[cam][jogo]vstack=2,setsar=1,format=yuv420p[v]"
     if t == "fundo-desfocado":
         z = m.get("zoom", 1.0)
         fw = _px(z, W)
@@ -175,7 +244,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     linhas = []
     pos = ""
     if modelo.get("tipo") == "cam-em-cima" and modelo.get("legenda_na_emenda", True):
-        pos = f"{{\\an5\\pos({W // 2},{modelo.get('altura_cam', 640) + modelo.get('legenda_desvio_emenda', 40)})}}"
+        y = (modelo["_faixa"]["centro"] if (modelo.get("_faixa") or {}).get("modo") == "rasgada"
+             else modelo.get("altura_cam", 640) + modelo.get("legenda_desvio_emenda", 40))
+        pos = f"{{\\an5\\pos({W // 2},{y})}}"
     gs = grupos(ws, int(e.get("palavras_por_vez", 3)), int(e.get("max_caracteres", 18)))
     for k, g in enumerate(gs):
         g_ini = g[0]["s"]
@@ -308,11 +379,9 @@ def _probe(video):
 
 
 def _modelo_efetivo(nome, cam, sw, sh):
-    """cam-em-cima sem cam cai para o próximo modelo (jogo-fundo-desfocado)."""
+    """Mantém o layout escolhido e usa a janela do preset se faltar uma detecção."""
     m = carregar("modelo", nome)
     if m["tipo"] == "cam-em-cima":
-        if cam is None and not m.get("cam_fixa", False):
-            return carregar("modelo", m.get("sem_cam", "jogo-fundo-desfocado")), True
         if cam is not None:
             x, y, w, h = cam
             m = dict(m, cam={"x": x / sw, "y": y / sh, "w": w / sw, "h": h / sh})
@@ -373,9 +442,12 @@ def enquadrar_cam(video, inicio, fim, m, sw, sh):
 
 
 def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: str, legenda: str,
-                 cam: tuple | None, saida_dir: str, nome: str, encoder: str | None = None) -> dict:
+                 cam: tuple | None, saida_dir: str, nome: str, encoder: str | None = None,
+                 faixa: str | None = None, faixa_cor: str | None = None, faixa_variacao: int | None = None) -> dict:
     """Corte preciso [inicio, fim] do vídeo -> vertical 1080x1920 com e sem legenda, num passe só.
-    palavras: [{w, start, end}] em tempo absoluto do vídeo. cam: (x, y, w, h) em px do vídeo fonte."""
+    palavras: [{w, start, end}] em tempo absoluto do vídeo. cam: (x, y, w, h) em px do vídeo fonte.
+    faixa: 'rasgada' (padrão) | 'blur' | 'nenhuma' — o que fica atrás da legenda no cam-em-cima.
+    faixa_variacao: qual rasgo usar; sem valor, alterna pelo número do corte no nome (corte_003 -> 3)."""
     out = Path(saida_dir); out.mkdir(parents=True, exist_ok=True)
     sw, sh, fps, tem_audio = _probe(video)
     m, caiu = _modelo_efetivo(modelo, cam, sw, sh)
@@ -383,6 +455,18 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
         q = enquadrar_cam(video, inicio, fim, m, sw, sh)
         if q:
             m = dict(m, cam_quadro=q)
+    faixa = (faixa or "rasgada").lower()
+    if faixa not in ("rasgada", "blur", "nenhuma"):
+        faixa = "rasgada"
+    arq_faixa = None
+    if m["tipo"] == "cam-em-cima" and faixa != "blur":
+        cor = (faixa_cor or "vermelha").lower()
+        if faixa_variacao is None:
+            n = re.search(r"\d+", nome)
+            faixa_variacao = int(n.group()) - 1 if n else 0
+        arq_faixa = faixa_arquivo(cor, faixa_variacao) if faixa == "rasgada" else None
+        m = dict(m, _faixa={"modo": faixa, "cor": cor, "arquivo": str(arq_faixa) if arq_faixa else None,
+                            **geometria_faixa(m, sw, sh)})
     est = carregar("legenda", legenda)
     ass = out / f"{nome}.ass"
     pal = [{"w": p["w"], "s": float(p["start"]), "e": float(p["end"])} for p in palavras]
@@ -393,7 +477,8 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
           f"[v2]subtitles=filename='{_esc(ass)}':fontsdir='{_esc(FONTES)}'[vl]")
     aud = ["-map", "0:a:0", *AUDIO_CORTE] if tem_audio else []
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-           "-ss", f"{inicio:.3f}", "-t", f"{fim - inicio:.3f}", "-i", str(video), "-filter_complex", fc]
+           "-ss", f"{inicio:.3f}", "-t", f"{fim - inicio:.3f}", "-i", str(video),
+           *(["-i", str(arq_faixa)] if arq_faixa else []), "-filter_complex", fc]
     base = cmd
     t0 = time.time()
     # A GPU é dividida com outros processos (transcrição etc.): o NVENC às vezes sai sem mensagem.
@@ -410,4 +495,6 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
         if i == len(tentativas) - 1:
             raise RuntimeError(f"ffmpeg (render_corte, {e_}, código {r.returncode}): " + r.stderr[-800:])
     return {"mp4": str(mp4), "mp4_sem_legenda": str(cru), "ass": str(ass), "encoder": enc,
-            "modelo": m["tipo"], "caiu_sem_cam": caiu, "segundos": round(time.time() - t0, 1)}
+            "modelo": m["tipo"], "caiu_sem_cam": caiu,
+            "faixa": (m.get("_faixa") or {}).get("modo", "blur" if m["tipo"] == "cam-em-cima" else None),
+            "faixa_arquivo": arq_faixa.name if arq_faixa else None, "segundos": round(time.time() - t0, 1)}

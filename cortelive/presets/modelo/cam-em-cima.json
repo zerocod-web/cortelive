@@ -6,6 +6,6 @@
   "cam": {"x": 0.0, "y": 0.0, "w": 0.318, "h": 0.315},
   "altura_cam": 640,
   "jogo": {"x": 0.32, "y": 0.0, "w": 0.60, "h": 1.0},
-  "_ajuda_jogo": "O painel do jogo mostra o retângulo 'jogo' inteiro pela largura, sobre a mesma imagem desfocada (sem faixa preta). Mantenha o retângulo fora da cam. A legenda fica na emenda cam/jogo.",
+  "_ajuda_jogo": "O painel do jogo encaixa o retângulo 'jogo' pela largura. Mantenha o retângulo fora da cam. A legenda fica na emenda cam/jogo.",
   "legenda_margem_baixo": 560
 }

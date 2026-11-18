@@ -546,16 +546,21 @@
             <div class="contas-cabecalho">
               <div>
                 <h2 id="titulo-cortes-longos" class="titulo-secao">Duração dos cortes</h2>
-                <p class="subtitulo-secao">Cortes com mais de 1 minuto podem ser monetizados.</p>
+                <p class="subtitulo-secao">Cortes com mais de 1 minuto podem ser monetizados. A escolha fica guardada.</p>
               </div>
             </div>
             <div class="grade-switches">
-              <label class="switch-linha" for="chk-cortes-longos">
+              <label class="switch-linha" for="sel-duracao-minima">
                 <div class="switch-textos">
-                  <strong>Só cortes de mais de 1 minuto (monetização)</strong>
-                  <span>Cada corte fica com 1:01 ou mais. Trechos que não chegam a 1:01 são descartados. Vale para as próximas lives que você iniciar</span>
+                  <strong>Duração mínima dos cortes</strong>
+                  <span>Livre: como sempre. Mínimo 30 s, 45 s ou 1 minuto (1:01, ideal para monetização): se a história não cabe no mínimo escolhido, o corte sobe para o próximo (30 → 45 → 1:01); se nem 1 minuto comporta, sai em Parte 1 e Parte 2. Nada abaixo do mínimo escolhido sai. Vale para as próximas lives que você iniciar</span>
                 </div>
-                <input type="checkbox" role="switch" id="chk-cortes-longos" class="switch-input">
+                <select id="sel-duracao-minima" class="campo-select">
+                  <option value="livre">Livre</option>
+                  <option value="30">Mínimo 30 s</option>
+                  <option value="45">Mínimo 45 s</option>
+                  <option value="61">Mínimo 1 minuto</option>
+                </select>
               </label>
             </div>
             <p id="feedback-cortes-longos" class="ajuda-campo" role="status" hidden></p>

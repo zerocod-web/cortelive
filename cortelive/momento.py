@@ -368,37 +368,110 @@ DURACAO_MONETIZACAO_S = 61.0       # corte "de mais de 1 minuto" (monetização)
 DURACAO_MAX_MONETIZACAO_S = 90.0
 
 
+ESCADA_PISOS = (30, 45, 61)         # degraus do 'mínimo' escolhido: 30 -> 45 -> 61 s
+TETO_PARTE_S = 90.0                 # cada parte de um corte dividido
+
+
+def modo_piso(cfg):
+    """Mínimo escolhido: 0 (Livre), 30, 45 ou 61 s. 'duracao_minima_modo' ("livre"|"30"|"45"|"61"; vem do painel) manda;
+    sem ele vale o antigo 'cortes_longos' (true = 61 s)."""
+    m = cfg.get("duracao_minima_modo")
+    if m is not None:
+        m = str(m).strip().lower()
+        if m in ("livre", "0", ""):
+            return 0
+        if m in ("30", "45", "61", "60", "1min"):
+            return 61 if m in ("60", "1min") else int(m)
+    return int(DURACAO_MONETIZACAO_S) if cfg.get("cortes_longos") else 0
+
+
+def piso_s(cfg):
+    """Piso do corte que está sendo escolhido agora (degrau da escada); 0 = livre."""
+    return float(cfg["piso_s"]) if cfg.get("piso_s") is not None else float(modo_piso(cfg))
+
+
 def cortes_longos(cfg):
-    return bool(cfg.get("cortes_longos"))
+    return piso_s(cfg) > 0
 
 
 def duracao_minima(cfg):
     """Corte enxuto: pode ficar abaixo de duracao_min quando só há silêncio para completar (60% do mínimo).
-    Com 'cortes_longos' ligado o piso é fixo em 61 s: trecho menor é descartado, nunca esticado."""
+    Com um mínimo escolhido (30/45/61 s) o piso é fixo: trecho menor é descartado, nunca esticado."""
     if cortes_longos(cfg):
-        return DURACAO_MONETIZACAO_S
+        return piso_s(cfg)
     return cfg.get("duracao_piso_frac", 0.6) * cfg["duracao_min"]
 
 
 def ajustar_cortes_longos(cfg):
-    """Com 'cortes_longos' ligado, abre espaço para sustentar 61 s: olha mais para trás/frente do pico, piso 61 s
-    e teto = o atual (90 s se o atual for menor que 61 s). Desligado: devolve cfg intacto."""
-    if not cortes_longos(cfg):
+    """Com um mínimo escolhido, abre espaço para sustentá-lo: olha mais para trás/frente do pico. Livre: cfg intacto."""
+    p = piso_s(cfg)
+    if p <= 0:
         return cfg
-    cfg["duracao_min"] = max(cfg["duracao_min"], DURACAO_MONETIZACAO_S)
+    cfg["duracao_min"] = max(cfg["duracao_min"], p)
     cfg["duracao_max"] = duracao_maxima(cfg)
-    cfg["antes_max"] = max(cfg.get("antes_max", 18.0), 30.0)
-    cfg["depois_do_momento"] = max(cfg["depois_do_momento"], 40.0)
-    cfg["depois_min"] = max(cfg.get("depois_min", 7.0), 12.0)
+    cfg["antes_max"] = max(cfg.get("antes_max", 18.0), 30.0 if p >= 45 else 24.0)
+    cfg["depois_do_momento"] = max(cfg["depois_do_momento"], 0.65 * p)
+    cfg["depois_min"] = max(cfg.get("depois_min", 7.0), 12.0 if p >= 45 else 9.0)
     return cfg
 
 
 def duracao_maxima(cfg):
-    """Teto do corte: o configurado; com 'cortes_longos' e teto < 61 s vira 90 s."""
+    """Teto do corte: o configurado; com mínimo escolhido e teto < mínimo vira 90 s (ou mínimo + 15 s)."""
     dmax = cfg["duracao_max"]
-    if cortes_longos(cfg) and dmax < DURACAO_MONETIZACAO_S:
-        return max(dmax, DURACAO_MAX_MONETIZACAO_S)
+    p = piso_s(cfg)
+    if p > 0 and dmax < p:
+        return max(dmax, DURACAO_MAX_MONETIZACAO_S if p >= DURACAO_MONETIZACAO_S else p + 15.0)
     return dmax
+
+
+def cfg_degrau(cfg, t):
+    """Cópia do cfg para tentar o degrau t da escada: corte de t até (próximo degrau - 0,5 s); o último vai a 90 s."""
+    prox = [x for x in ESCADA_PISOS if x > t]
+    c = dict(cfg, piso_s=float(t), duracao_min=float(t), duracao_max=(prox[0] - 0.5) if prox else DURACAO_MAX_MONETIZACAO_S)
+    c["antes_max"] = max(cfg.get("antes_max", 18.0), 30.0 if t >= 45 else 24.0)
+    c["depois_do_momento"] = max(cfg["depois_do_momento"], 0.65 * t)
+    c["depois_min"] = max(cfg.get("depois_min", 7.0), 12.0 if t >= 45 else 9.0)
+    return c
+
+
+def dividir_em_partes(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9):
+    """Contexto maior que 1 minuto e meio: DUAS partes, cada uma começando e terminando em frase completa, cada uma
+    com pelo menos o mínimo escolhido (ou 30 s) e no máximo 90 s. -> janela com 'partes' [(ini, fim, lim_ini, lim_fim)] ou None."""
+    mp = max(float(modo_piso(cfg)), 30.0)
+    cs = dict(cfg, piso_s=91.0, duracao_min=91.0, duracao_max=2 * TETO_PARTE_S,
+              antes_max=max(cfg.get("antes_max", 18.0), 30.0), depois_do_momento=max(cfg["depois_do_momento"], 100.0),
+              depois_min=max(cfg.get("depois_min", 7.0), 30.0))
+    j = escolher_janela(t, palavras, fim_disponivel, cs, min_ini=min_ini, max_fim=max_fim)
+    if j.get("recusado"):
+        return None
+    ini, fim = j["ini"], j["fim"]
+    P = [w for w in palavras if w["s"] >= ini - 0.05 and w["e"] <= fim + 0.05]
+    melhor = None
+    for k in range(len(P) - 1):
+        a, b = P[k], P[k + 1]
+        gap = b["s"] - a["e"]
+        if not (_terminal(a["w"]) or gap >= 0.6) or gap < 0.15:
+            continue
+        if _lim(a["w"]) in SOLTAS or a["w"].rstrip().endswith(","):
+            continue
+        m = min(0.3, gap * 0.4)
+        f1, i2 = a["e"] + m, b["s"] - m
+        l1, l2 = f1 - ini, fim - i2
+        if not (mp <= l1 <= TETO_PARTE_S and mp <= l2 <= TETO_PARTE_S):
+            continue
+        sc = abs(l1 - l2) - (3.0 if _terminal(a["w"]) else 0.0)
+        if melhor is None or sc < melhor[0]:
+            mm = min(0.08, gap / 3)
+            melhor = (sc, f1, i2, (a["e"] + mm, min(b["s"] - mm, a["e"] + 0.5)))
+    if melhor is None:
+        return None
+    _, f1, i2, lim_mid = melhor
+    out = dict(j)
+    out["partes"] = [
+        {"ini": ini, "fim": f1, "lim_ini": j["lim_ini"], "lim_fim": lim_mid},
+        {"ini": i2, "fim": fim, "lim_ini": lim_mid, "lim_fim": j["lim_fim"]},
+    ]
+    return out
 
 
 def _score_ini(a, b, gap, t, hook):
@@ -457,7 +530,7 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
     dep_min = cfg.get("depois_min", 7.0)
     bur, bur_pos = cfg.get("buraco_max_s", 2.8), cfg.get("cauda_max_s", 2.0)
     soft = duracao_minima(cfg)
-    P = [w for w in palavras if w["e"] > t - 60 and w["s"] < t + 60]
+    P = [w for w in palavras if w["e"] > t - 60 and w["s"] < t + max(60.0, depois + 12.0)]
     hi = min(fim_disponivel, max_fim)
 
     # --- limite para trás: onde começa a fala contínua que leva ao evento
@@ -678,9 +751,25 @@ class Seletor:
                     min_ini = max(min_ini, e + 0.3)
                 else:
                     max_fim = min(max_fim, e - 0.3)
-        j = escolher_janela(pk_s, palavras, disponivel, cfg, min_ini=min_ini, max_fim=max_fim)
-        if j.get("recusado") or j["ini"] < min_ini - 1e-6 or j["fim"] - j["ini"] < duracao_minima(cfg):
-            return None, "perto demais do corte anterior ou curto demais", False
+        M = modo_piso(cfg)
+        if M > 0 and cfg.get("piso_s") is None:
+            # escada: tenta o mínimo escolhido; se o contexto completo não cabe, sobe 30 -> 45 -> 61 s; se nem 61 s
+            # comporta, divide em duas partes
+            j = None
+            for t in [x for x in ESCADA_PISOS if x >= M]:
+                ct = cfg_degrau(cfg, t)
+                jt = escolher_janela(pk_s, palavras, disponivel, ct, min_ini=min_ini, max_fim=max_fim)
+                if not (jt.get("recusado") or jt["ini"] < min_ini - 1e-6 or jt["fim"] - jt["ini"] < duracao_minima(ct)):
+                    j = dict(jt, degrau=t)
+                    break
+            if j is None:
+                j = dividir_em_partes(pk_s, palavras, disponivel, cfg, min_ini=min_ini, max_fim=max_fim)
+                if j is None or j["ini"] < min_ini - 1e-6:
+                    return None, "perto demais do corte anterior ou curto demais", False
+        else:
+            j = escolher_janela(pk_s, palavras, disponivel, cfg, min_ini=min_ini, max_fim=max_fim)
+            if j.get("recusado") or j["ini"] < min_ini - 1e-6 or j["fim"] - j["ini"] < duracao_minima(cfg):
+                return None, "perto demais do corte anterior ou curto demais", False
         if j["buraco_frac"] > cfg.get("buraco_frac_max", 0.35) and sinais.get("volume", 0) < 1.5:
             return None, "cheio de silêncio sem pico de volume", False
         return j, None, substitui

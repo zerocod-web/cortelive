@@ -65,3 +65,15 @@ def test_desligado_mantem_comportamento_antigo_curto_nao_recusa():
     j = momento.escolher_janela(80.0, pal, 100.0, cfg)
     assert not j.get("recusado")
     assert j["fim"] - j["ini"] < 61.0
+
+
+def test_live_adicionada_depois_le_a_chave_de_novo(tmp_path, monkeypatch):
+    """A chave é lida a cada live nova (não só quando o motor abre): ligar com a sessão rodando vale para a próxima live."""
+    import json
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "painel"))
+    import motor_painel
+    monkeypatch.chdir(tmp_path)
+    assert motor_painel.config_postagem(tmp_path)["cortes_longos"] is False
+    (tmp_path / "painel_config.json").write_text(json.dumps({"cortes_longos": True}), encoding="utf-8")
+    assert motor_painel.config_postagem(Path.cwd())["cortes_longos"] is True

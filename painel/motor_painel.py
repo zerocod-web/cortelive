@@ -934,7 +934,9 @@ def main(argv=None):
 
     def criar_sessao_painel(*args):
         sessao = multi.criar_sessao(*args)
-        sessao.cfg_extra.update(postagem)
+        # le de novo a cada live (inclusive as adicionadas com a sessao ja rodando): ligar "cortes de 1 min" vale
+        # para a proxima live iniciada, sem reabrir o app
+        sessao.cfg_extra.update(config_postagem(Path.cwd()))
         sessao.terminal = unica_cel[0]
         return sessao
 

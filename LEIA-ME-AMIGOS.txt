@@ -1,74 +1,62 @@
-CORTELIVE - cortes automáticos de live
-======================================
+CORTELIVE - cortes automáticos de live (Windows 10 e 11)
+========================================================
 
-O que é: você cola o link de uma live (Twitch, YouTube, Kick) e ele vai soltando
-cortes verticais (1080x1920) com legenda, sozinho, enquanto a live acontece.
+Baixe e abra: https://github.com/zerocod-web/cortelive/releases/latest/download/CorteLive-Setup.exe
 
->>> JEITO MAIS FÁCIL: dois cliques em  INSTALAR_E_RODAR.bat
-    Ele confere o que falta no seu PC (Python, bibliotecas, FFmpeg, modelo de
-    fala, placa de vídeo), baixa só isso e já abre o cortelive. Nas próximas
-    vezes ele vê que está tudo pronto e abre direto. Não pede administrador
-    nem senha/chave nenhuma. Deu erro? Leia a mensagem em vermelho, confira a
-    internet e dê dois cliques de novo (continua de onde parou). Detalhe do
-    erro em instalacao_log.txt. O resto deste arquivo explica cada parte.
+O que é: você cola o link de uma live (Twitch, YouTube, Kick) e o CorteLive vai
+soltando cortes verticais (1080x1920) com legenda, sozinho, enquanto a live rola.
 
-PRECISA DE: Windows 10 ou 11, internet e uns 6 GB livres. Não precisa instalar
-nada antes nem ser administrador.
+================================================================================
+COMO COMEÇAR (JEITO FÁCIL PELO PAINEL — 1 ARQUIVO SÓ)
+================================================================================
 
-1) INSTALAR (uma vez só)
-   - Descompacte o zip numa pasta curta, por exemplo C:\cortelive
-     (evite a Área de Trabalho ou pastas com nome muito comprido).
-   - Dê dois cliques em  instalar.cmd
-   - Ele baixa tudo sozinho, só de fontes oficiais, e confere cada arquivo:
-     Python próprio, FFmpeg, as bibliotecas e o modelo de fala.
-     Demora de 5 a 20 minutos, depende da internet.
-   - No fim ele mostra o MODO escolhido para o seu PC:
-       NVIDIA  = mais rápido (usa a placa)
-       AMD/Intel = a transcrição (fala) roda no processador e o vídeo
-                   sai pela placa; funciona, mas é mais lento que NVIDIA
-       SEM PLACA = tudo no processador (funciona, mas pode atrasar)
-   - Ele pergunta se você quer o Ollama. É opcional; sem ele funciona igual.
-   - Se o Windows mostrar "O Windows protegeu o computador", clique em
-     "Mais informações" e "Executar assim mesmo" (os scripts são texto: dá
-     para abrir no Bloco de Notas e ler).
+1) ABRIR O INSTALADOR
+   - Baixe o CorteLive-Setup.exe pelo link acima. Abra, escolha a pasta e
+     clique em "Instalar". O painel abre sozinho quando o pacote estiver pronto.
+   - Depois, abra o CorteLive pelo Menu Iniciar ou pela Área de Trabalho.
 
-2) USAR
-   - Dê dois cliques em  cortar.cmd
-   - Cole o link da live e aperte Enter. Pode colar VÁRIAS lives ao mesmo
-     tempo: um link por vez, Enter depois de cada um; Enter vazio = acabou.
-   - Ou digite L: abre o arquivo lives.txt (um link por linha) no Bloco de
-     Notas. Vem com exemplos comentados: linha com # é ignorada, então tire
-     o # ou cole os seus links. Salve, feche, e ele corta todas as lives da
-     lista. A lista é relida a cada 30 s (dá para pôr ou tirar live com ele
-     rodando) e fica guardada para a próxima vez.
-   - Cada live tem a sua pasta dentro de cortes\. Se uma live cair ou der
-     erro, só ela reinicia; as outras seguem.
-   - Chat: em alguns canais o chat é fechado (só inscritos/seguidores) ou
-     parado. Tudo bem: os cortes saem só pelo áudio e pela fala.
-   - Depois escolha o modelo do corte e a legenda (Enter = padrão).
-   - No CMD também dá:  cortar.cmd LINK1 LINK2   ou   cortar.cmd --lista lives.txt
-   - Várias lives ao mesmo tempo pesam mais no PC: sem placa NVIDIA, comece
-     com uma ou duas.
-   - Os cortes aparecem na pasta  cortes\  (um .mp4 com legenda e um sem).
-   - Para parar: Ctrl+C ou feche a janela.
-   - Testar com um vídeo do PC:  cortar.cmd --arquivo C:\caminho\video.mp4
+2) AVISO AZUL DO WINDOWS SMARTSCREEN ("O Windows protegeu o computador")
+   - O instalador não tem assinatura digital. Se o Windows mostrar esse
+     aviso para o arquivo baixado pelo link acima, clique em
+     "Mais informações" > "Executar assim mesmo".
 
-3) DEU ERRO?
-   - A mensagem em vermelho diz o que fazer. Quase sempre: confira a internet
-     e rode instalar.cmd de novo (ele continua de onde parou).
-   - O log da instalação fica em  instalacao_log.txt ; o de cada sessão em cortes\.
-   - Forçar o modo processador (se a placa der problema):
-       abra o CMD nesta pasta e rode:  instalar.cmd -Gpu cpu
+3) INSTALAR OS COMPONENTES NO PAINEL (SÓ NA PRIMEIRA VEZ)
+   - O painel abre na hora. Clique no botão grande  INSTALAR .
+   - Ele baixa tudo sozinho de fontes oficiais (Python próprio, FFmpeg,
+     bibliotecas e modelo de voz) com barra de progresso em % e por etapa.
+   - NÃO pede administrador nem instala nada espalhado pelo Windows.
+   - Demora de 5 a 20 minutos dependendo da internet (precisa de ~6 GB livres).
+   - Se a internet oscilar e der erro: clique em "Copiar log" (se quiser mandar
+     para quem te enviou) e depois em "Tentar novamente" — ele continua de onde
+     parou!
 
-4) ATUALIZAR
-   - Copie por cima os arquivos novos que te mandarem e dê dois cliques em
-     atualizar.cmd.
+4) CORTAR UMA LIVE
+   - Cole o link da live (Twitch, YouTube ou Kick) no campo do painel.
+   - Escolha o Modelo do corte (Câmera em cima, Fundo desfocado ou Tela cheia)
+     e o Estilo da legenda (Opus, Karaokê ou Minimal).
+   - Clique em  CORTAR .
+   - Os vídeos prontos aparecem na hora na lista do painel com botões para
+     "Abrir vídeo" e "Abrir pasta".
 
-5) DESINSTALAR
-   - É só apagar a pasta inteira. Nada é instalado fora dela (a única
-     exceção: a posição da cam de cada canal fica em
-     %LOCALAPPDATA%\cortelive; pode apagar também). Se instalou o Ollama,
-     ele sai pelo "Adicionar ou remover programas" do Windows.
+5) ATUALIZAÇÃO AUTOMÁTICA
+   - Sempre que sair uma versão nova no GitHub, o painel avisa no topo com o
+     botão "Atualizar".
+   - Ele atualiza só o código e NÃO apaga seus modelos já baixados nem seus
+     cortes!
+
+6) DESINSTALAR
+   - Feche o painel. Nas Configurações do Windows, procure "CorteLive" na
+     lista de aplicativos instalados e clique em "Desinstalar".
+   - Escolha se quer apagar os cortes ou guardá-los em outra pasta.
+
+--------------------------------------------------------------------------------
+MODO TERMINAL (OPCIONAL, PARA QUEM PREFERE JANELA PRETA / CMD)
+--------------------------------------------------------------------------------
+Se você baixou o zip completo, também continuam funcionando os atalhos clássicos:
+- INSTALAR_E_RODAR.bat : confere o que falta, instala e abre no terminal.
+- instalar.cmd         : roda só o instalador portátil (aceita -Gpu cpu).
+- cortar.cmd           : pergunta o link, modelo e legenda pelo teclado.
+- atualizar.cmd        : roda o instalador incremental sem perguntas.
 
 Cuidado: só corte e publique live de quem autorizou. Música e jogo podem ter
 direitos próprios.

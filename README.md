@@ -2,8 +2,22 @@
 
 Acompanha uma live (Twitch, YouTube, Kick) e solta **cortes verticais legendados** (1080x1920) enquanto ela acontece.
 
-## Instalar (uma vez)
-Dê dois cliques em **instalar.cmd** (ou rode no CMD). Ele instala Python e FFmpeg pelo winget se faltarem, cria `.venv` e instala tudo.
+## Painel para amigos (1 arquivo só, sem terminal e sem administrador)
+Na aba **Releases** do GitHub, basta baixar **`CorteLive.exe`** (~400 KB), colocar numa pasta própria (ex.: `C:\CorteLive`) e dar dois cliques:
+1. **Primeira vez**: clique no botão **INSTALAR** — chama o `instalador\instalar.ps1` existente com progresso por etapa (1/6 a 6/6) e em `%`, sem pedir administrador.
+2. **No dia a dia**: cole o link da live, escolha o modelo e a legenda nas miniaturas 9:16, clique em **CORTAR**, acompanhe o status ao vivo e abra os vídeos ou a pasta direto pela lista.
+3. **Atualização automática com rollback**: ao abrir (e a cada 30 min), chama `instalador\atualizar.ps1 -Checar` e oferece o botão **Atualizar** (`-Aplicar`), trocando só o código e mantendo `.venv`, `modelos`, `ffmpeg`, `cortes` e configurações.
+4. **Postar e Contas**: aba dedicada conectada às CLIs `cortelive.postar`, `cortelive.autopost` (fila com título/legenda editáveis e revisão) e `cortelive.autopost_navegador` (reserva desligada por padrão), mais os interruptores **Postar sozinho** e **Revisar antes**.
+
+### Escolha de tecnologia do painel (por que funciona em qualquer Windows 10/11 limpo)
+- **Executável nativo `.NET Framework 4.x` (`painel/CorteLive.cs` compilado com `csc.exe` do próprio Windows)**: todo Windows 10 e Windows 11 já traz o runtime `.NET Framework 4.8` de fábrica (diferente de Python, Node.js, Electron, Tauri/WebView2 SDK ou .NET 8, que exigiriam downloads extras antes de abrir a primeira tela ou gerariam executáveis de 70–150 MB).
+- **Pacote auto-contido (`app.zip` embutido como recurso Win32/.NET)**: na primeira abertura em pasta vazia, `CorteLive.exe` extrai instantaneamente `painel\`, `instalador\` e `cortelive\` sem depender de nada instalado, mantendo manifesto `asInvoker` (nunca pede UAC/administrador).
+- **Servidor HTTP em `127.0.0.1` (`TcpListener` loopback, sem alerta de Firewall) + janela dedicada Microsoft Edge `--app=` (com fallback para navegador padrão e ícone na bandeja)**: entrega interface moderna, acessível e responsiva em ~400 KB totais.
+
+Para publicar novas versões no GitHub Releases, veja [COMO_LANCAR_VERSAO.md](COMO_LANCAR_VERSAO.md).
+
+## Instalar pelo terminal (alternativa CMD)
+Dê dois cliques em **instalar.cmd** (ou **INSTALAR_E_RODAR.bat**). Ele baixa Python 3.12 portátil, FFmpeg, cria `.venv` e baixa os modelos Whisper localmente.
 Pronto: o comando `cortelive` fica em `.venv\Scripts\cortelive.exe`.
 
 ## Usar
@@ -24,11 +38,16 @@ No começo ele mostra o que achou: placa, encoder (NVIDIA `h264_nvenc`, AMD `h26
 CPU por último) e o motor de fala.
 
 ## O que sai
-`cortes\<data>_<canal>\` com, para cada corte:
-- `corte_NNN_HHMMSS.mp4` (com legenda) e `..._sem_legenda.mp4`
-- `.ass` (a legenda, editável)
-- `.json` (início/fim na live, sinais, pontuação, título sugerido, motivo, latência)
-- `sessao.json` e `logs\` com o log completo.
+`cortes\2026-11-17 22h35 - <canal>\` mostra só o que é para postar:
+- `2026-11-17 22h36 - <canal> - <título do momento>.mp4` (com legenda; H.264 1080x1920, 30 fps,
+  ~6 Mbps, AAC 128k: uns 30 MB para 40 s, leve para baixar no celular)
+- `sem legenda\` com o mesmo corte sem legenda (para pôr a sua no CapCut, por exemplo)
+- `_interno\` (pasta oculta): `.json` de cada corte (início/fim na live, sinais, pontuação, título, motivo,
+  latência), `.ass` (a legenda, editável), `sessao.json`, `log.txt` e temporários.
+
+Pastas do formato antigo (`2026-11-17_1628_canal` com `corte_NNN_HHMMSS.mp4`) continuam funcionando.
+Para passar para o formato novo: `python -m cortelive.pastas migrar cortes` (mostra o plano) e depois
+com `--aplicar`.
 
 ## Como ele escolhe o momento
 Pico de volume contra o normal dos últimos 2 min + palavras quentes ("meu deus", "caralho", risada "kkkk"…)

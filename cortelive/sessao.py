@@ -5,6 +5,7 @@ Gerado a partir do antigo cli.rodar(); a lógica de cada etapa é a mesma.
 """
 import concurrent.futures as cf
 import json
+import os
 import queue
 import re
 import shutil
@@ -15,7 +16,7 @@ import time
 import types
 from pathlib import Path
 
-from . import __version__, hw, log
+from . import __version__, hw, log, pastas
 from .cli import carregar_config, _hms, AQUI
 
 ESTADOS = ("iniciando", "esperando live", "ao vivo", "reconectando", "encerrada", "erro")
@@ -104,9 +105,11 @@ class Sessao:
                 raise RuntimeError(f"{tipo} '{nome}' não existe. Opções: {', '.join(render.listar(tipo))}")
         canal = args.canal or (Path(args.arquivo).stem if args.arquivo else captura.canal_da_url(args.url))
         args.canal = canal
-        pasta = Path(cfg["pasta_saida"]) / f"{time.strftime('%Y-%m-%d_%H%M')}_{canal}"
+        # pasta da sessão só com os vídeos prontos; o resto vai para _interno (oculta). Ver pastas.py.
+        pasta = Path(cfg["pasta_saida"]) / pastas.nome_sessao(canal)
         pasta.mkdir(parents=True, exist_ok=True)
-        arq_log = log.configurar(pasta, args.detalhado, terminal=self.terminal)
+        dint = pastas.interno(pasta)
+        arq_log = log.configurar(dint, args.detalhado, terminal=self.terminal)
         self.pasta = pasta
         t_sessao = time.time()
 
@@ -140,7 +143,7 @@ class Sessao:
         if cam_status != "procurar":
             log.info(f"Cam do streamer: {cam if cam else 'sem cam'} ({cam_status})")
 
-        buf = (pasta / ".buffer").resolve()   # absoluto: o render roda em outro processo/pasta
+        buf = (dint / ".buffer").resolve()    # absoluto: o render roda em outro processo/pasta
         shutil.rmtree(buf, ignore_errors=True)
         buf.mkdir()
         fila = queue.Queue()
@@ -215,7 +218,7 @@ class Sessao:
                        if (t := re.sub(r"[.,;:…\"“”]+", "", w["w"]).strip())]
             pedido.write_text(json.dumps({"video": str(bruto.resolve()), "inicio": ini - base, "fim": fim - base,
                                           "palavras": pal_rel, "modelo": cfg["modelo"], "legenda": cfg["legenda"],
-                                          "cam": list(cam) if cam else None, "saida_dir": str(pasta.resolve()),
+                                          "cam": list(cam) if cam else None, "saida_dir": str(dint.resolve()),
                                           "nome": nome}, ensure_ascii=False), encoding="utf-8")
             try:
                 p = servicos.render().executar(
@@ -233,11 +236,26 @@ class Sessao:
             if not r.get("ok"):
                 log.debug(r.get("trace", ""))
                 raise RuntimeError(r.get("erro", "erro desconhecido no render"))
-            final = Path(r["mp4"])
             pronto = time.time()
+            # render sai em _interno/corte_NNN_*; aqui ganha o nome legível e vai para a pasta visível
+            dsl = pasta / pastas.SEM_LEGENDA
+            legivel = pastas.unico(pasta, pastas.nome_corte(canal, job["titulo"], pronto, reserva=nome),
+                                   tambem=(dsl, dint))
+            final = pasta / f"{legivel}.mp4"
+            os.replace(r["mp4"], final)
+            sem_leg = None
+            if r.get("mp4_sem_legenda") and Path(r["mp4_sem_legenda"]).exists() and r["mp4_sem_legenda"] != r["mp4"]:
+                dsl.mkdir(exist_ok=True)
+                sem_leg = dsl / f"{legivel}.mp4"
+                os.replace(r["mp4_sem_legenda"], sem_leg)
+            ass = None
+            if r.get("ass") and Path(r["ass"]).exists():
+                ass = dint / f"{legivel}.ass"
+                os.replace(r["ass"], ass)
             info = {
-                "arquivo": final.name, "sem_legenda": Path(r["mp4_sem_legenda"]).name,
-                "legenda": Path(r["ass"]).name if r.get("ass") else None,
+                "arquivo": final.name, "nome_interno": nome,
+                "sem_legenda": f"{pastas.SEM_LEGENDA}/{sem_leg.name}" if sem_leg else None,
+                "legenda": ass.name if ass else None,
                 "inicio_na_live": round(ini, 2), "fim_na_live": round(fim, 2),
                 "inicio_hms": _hms(ini), "fim_hms": _hms(fim), "duracao": round(fim - ini, 2),
                 "momento_na_live": round(job["evento"], 2), "momento_hms": _hms(job["evento"]),
@@ -251,8 +269,14 @@ class Sessao:
                                "render": round(pronto - t0, 1)},
                 "transcricao": " ".join(w["w"] for w in job["palavras"]),
             }
-            (pasta / f"{nome}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+            (dint / f"{legivel}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
             self._ultimo_corte = final.name
+            if cfg.get("postar_sozinho"):      # autopost em thread própria: só enfileira, não segura o render
+                try:
+                    from . import autopost
+                    autopost.disparar(final, cfg, canal, info, job["palavras"])
+                except Exception as e:
+                    log.aviso(f"Autopost não iniciou para {final.name}: {str(e)[:200]}")
             log.corte(f"CORTE {n_corte[0]}: {final.name} ({fim - ini:.0f} s, nota {job['nota']:.1f}) — "
                       f"\"{job['titulo']}\" — pronto {info['latencia_s']['momento_ate_mp4']:.0f} s após o momento")
             return info
@@ -454,6 +478,10 @@ class Sessao:
             chat.parar.set()
         exe.shutdown(wait=False, cancel_futures=True)
         shutil.rmtree(buf, ignore_errors=True)
+        if cfg.get("postar_sozinho") and resultados:
+            from . import autopost
+            if not autopost.aguardar(cfg.get("postar_espera_fim_s", 300)):
+                log.aviso("Autopost ainda enviando; o que faltou fica na fila (python -m cortelive.autopost fila).")
 
         # ---------------- resumo ----------------
         rt = sum(b for _, b in fl.tempo_trans) / max(1e-6, sum(a for a, _ in fl.tempo_trans))
@@ -476,7 +504,7 @@ class Sessao:
             "lista_cortes": [{k: r[k] for k in ("arquivo", "inicio_hms", "duracao", "pontuacao", "titulo_sugerido")}
                              for r in resultados],
         }
-        (pasta / "sessao.json").write_text(json.dumps(resumo, ensure_ascii=False, indent=2), encoding="utf-8")
+        (dint / "sessao.json").write_text(json.dumps(resumo, ensure_ascii=False, indent=2), encoding="utf-8")
         log.info("=" * 60)
         log.info(f"RESUMO — {resumo['motivo_fim'] or 'fim'}")
         log.info(f"Live acompanhada: {_hms(cap.fim_live)} | sessão: {_hms(resumo['duracao_sessao_s'])}")

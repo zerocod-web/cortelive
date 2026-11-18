@@ -1,6 +1,9 @@
 # Versoes fixadas e checksums oficiais (conferidos em 17/11/2026 na API do GitHub / Hugging Face).
 # Para atualizar: troque URL + SHA256 juntos, sempre de fonte oficial.
 
+# Repositorio publico do CorteLive no GitHub (configurado em um lugar so; obtido via `gh repo view --json owner`).
+$REPO_GITHUB = 'zerocod-web/cortelive'
+
 $PY = @{
   Nome   = 'Python 3.12.16 portatil (python-build-standalone 20261110, astral-sh)'
   Url    = 'https://github.com/astral-sh/python-build-standalone/releases/download/20261110/cpython-3.12.16+20261110-x86_64-pc-windows-msvc-install_only.tar.gz'

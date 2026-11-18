@@ -231,12 +231,25 @@ import os
 import time
 
 # Parâmetros pedidos por placa (testados de verdade com 1 s de encode antes de usar).
+# Arquivo leve para baixar no celular e postar: H.264 High, 30 fps, ~6 Mbps (teto 6-6,5 Mbps), AAC 128k.
+# Medido em 17/11/2026 contra o corte antigo (cq 19 sem teto, 60 fps, 22,7 Mbps, 91 MB em 32 s):
+#   NVENC cq23 teto 6M      -> 6,1 Mbps, SSIM 0,991 (alanzoka) / 0,996 (GTA)
+#   NVENC cq23 teto 8M 60fps-> 8,0 Mbps, SSIM 0,990: 60 fps no mesmo bitrate fica MENOS nítido -> 30 fps
+#   x264 medium crf21 6,5M  -> 3,4-6,1 Mbps, SSIM 0,992 / 0,995 (CPU, para quem não tem placa)
+TETO_FPS = 30
 ENC_CORTE = {
-    "h264_nvenc": ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "19", "-b:v", "0"],
-    "h264_amf": ["-c:v", "h264_amf", "-quality", "quality", "-rc", "cqp", "-qp_i", "19", "-qp_p", "21"],
-    "h264_qsv": ["-c:v", "h264_qsv", "-global_quality", "20"],
-    "libx264": ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"],
+    "h264_nvenc": ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-profile:v", "high", "-rc", "vbr",
+                   "-cq", "23", "-b:v", "5M", "-maxrate", "6M", "-bufsize", "12M", "-spatial-aq", "1",
+                   "-temporal-aq", "1", "-rc-lookahead", "20", "-bf", "3"],
+    # AMD/Intel: mesmo teto de bitrate (não medidos aqui por falta da placa; se o teste de 1 s falhar, cai no x264)
+    "h264_amf": ["-c:v", "h264_amf", "-quality", "quality", "-profile:v", "high", "-rc", "vbr_peak",
+                 "-b:v", "5M", "-maxrate", "6M", "-bufsize", "12M"],
+    "h264_qsv": ["-c:v", "h264_qsv", "-profile:v", "high", "-global_quality", "23", "-b:v", "5M",
+                 "-maxrate", "6M", "-bufsize", "12M"],
+    "libx264": ["-c:v", "libx264", "-preset", "medium", "-profile:v", "high", "-crf", "21",
+                "-maxrate", "6500k", "-bufsize", "13M"],
 }
+AUDIO_CORTE = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000"]
 _CACHE_ENC = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "cortelive" / "encoder.json"
 _enc_memo = None
 
@@ -289,7 +302,9 @@ def _probe(video):
     tem_audio = bool(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries",
                                      "stream=index", "-of", "csv=p=0", str(video)],
                                     capture_output=True, text=True).stdout.strip())
-    return int(out[0]), int(out[1]), (60 if fps >= 50 else 30), tem_audio
+    # fps da origem com teto de 30 (29,97/25/24 ficam como estão; 60 vira 30)
+    fps_s = f"{n}/{d or 1}" if 0 < fps <= TETO_FPS else str(TETO_FPS)
+    return int(out[0]), int(out[1]), fps_s, tem_audio
 
 
 def _modelo_efetivo(nome, cam, sw, sh):
@@ -376,7 +391,7 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     enc = encoder_corte(encoder)
     fc = (filtro_modelo(m, sw, sh)[:-3] + f",fps={fps}[v];[v]split=2[v1][v2];"
           f"[v2]subtitles=filename='{_esc(ass)}':fontsdir='{_esc(FONTES)}'[vl]")
-    aud = ["-map", "0:a:0", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"] if tem_audio else []
+    aud = ["-map", "0:a:0", *AUDIO_CORTE] if tem_audio else []
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
            "-ss", f"{inicio:.3f}", "-t", f"{fim - inicio:.3f}", "-i", str(video), "-filter_complex", fc]
     base = cmd

@@ -1,0 +1,543 @@
+/* ==========================================================================
+   CorteLive — Tema Identidade ZeroCod (painel\tema_zerocod.css)
+   Identidade visual: papel carbono preto (#111111), tipografia geométrica
+   pesada em creme (#f7e6c9) via @font-face local (Outfit OFL, zero CDN)
+   e sinal vermelho (#f72c12) no cursor piscante, ações, barra e AO VIVO.
+   ========================================================================== */
+
+@font-face {
+  font-family: "Outfit";
+  src: url("fontes/Outfit-Variable.woff2") format("woff2-variations"),
+       url("fontes/Outfit-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* --------------------------------------------------------------------------
+   1. Tokens Semânticos ZeroCod (Contraste WCAG AA verificado >= 4.5:1)
+      - Creme #f7e6c9 sobre preto #111111: 15.39:1 (AAA)
+      - Creme #f7e6c9 sobre painel #171615: 14.68:1 (AAA)
+      - Vermelho #f72c12 sobre preto #111111: 4.79:1 (AA)
+      - Vermelho #f72c12 sobre painel #171615: 4.58:1 (AA)
+      - Tinta escura #0b0a0a sobre vermelho #f72c12: 5.01:1 (AA)
+   -------------------------------------------------------------------------- */
+:root,
+[data-tema="escuro"] {
+  color-scheme: dark;
+  --zerocod-preto: #111111;
+  --zerocod-creme: #f7e6c9;
+  --zerocod-vermelho: #f72c12;
+  --zerocod-vermelho-hover: #ff442b;
+  --zerocod-tinta-botao: #0b0a0a;
+
+  --mesa-fundo: #111111;
+  --mesa-painel: #171615;
+  --mesa-elevado: #22201e;
+  --mesa-entrada: #0e0d0d;
+  --mesa-console: #0a0909;
+
+  --borda-sutil: rgba(247, 230, 201, 0.09);
+  --borda-forte: rgba(247, 230, 201, 0.19);
+  --borda-destaque: rgba(247, 44, 18, 0.58);
+
+  --texto-primario: #f7e6c9;
+  --texto-secundario: #ddcfbb;
+  --texto-terciario: #b4a796;
+  --texto-discreto: #9c8f7f;
+
+  --sinal-acao: #f72c12;
+  --sinal-acao-hover: #ff442b;
+  --sinal-acao-texto: #0b0a0a;
+  --sinal-acao-fundo-suave: rgba(247, 44, 18, 0.14);
+  --sinal-acao-texto-suave: #ff856d;
+
+  --sinal-ao-vivo: #f72c12;
+  --sinal-ao-vivo-fundo: rgba(247, 44, 18, 0.20);
+  --sinal-ao-vivo-texto: #ff947e;
+
+  --sinal-ok: #22c55e;
+  --sinal-ok-fundo: rgba(34, 197, 94, 0.15);
+  --sinal-ok-texto: #86efac;
+
+  --foco-anel: #ff6b52;
+  --sombra-modal: 0 24px 56px rgba(0, 0, 0, 0.78);
+}
+
+/* Modo claro técnico em papel creme quente (mantém identidade ZeroCod e AA) */
+[data-tema="claro"] {
+  color-scheme: light;
+  --zerocod-preto: #14110f;
+  --zerocod-creme: #f5ead8;
+  --zerocod-vermelho: #d9220b;
+  --zerocod-vermelho-hover: #b81b07;
+  --zerocod-tinta-botao: #fffaf2;
+
+  --mesa-fundo: #f5ead8;
+  --mesa-painel: #fffaf2;
+  --mesa-elevado: #efe2cd;
+  --mesa-entrada: #eadbc3;
+  --mesa-console: #e5d5bb;
+
+  --borda-sutil: rgba(20, 17, 15, 0.12);
+  --borda-forte: rgba(20, 17, 15, 0.24);
+  --borda-destaque: rgba(217, 34, 11, 0.55);
+
+  --texto-primario: #14110f;
+  --texto-secundario: #332c26;
+  --texto-terciario: #52473e;
+  --texto-discreto: #63574c;
+
+  --sinal-acao: #d9220b;
+  --sinal-acao-hover: #b81b07;
+  --sinal-acao-texto: #fffaf2;
+  --sinal-acao-fundo-suave: rgba(217, 34, 11, 0.11);
+  --sinal-acao-texto-suave: #a61705;
+
+  --sinal-ao-vivo: #d9220b;
+  --sinal-ao-vivo-fundo: rgba(217, 34, 11, 0.12);
+  --sinal-ao-vivo-texto: #991505;
+
+  --sinal-ok: #15803d;
+  --sinal-ok-fundo: rgba(21, 128, 61, 0.12);
+  --sinal-ok-texto: #14532d;
+
+  --foco-anel: #b81b07;
+  --sombra-modal: 0 20px 44px rgba(20, 17, 15, 0.18);
+}
+
+:root {
+  --fonte-interface: "Outfit", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --raio-painel: 14px;
+  --raio-controle: 9px;
+  --raio-interno: 6px;
+}
+
+/* --------------------------------------------------------------------------
+   2. Fundo Preto com Textura de Papel + Tipografia Geométrica Pesada
+   -------------------------------------------------------------------------- */
+body {
+  background-color: var(--mesa-fundo);
+  background-image:
+    radial-gradient(ellipse 90% 55% at 50% -10%, rgba(247, 230, 201, 0.03), transparent 70%),
+    url("img/papel-grao.svg");
+  background-repeat: no-repeat, repeat;
+  background-size: 100% 100%, 220px 220px;
+  color: var(--texto-primario);
+  font-family: var(--fonte-interface);
+  -webkit-font-smoothing: antialiased;
+}
+
+[data-tema="claro"] body {
+  background-image: url("img/papel-grao.svg");
+  background-repeat: repeat;
+  background-size: 220px 220px;
+}
+
+h1,
+h2,
+h3,
+.titulo-destaque,
+.titulo-secao {
+  font-family: var(--fonte-interface);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--texto-primario);
+}
+
+/* --------------------------------------------------------------------------
+   3. Cabeçalho, Ícone, Assinatura "by zerocod" e Cursor Vermelho Piscante
+   -------------------------------------------------------------------------- */
+@keyframes zerocod-cursor-pisca {
+  0%, 48% {
+    opacity: 1;
+  }
+  52%, 100% {
+    opacity: 0.12;
+  }
+}
+
+.cabecalho {
+  background: rgba(26, 24, 22, 0.92);
+  border-color: var(--borda-sutil);
+  padding: 12px 18px;
+}
+
+[data-tema="claro"] .cabecalho {
+  background: var(--mesa-painel);
+}
+
+img.marca-icone {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+html[data-ambiente="dev"] img.marca-icone,
+body.modo-dev img.marca-icone {
+  content: url("img/cortelive-icone-dev.png");
+}
+
+.marca-linha-titulo {
+  gap: 9px;
+}
+
+.marca-nome {
+  display: inline-flex;
+  align-items: center;
+  font-size: 1.38rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--texto-primario);
+}
+
+/* Cursor vermelho piscando como marca (assinatura zero-cod) */
+.marca-nome::after {
+  content: "";
+  display: inline-block;
+  width: 3.5px;
+  height: 0.96em;
+  margin-left: 8px;
+  border-radius: 1px;
+  background-color: var(--zerocod-vermelho);
+  box-shadow: 0 0 10px rgba(247, 44, 18, 0.42);
+  animation: zerocod-cursor-pisca 1.08s steps(1, end) infinite;
+}
+
+.marca-autoria {
+  border: 1px solid var(--borda-forte);
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(247, 230, 201, 0.03);
+  color: var(--texto-secundario);
+  font-size: 0.74rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+}
+
+.abas-navegacao {
+  background: var(--mesa-entrada);
+  border-color: var(--borda-sutil);
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.aba-btn {
+  font-weight: 700;
+  font-size: 0.92rem;
+  padding: 8px 18px;
+  border-radius: 7px;
+  color: var(--texto-terciario);
+}
+
+.aba-btn.ativa {
+  background: var(--mesa-elevado);
+  color: var(--texto-primario);
+  border-color: var(--borda-forte);
+}
+
+/* --------------------------------------------------------------------------
+   4. Botões Primários (Vermelho ZeroCod) e Secundários
+   -------------------------------------------------------------------------- */
+.btn {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.btn-primario {
+  background: var(--sinal-acao);
+  color: var(--sinal-acao-texto);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  border-color: rgba(0, 0, 0, 0.20);
+  box-shadow: 0 2px 12px rgba(247, 44, 18, 0.22);
+}
+
+.btn-primario:hover:not(:disabled) {
+  background: var(--sinal-acao-hover);
+  box-shadow: 0 4px 18px rgba(247, 44, 18, 0.34);
+}
+
+.btn-perigo {
+  background: var(--sinal-ao-vivo);
+  color: var(--sinal-acao-texto);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+.btn-secundario {
+  background: var(--mesa-elevado);
+  color: var(--texto-primario);
+  border-color: var(--borda-forte);
+  font-weight: 700;
+}
+
+.btn-secundario:hover:not(:disabled) {
+  background: #2b2825;
+  border-color: rgba(247, 230, 201, 0.30);
+}
+
+[data-tema="claro"] .btn-secundario:hover:not(:disabled) {
+  background: #e5d4ba;
+}
+
+/* --------------------------------------------------------------------------
+   5. Tela 1 — Boas-vindas e Barra de Progresso Vermelha
+   -------------------------------------------------------------------------- */
+.instalacao-boas-vindas {
+  background-color: #121110;
+  background-image:
+    linear-gradient(90deg, #121110 0%, #121110 44%, rgba(18, 17, 16, 0.32) 72%, rgba(18, 17, 16, 0.08) 100%),
+    url("img/boas-vindas-fundo.webp");
+  background-position: center, right center;
+  background-size: 100% 100%, 62% auto;
+  background-repeat: no-repeat, no-repeat;
+  border-color: var(--borda-sutil);
+}
+
+[data-tema="claro"] .instalacao-boas-vindas {
+  background: var(--mesa-painel);
+}
+
+.progresso-numero {
+  font-family: var(--fonte-interface);
+  font-size: 1.65rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--sinal-acao-texto-suave);
+}
+
+.barra-trilho {
+  height: 11px;
+  background: #24211e;
+  border-color: transparent;
+}
+
+[data-tema="claro"] .barra-trilho {
+  background: var(--mesa-entrada);
+}
+
+.barra-preenchimento {
+  background: var(--sinal-acao);
+  box-shadow: 0 0 14px rgba(247, 44, 18, 0.45);
+  transition: width 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.item-etapa {
+  background: #121110;
+  border-color: var(--borda-sutil);
+}
+
+[data-tema="claro"] .item-etapa {
+  background: var(--mesa-entrada);
+}
+
+.item-etapa.em-andamento {
+  border-color: var(--borda-destaque);
+  background: rgba(247, 44, 18, 0.05);
+}
+
+.item-etapa.em-andamento .indicador-passo {
+  background: var(--sinal-ao-vivo-fundo);
+  color: var(--sinal-ao-vivo-texto);
+  border: 1px solid var(--borda-destaque);
+}
+
+/* --------------------------------------------------------------------------
+   6. Tela 2 / Aba 1 — Mesa de Corte, Faixa AO VIVO e Presets 9:16
+   -------------------------------------------------------------------------- */
+.tally-barra {
+  background: var(--mesa-painel);
+  border-color: var(--borda-sutil);
+}
+
+.tally-ao-vivo {
+  background: var(--sinal-ao-vivo-fundo);
+  color: var(--sinal-ao-vivo-texto);
+  border: 1px solid rgba(247, 44, 18, 0.48);
+  font-family: var(--fonte-interface);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.tally-ao-vivo .tally-ponto {
+  background: var(--zerocod-vermelho);
+  box-shadow: 0 0 8px var(--zerocod-vermelho);
+}
+
+.tally-resumo {
+  font-weight: 600;
+  color: var(--texto-primario);
+}
+
+/* Cursor vermelho piscante ao acompanhar live (como na prévia 02-cortar) */
+.tally-esquerda:has(.tally-ao-vivo) .tally-resumo::after,
+.tally-esquerda:has(.tally-preparando) .tally-resumo::after {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.95em;
+  margin-left: 8px;
+  vertical-align: -0.1em;
+  border-radius: 1px;
+  background-color: var(--zerocod-vermelho);
+  animation: zerocod-cursor-pisca 1.08s steps(1, end) infinite;
+}
+
+.campo-texto {
+  background: var(--mesa-entrada);
+  border-color: var(--borda-sutil);
+  color: var(--texto-primario);
+}
+
+.campo-texto:focus {
+  border-color: var(--borda-destaque);
+}
+
+/* Presets 9:16 alinhados à grade de 3 colunas do painel */
+.mesa-controles {
+  margin-bottom: 18px;
+}
+
+.card-preset {
+  background: var(--mesa-entrada);
+  border-color: var(--borda-sutil);
+  padding: 12px;
+}
+
+@media (min-width: 501px) {
+  .card-preset {
+    min-height: 146px;
+  }
+
+  .card-preset .preset-texto {
+    padding-right: 14px;
+  }
+}
+
+.card-preset:hover {
+  background: #1a1816;
+  border-color: var(--borda-forte);
+}
+
+[data-tema="claro"] .card-preset:hover {
+  background: var(--mesa-elevado);
+}
+
+.card-preset.selecionado {
+  background: linear-gradient(180deg, rgba(247, 44, 18, 0.16) 0%, rgba(247, 44, 18, 0.09) 100%);
+  border-color: var(--borda-destaque);
+}
+
+/* Ponto luminoso vermelho de seleção no canto superior direito */
+.card-preset.selecionado::after {
+  content: "";
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--zerocod-vermelho);
+  box-shadow: 0 0 8px rgba(247, 44, 18, 0.65);
+}
+
+.amostra-opus mark {
+  background: transparent;
+  color: var(--sinal-acao-texto-suave);
+  padding: 0;
+  font-weight: 800;
+}
+
+.contador-pilula {
+  background: var(--sinal-acao-fundo-suave);
+  border-color: rgba(247, 44, 18, 0.36);
+  color: var(--sinal-acao-texto-suave);
+  font-family: var(--fonte-interface);
+  font-weight: 700;
+}
+
+.vazio-card {
+  background: var(--mesa-painel);
+  border-style: dashed;
+  border-color: var(--borda-forte);
+}
+
+/* --------------------------------------------------------------------------
+   7. Tela 2 / Aba 2 — Postar e Contas, Switches e Fila
+   -------------------------------------------------------------------------- */
+@media (min-width: 900px) {
+  #lista-redes-contas,
+  #controles-reserva-redes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+}
+
+.conta-item {
+  background: var(--mesa-entrada);
+  border-color: var(--borda-sutil);
+}
+
+.conta-icone {
+  background: #161413;
+  border-color: var(--borda-sutil);
+  color: var(--sinal-acao-texto-suave);
+}
+
+[data-tema="claro"] .conta-icone {
+  background: var(--mesa-painel);
+}
+
+.switch-linha {
+  background: var(--mesa-entrada);
+  border-color: var(--borda-sutil);
+}
+
+.switch-input {
+  width: 48px;
+  height: 26px;
+  background: #1b1917;
+  border: 1px solid var(--borda-forte);
+  padding: 3px;
+  transition: background-color var(--transicao-curta), border-color var(--transicao-curta);
+}
+
+[data-tema="claro"] .switch-input {
+  background: var(--mesa-elevado);
+}
+
+.switch-input::before {
+  background: var(--texto-primario);
+}
+
+.switch-input:checked {
+  background: var(--sinal-acao);
+  border-color: var(--sinal-acao);
+}
+
+.switch-input:checked::before {
+  background: var(--sinal-acao-texto);
+  transform: translateX(20px);
+}
+
+.selo-etapa {
+  background: var(--sinal-acao-fundo-suave);
+  color: var(--sinal-acao-texto-suave);
+  border: 1px solid rgba(247, 44, 18, 0.30);
+  font-weight: 700;
+}
+
+/* Respeito total a movimento reduzido */
+@media (prefers-reduced-motion: reduce) {
+  .marca-nome::after,
+  .tally-esquerda:has(.tally-ao-vivo) .tally-resumo::after,
+  .tally-esquerda:has(.tally-preparando) .tally-resumo::after {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}

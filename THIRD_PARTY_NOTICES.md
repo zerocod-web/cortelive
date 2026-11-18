@@ -19,6 +19,7 @@ Ideias reaproveitadas (reescritas, não copiadas linha a linha):
 Nenhum código AGPL (Medusa Clip etc.) foi usado.
 
 ## Fontes
-Anton e Montserrat — SIL Open Font License 1.1 (`cortelive/fontes/Montserrat-OFL.txt`).
+- Anton e Montserrat — SIL Open Font License 1.1 (`cortelive/fontes/Montserrat-OFL.txt`).
+- Outfit — Copyright 2021 The Outfit Project Authors (https://github.com/Outfitio/Outfit-Fonts), SIL Open Font License 1.1 (`painel/fontes/Outfit-OFL.txt`, fonte variável local `painel/fontes/Outfit-Variable.woff2`).
 
 ## whisper.cpp — MIT (binário em `ferramentas/whispercpp`, baixado do release oficial).

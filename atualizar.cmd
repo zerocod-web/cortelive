@@ -1,9 +1,13 @@
 @echo off
-rem Atualiza o cortelive: roda o instalador de novo (so baixa o que mudou ou falta).
-rem Para pegar uma versao nova da ferramenta, copie por cima os arquivos novos que te mandarem e rode este.
+rem Atualizador automatico do CorteLive.
+rem   atualizar.cmd -Checar    -> verifica se ha nova release no GitHub
+rem   atualizar.cmd -Aplicar   -> baixa, confere SHA-256, faz backup e atualiza mantendo modelos/.venv/cortes
+rem   atualizar.cmd -Voltar    -> restaura a versao anterior de versoes_antigas\
+rem   Dois cliques (sem args)  -> roda -Aplicar e pausa no final
 setlocal
 cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0instalador\instalar.ps1" -SemPerguntas %*
+chcp 65001 >nul
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0instalador\atualizar.ps1" %*
 set ERRO=%ERRORLEVEL%
-if "%CORTELIVE_SEM_PAUSA%"=="" pause
+if "%~1"=="" if "%CORTELIVE_SEM_PAUSA%"=="" pause
 exit /b %ERRO%

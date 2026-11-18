@@ -192,7 +192,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         return 130
     except Exception as e:
-        print(f"\nERRO inesperado: {e}\nO detalhe está no log.txt da pasta da sessão. "
+        print(f"\nERRO inesperado: {e}\nO detalhe está no log.txt da pasta oculta _interno, dentro da pasta da sessão. "
               f"Rode de novo com --detalhado para ver mais.", file=sys.stderr)
         import logging
         logging.exception("erro inesperado")

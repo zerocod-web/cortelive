@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-tema="escuro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CorteLive — Painel de Cortes Automáticos</title>
+  <link rel="icon" href="img/cortelive.ico">
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="stylesheet" href="tema_zerocod.css">
+</head>
+<body>
+  <a class="pular-conteudo" href="#conteudo-principal">Ir para o conteúdo principal</a>
+
+  <div class="container-app">
+    <!-- Cabeçalho da Mesa de Corte -->
+    <header class="cabecalho" role="banner">
+      <div class="marca-bloco">
+        <img class="marca-icone" src="img/cortelive-icone.png" width="44" height="44" alt="">
+        <div>
+          <div class="marca-linha-titulo">
+            <h1 class="marca-nome">CorteLive</h1>
+            <span class="marca-autoria">by zerocod</span>
+            <span id="badge-versao" class="tag-versao" title="Versão instalada"></span>
+          </div>
+          <p class="marca-subtitulo">Mesa de corte</p>
+        </div>
+      </div>
+
+      <div class="cabecalho-acoes">
+        <nav class="abas-navegacao" id="abas-principais" aria-label="Seções do painel" hidden>
+          <button type="button" class="aba-btn ativa" id="aba-btn-cortar" data-aba="cortar" aria-current="page">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>
+            </svg>
+            <span>Cortar</span>
+          </button>
+          <button type="button" class="aba-btn" id="aba-btn-contas" data-aba="contas">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
+            </svg>
+            <span>Postar</span>
+            <span id="badge-fila-contagem" class="mini-pilula" hidden>0</span>
+          </button>
+        </nav>
+
+        <button type="button" id="btn-alternar-tema" class="btn-icone" aria-label="Alternar entre modo escuro e modo claro" title="Alternar tema claro/escuro">
+          <svg id="icone-tema-sol" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+          </svg>
+          <svg id="icone-tema-lua" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Faixa de Atualização (instalador\atualizar.ps1 -Checar / -Aplicar) -->
+    <section id="faixa-atualizacao" class="faixa-alerta faixa-atualizacao" aria-live="polite" hidden>
+      <div class="faixa-conteudo">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <div>
+          <strong id="titulo-atualizacao">Nova versão disponível</strong>
+          <p id="detalhe-atualizacao" class="faixa-subtexto">Atualiza só o código e mantém seus modelos, vídeos e configurações.</p>
+        </div>
+      </div>
+      <div class="faixa-botoes">
+        <button type="button" id="btn-aplicar-atualizacao" class="btn btn-primario btn-compacto">
+          <span>Atualizar</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Aviso de Sistema / Rollback -->
+    <section id="faixa-aviso-sistema" class="faixa-alerta" role="status" aria-live="polite" hidden>
+      <div class="faixa-conteudo">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <div>
+          <strong id="titulo-aviso-sistema">Aviso</strong>
+          <p id="texto-aviso-sistema" class="faixa-subtexto"></p>
+        </div>
+      </div>
+      <button type="button" id="btn-fechar-aviso" class="btn-icone" aria-label="Fechar aviso">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+        </svg>
+      </button>
+    </section>
+
+    <main id="conteudo-principal">
+      <!-- ESTADO DE CARREGAMENTO INICIAL -->
+      <section id="tela-carregando" class="painel-card secao-central" aria-busy="true">
+        <div class="esqueleto-linha esqueleto-titulo"></div>
+        <div class="esqueleto-linha esqueleto-corpo"></div>
+        <div class="esqueleto-grade">
+          <div class="esqueleto-bloco"></div>
+          <div class="esqueleto-bloco"></div>
+          <div class="esqueleto-bloco"></div>
+        </div>
+      </section>
+
+      <!-- TELA 1: PRIMEIRA VEZ — INSTALAÇÃO GUIADA -->
+      <section id="tela-instalacao" class="painel-card instalacao-card" aria-labelledby="titulo-instalacao" hidden>
+        <div class="instalacao-boas-vindas">
+          <div class="instalacao-topo">
+            <h2 id="titulo-instalacao" class="titulo-destaque">Boas-vindas ao CorteLive</h2>
+            <p class="texto-apoio">Transforme os melhores momentos da sua live em vídeos verticais com legenda.</p>
+          </div>
+
+          <div class="instalacao-acao-bloco" id="bloco-cta-instalar">
+            <button type="button" id="btn-instalar" class="btn btn-primario btn-gigante">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              <span id="texto-btn-instalar">INSTALAR</span>
+            </button>
+            <p class="nota-rodape-botao">Sem precisar de administrador.</p>
+          </div>
+        </div>
+
+        <div id="bloco-progresso-instalacao" class="painel-card progresso-container" hidden>
+          <div class="progresso-cabecalho">
+            <div>
+              <h3 id="estado-titulo-instalacao" class="titulo-secao">Instalação em andamento</h3>
+              <strong id="etapa-atual-titulo" class="progresso-etapa-nome">Iniciando instalação…</strong>
+              <p id="etapa-atual-detalhe" class="progresso-detalhe">Conferindo espaço livre e preparando downloads…</p>
+            </div>
+            <span id="progresso-porcentagem" class="progresso-numero" aria-live="polite">0%</span>
+          </div>
+
+          <div class="barra-trilho" role="progressbar" id="barra-instalacao" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progresso da instalação">
+            <div id="barra-preenchimento" class="barra-preenchimento" style="width: 0%"></div>
+          </div>
+        <ol class="lista-etapas-instalacao" id="lista-etapas" aria-label="Etapas da instalação">
+          <li class="item-etapa" data-passo="1">
+            <span class="indicador-passo" aria-hidden="true">1</span>
+            <div class="etapa-textos">
+              <strong>Python 3.12 portátil</strong>
+              <span>Isolado na pasta, sem exigir Python no PC</span>
+            </div>
+            <span class="estado-etapa-badge">Pendente</span>
+          </li>
+          <li class="item-etapa" data-passo="2">
+            <span class="indicador-passo" aria-hidden="true">2</span>
+            <div class="etapa-textos">
+              <strong>Ambiente e bibliotecas</strong>
+              <span>Transcrição, captura de live e visão computacional</span>
+            </div>
+            <span class="estado-etapa-badge">Pendente</span>
+          </li>
+          <li class="item-etapa" data-passo="3">
+            <span class="indicador-passo" aria-hidden="true">3</span>
+            <div class="etapa-textos">
+              <strong>FFmpeg com legendas</strong>
+              <span>Corte de vídeo e queima de legenda vertical</span>
+            </div>
+            <span class="estado-etapa-badge">Pendente</span>
+          </li>
+          <li class="item-etapa" data-passo="4">
+            <span class="indicador-passo" aria-hidden="true">4</span>
+            <div class="etapa-textos">
+              <strong>Placa de vídeo</strong>
+              <span>Detecção automática NVIDIA (CUDA), AMD, Intel ou CPU</span>
+            </div>
+            <span class="estado-etapa-badge">Pendente</span>
+          </li>
+          <li class="item-etapa" data-passo="5">
+            <span class="indicador-passo" aria-hidden="true">5</span>
+            <div class="etapa-textos">
+              <strong>Modelo de voz Whisper</strong>
+              <span>Reconhecimento de fala em português palavra por palavra</span>
+            </div>
+            <span class="estado-etapa-badge">Pendente</span>
+          </li>
+          <li class="item-etapa" data-passo="6">
+            <span class="indicador-passo" aria-hidden="true">6</span>
+            <div class="etapa-textos">
+              <strong>Verificação final</strong>
+              <span>Checagem de integridade para liberar a mesa de corte</span>
+            </div>
+            <span class="estado-etapa-badge">Pendente</span>
+          </li>
+        </ol>
+        </div>
+
+        <!-- Bloco de Erro Claro + Copiar Log -->
+        <div id="bloco-erro-instalacao" class="erro-card" role="alert" hidden>
+          <div class="erro-cabecalho">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <div>
+              <h3 id="erro-instalacao-titulo">A instalação parou antes de terminar</h3>
+              <p id="erro-instalacao-acao" class="erro-acao-texto">Confira a conexão com a internet e clique em Instalar de novo — ele continua de onde parou.</p>
+            </div>
+          </div>
+          <div class="erro-botoes">
+            <button type="button" id="btn-copiar-log-instalacao" class="btn btn-secundario">
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+              </svg>
+              <span id="texto-copiar-log">Copiar log</span>
+            </button>
+            <button type="button" id="btn-tentar-novamente" class="btn btn-primario">
+              <span>Tentar novamente</span>
+            </button>
+          </div>
+        </div>
+
+        <details class="detalhes-log" id="detalhes-log-instalacao">
+          <summary>Ver detalhes técnicos da instalação</summary>
+          <pre id="pre-log-instalacao" class="console-log">Aguardando início…</pre>
+        </details>
+      </section>
+
+      <!-- TELA 2: PAINEL INSTALADO -->
+      <div id="tela-mesa" hidden>
+        <!-- ABA 1: MESA DE CORTE -->
+        <div id="aba-painel-cortar">
+          <!-- Faixa Tally de Status ao Vivo -->
+          <section class="tally-barra" id="barra-tally" aria-live="polite">
+            <div class="tally-esquerda">
+              <span id="indicador-tally" class="tally-pilula tally-parado">
+                <span class="tally-ponto" aria-hidden="true"></span>
+                <span id="texto-sinal-tally">PRONTO</span>
+              </span>
+              <span id="resumo-status-ao-vivo" class="tally-resumo">Cole o link da live abaixo e clique em Cortar.</span>
+            </div>
+            <div class="tally-metricas" id="metricas-sessao" hidden>
+              <div class="metrica-item">
+                <span class="metrica-rotulo">Tempo acompanhado</span>
+                <strong id="metrica-tempo-live" class="metrica-valor">00:00:00</strong>
+              </div>
+              <div class="metrica-item">
+                <span class="metrica-rotulo">Cortes desta sessão</span>
+                <strong id="metrica-cortes-sessao" class="metrica-valor">0</strong>
+              </div>
+              <div class="metrica-item">
+                <span class="metrica-rotulo">Atraso da voz</span>
+                <strong id="metrica-atraso-voz" class="metrica-valor">0 s</strong>
+              </div>
+            </div>
+          </section>
+
+          <!-- Card Principal: Controles de Corte -->
+          <section class="painel-card mesa-controles" aria-labelledby="titulo-mesa-corte">
+            <div class="cabecalho-secao-compacto">
+              <div>
+                <h2 id="titulo-mesa-corte" class="titulo-secao">Configurar corte</h2>
+                <p id="info-hardware-modo" class="subtitulo-hardware">Modo detectado automaticamente pelo instalador</p>
+              </div>
+            </div>
+
+            <form id="form-cortar" novalidate>
+              <div class="campo-grupo">
+                <div class="rotulo-linha">
+                  <label for="campo-link" class="campo-rotulo">Link da live</label>
+                  <button type="button" id="btn-escolher-video" class="btn-link-sutil" title="Selecionar um arquivo de vídeo .mp4 do computador para testar">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <span>Testar com vídeo do PC…</span>
+                  </button>
+                </div>
+                <div class="entrada-wrapper">
+                  <input
+                    type="text"
+                    id="campo-link"
+                    name="link"
+                    class="campo-texto"
+                    placeholder="https://www.twitch.tv/nome_do_canal"
+                    autocomplete="off"
+                    spellcheck="false"
+                    aria-describedby="ajuda-campo-link erro-campo-link"
+                  >
+                </div>
+                <p id="erro-campo-link" class="erro-campo" role="alert" hidden></p>
+                <p id="ajuda-campo-link" class="ajuda-campo">
+                  Aceita link da Twitch, YouTube Live, Kick ou o caminho de um vídeo do PC. Para várias lives de uma vez, separe por espaço ou vírgula.
+                </p>
+              </div>
+
+              <!-- Seletor Visual 9:16: Modelo + Legenda -->
+              <div class="opcoes-duplas">
+                <fieldset class="grupo-escolha">
+                  <legend class="campo-rotulo">Modelo do corte</legend>
+                  <div class="grade-presets" role="radiogroup" aria-label="Modelo do corte">
+                    <label class="card-preset selecionado" data-preset-grupo="modelo">
+                      <input type="radio" name="modelo" value="cam-em-cima" checked>
+                      <span class="miniatura-916" aria-hidden="true">
+                        <span class="mini-cam">CAM</span>
+                        <span class="mini-jogo">JOGO</span>
+                      </span>
+                      <span class="preset-texto">
+                        <strong>Câmera em cima</strong>
+                        <small>Cam no topo, jogo embaixo (padrão)</small>
+                      </span>
+                    </label>
+
+                    <label class="card-preset" data-preset-grupo="modelo">
+                      <input type="radio" name="modelo" value="jogo-fundo-desfocado">
+                      <span class="miniatura-916 mini-blur" aria-hidden="true">
+                        <span class="mini-faixa-blur"></span>
+                        <span class="mini-centro-169">16:9</span>
+                        <span class="mini-faixa-blur"></span>
+                      </span>
+                      <span class="preset-texto">
+                        <strong>Fundo desfocado</strong>
+                        <small>Tela inteira no centro com bordas suaves</small>
+                      </span>
+                    </label>
+
+                    <label class="card-preset" data-preset-grupo="modelo">
+                      <input type="radio" name="modelo" value="jogo-tela-cheia-crop">
+                      <span class="miniatura-916 mini-cheia" aria-hidden="true">
+                        <span class="mini-jogo-cheio">9:16</span>
+                      </span>
+                      <span class="preset-texto">
+                        <strong>Tela cheia</strong>
+                        <small>Preenche todo o quadro vertical</small>
+                      </span>
+                    </label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="grupo-escolha">
+                  <legend class="campo-rotulo">Estilo da legenda</legend>
+                  <div class="grade-presets" role="radiogroup" aria-label="Estilo da legenda">
+                    <label class="card-preset selecionado" data-preset-grupo="legenda">
+                      <input type="radio" name="legenda" value="opus" checked>
+                      <span class="amostra-legenda amostra-opus" aria-hidden="true">
+                        <span>OLHA <mark>ISSO</mark></span>
+                      </span>
+                      <span class="preset-texto">
+                        <strong>Opus</strong>
+                        <small>Palavra falada em destaque forte (padrão)</small>
+                      </span>
+                    </label>
+
+                    <label class="card-preset" data-preset-grupo="legenda">
+                      <input type="radio" name="legenda" value="karaoke">
+                      <span class="amostra-legenda amostra-karaoke" aria-hidden="true">
+                        <span><mark>VAI</mark> AGORA</span>
+                      </span>
+                      <span class="preset-texto">
+                        <strong>Karaokê</strong>
+                        <small>Preenchimento progressivo no ritmo da voz</small>
+                      </span>
+                    </label>
+
+                    <label class="card-preset" data-preset-grupo="legenda">
+                      <input type="radio" name="legenda" value="minimal">
+                      <span class="amostra-legenda amostra-minimal" aria-hidden="true">
+                        <span>que jogada</span>
+                      </span>
+                      <span class="preset-texto">
+                        <strong>Minimal</strong>
+                        <small>Legenda discreta e limpa na base</small>
+                      </span>
+                    </label>
+                  </div>
+                </fieldset>
+              </div>
+
+              <!-- Barra de Ação Principal -->
+              <div class="acoes-corte-rodape">
+                <button type="submit" id="btn-cortar" class="btn btn-primario btn-cortar-principal">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>
+                  </svg>
+                  <span id="texto-btn-cortar">CORTAR</span>
+                </button>
+
+                <button type="button" id="btn-parar" class="btn btn-perigo btn-cortar-principal" hidden>
+                  <svg viewBox="0 0 24 24" width="19" height="19" fill="currentColor" aria-hidden="true">
+                    <rect x="6" y="6" width="12" height="12" rx="2"/>
+                  </svg>
+                  <span id="texto-btn-parar">PARAR SESSÃO</span>
+                </button>
+
+                <button type="button" id="btn-abrir-pasta-geral" class="btn btn-secundario">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
+                  </svg>
+                  <span>Abrir pasta de cortes</span>
+                </button>
+              </div>
+            </form>
+
+            <!-- Erro de Sessão + Copiar Log -->
+            <div id="bloco-erro-sessao" class="erro-card erro-compacto" role="alert" hidden>
+              <div class="erro-cabecalho">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <div>
+                  <strong id="erro-sessao-texto">Erro ao acompanhar a live</strong>
+                </div>
+              </div>
+              <button type="button" id="btn-copiar-log-sessao" class="btn btn-secundario btn-compacto">Copiar log</button>
+            </div>
+
+            <!-- Feed de Eventos ao Vivo -->
+            <details id="painel-atividade-vivo" class="atividade-vivo" hidden>
+              <summary class="atividade-cabecalho">
+                <span class="atividade-titulo">Atividade ao vivo</span>
+                <span id="detalhe-motor-vivo" class="atividade-meta"></span>
+              </summary>
+              <pre id="pre-eventos-sessao" class="console-log console-compacto"></pre>
+            </details>
+          </section>
+
+          <!-- Seção: Lista dos Cortes Prontos -->
+          <section class="secao-cortes" aria-labelledby="titulo-cortes">
+            <div class="cortes-cabecalho">
+              <div>
+                <h2 id="titulo-cortes" class="titulo-secao">Cortes prontos</h2>
+              </div>
+              <span id="contador-cortes-total" class="contador-pilula">0 cortes</span>
+            </div>
+
+            <div id="estado-sem-cortes" class="painel-card vazio-card">
+              <img class="vazio-ilustracao" src="img/estado-sem-cortes.png" width="120" height="120" alt="">
+              <h3>Nenhum corte gerado ainda</h3>
+              <p>Os vídeos aparecem aqui à medida que o CorteLive encontra e corta os melhores momentos.</p>
+            </div>
+
+            <div id="lista-cortes" class="grade-cortes" hidden></div>
+          </section>
+        </div>
+
+        <!-- ABA 2: POSTAR E CONTAS (cortelive.postar + cortelive.autopost + autopost_navegador) -->
+        <div id="aba-painel-contas" class="pilha-secoes" hidden>
+          <section class="painel-card contas-card postiz-card" aria-labelledby="titulo-postiz">
+            <div class="contas-cabecalho">
+              <h2 id="titulo-postiz" class="titulo-secao">Conectar Postiz</h2>
+              <span id="status-postiz" class="selo-etapa" role="status">Verificando conexão…</span>
+            </div>
+            <div id="guia-postiz" class="guia-postiz">
+              <ol>
+                <li>Crie sua conta em <a href="https://postiz.com/" target="_blank" rel="noopener noreferrer">postiz.com</a>.</li>
+                <li>Conecte YouTube, Instagram ou TikTok pelo Postiz.</li>
+                <li>Copie a chave em <strong>Settings → Public API</strong>.</li>
+              </ol>
+              <img src="img/estado-sem-contas.png" width="104" height="104" alt="">
+            </div>
+            <form id="form-postiz" novalidate>
+              <label class="campo-rotulo" for="chave-postiz">Chave de API do Postiz</label>
+              <div class="postiz-conexao">
+                <input type="password" class="campo-texto" id="chave-postiz" autocomplete="off" spellcheck="false" aria-describedby="erro-postiz" required>
+                <button type="submit" class="btn btn-primario" id="btn-conectar-postiz">Conectar</button>
+              </div>
+              <p id="erro-postiz" class="erro-campo" role="alert" hidden></p>
+            </form>
+            <ul id="canais-postiz" class="grade-canais" aria-label="Canais do Postiz" hidden></ul>
+          </section>
+          <!-- 1) Interruptores de Configuração Automática -->
+          <section class="painel-card contas-card" aria-labelledby="titulo-automacao-postar">
+            <div class="contas-cabecalho">
+              <div>
+                <h2 id="titulo-automacao-postar" class="titulo-secao">Automação de postagem</h2>
+                <p class="subtitulo-secao">Escolha se os novos cortes entram sozinhos na fila de publicação.</p>
+              </div>
+            </div>
+
+            <div class="grade-switches">
+              <label class="switch-linha" for="chk-postar-sozinho">
+                <div class="switch-textos">
+                  <strong>Postar sozinho</strong>
+                  <span>Gera título, legenda e hashtags automaticamente assim que cada corte termina</span>
+                </div>
+                <input type="checkbox" role="switch" id="chk-postar-sozinho" class="switch-input">
+              </label>
+
+              <label class="switch-linha" for="chk-revisar-antes">
+                <div class="switch-textos">
+                  <strong>Revisar antes</strong>
+                  <span>Segura o corte na fila abaixo para você editar o título e aprovar antes de publicar</span>
+                </div>
+                <input type="checkbox" role="switch" id="chk-revisar-antes" class="switch-input" checked>
+              </label>
+            </div>
+            <form id="form-limites-postagem" class="limites-postagem">
+              <fieldset id="campos-limites-postagem" class="grupo-escolha">
+                <legend class="campo-rotulo">Limites e canais</legend>
+                <div class="grade-limites-postagem">
+                  <div class="campo-grupo">
+                    <label class="campo-rotulo" for="postar-max-dia">Máximo por dia em cada rede</label>
+                    <input id="postar-max-dia" class="campo-texto" type="number" min="1" step="1" value="48" required>
+                  </div>
+                  <div class="campo-grupo">
+                    <label class="campo-rotulo" for="postar-intervalo-min">Esperar entre posts (minutos)</label>
+                    <input id="postar-intervalo-min" class="campo-texto" type="number" min="0" step="1" value="30" aria-describedby="ajuda-intervalo-postagem" required>
+                    <p id="ajuda-intervalo-postagem" class="ajuda-campo">Use 0 para desativar a espera.</p>
+                  </div>
+                </div>
+                <fieldset class="grupo-escolha canais-postagem-config">
+                  <legend class="campo-rotulo">Canais que recebem os cortes</legend>
+                  <label class="check-pilula">
+                    <input id="postar-todos-canais" type="checkbox" checked>
+                    <span>Todos os canais do Postiz</span>
+                  </label>
+                  <div id="postar-canais-opcoes" class="opcoes-canais-postagem" hidden></div>
+                  <p id="postar-canais-sem-opcoes" class="ajuda-campo">Conecte o Postiz para escolher canais específicos.</p>
+                </fieldset>
+                <label class="switch-linha" for="chk-postar-rodizio">
+                  <span class="switch-textos">
+                    <strong>Rodízio entre contas da mesma rede</strong>
+                    <span>Alterna os envios entre os canais selecionados em cada rede.</span>
+                  </span>
+                  <input type="checkbox" role="switch" id="chk-postar-rodizio" class="switch-input">
+                </label>
+              </fieldset>
+              <p class="subtitulo-secao aviso-prioridade-postagem">Cortes com nota maior saem primeiro; os que sobram esperam até 48 h.</p>
+              <div class="acoes-limites-postagem">
+                <button type="submit" class="btn btn-secundario" id="btn-salvar-limites-postagem">Salvar limites e canais</button>
+                <p id="feedback-limites-postagem" class="ajuda-campo" role="status"></p>
+              </div>
+            </form>
+          </section>
+
+          <!-- 2) Fila de Postagem (cortelive.autopost) -->
+          <section class="painel-card contas-card" aria-labelledby="titulo-fila-autopost">
+            <div class="contas-cabecalho">
+              <div>
+                <h2 id="titulo-fila-autopost" class="titulo-secao">Fila de postagem</h2>
+                <p class="subtitulo-secao">Edite o título e a legenda de cada corte antes de aprovar o envio.</p>
+              </div>
+              <button type="button" id="btn-recarregar-fila" class="btn btn-secundario btn-compacto">
+                <span>Atualizar fila</span>
+              </button>
+            </div>
+
+            <div id="fila-vazia" class="vazio-fila">
+              Nenhum corte aguardando na fila de postagem no momento. Clique em <strong>Postar</strong> em qualquer corte pronto para preparar o envio.
+            </div>
+            <div id="lista-fila-autopost" class="lista-fila" hidden></div>
+          </section>
+
+          <!-- 3) Contas Oficiais (cortelive.postar) -->
+          <details class="painel-card outras-postagens">
+            <summary>Outras formas de postar</summary>
+            <section class="contas-card reserva-corpo" aria-labelledby="titulo-contas">
+            <div class="contas-cabecalho">
+              <div>
+                <h2 id="titulo-contas" class="titulo-secao">Contas conectadas</h2>
+                <p class="subtitulo-secao">Conexão oficial para envio direto ao YouTube Shorts, Instagram Reels e TikTok.</p>
+              </div>
+              <span id="selo-estado-postar" class="selo-etapa">Verificando…</span>
+            </div>
+
+            <div id="aviso-postar-breve" class="aviso-suave" hidden>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+              <p>Módulo de postagem em breve nesta instalação.</p>
+            </div>
+            <p id="aviso-postagem-direta" class="subtitulo-secao" hidden>Para usar as contas oficiais de cada rede, conecte-as pelo Postiz.</p>
+
+            <div class="grade-contas" id="lista-redes-contas">
+              <article class="conta-item" data-rede="youtube">
+                <div class="conta-info">
+                  <div class="conta-icone" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="2" y="5" width="20" height="14" rx="4"/><polygon points="10 9 15 12 10 15 10 9" fill="currentColor"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3>YouTube Shorts</h3>
+                    <p class="conta-status-texto" id="status-rede-youtube">Verificando…</p>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secundario btn-conectar-rede" data-rede="youtube">
+                  <span>Conectar</span>
+                </button>
+              </article>
+
+              <article class="conta-item" data-rede="instagram">
+                <div class="conta-info">
+                  <div class="conta-icone" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3>Instagram Reels</h3>
+                    <p class="conta-status-texto" id="status-rede-instagram">Verificando…</p>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secundario btn-conectar-rede" data-rede="instagram">
+                  <span>Conectar</span>
+                </button>
+              </article>
+
+              <article class="conta-item" data-rede="tiktok">
+                <div class="conta-info">
+                  <div class="conta-icone" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3>TikTok</h3>
+                    <p class="conta-status-texto" id="status-rede-tiktok">Verificando…</p>
+                  </div>
+                </div>
+                <button type="button" class="btn btn-secundario btn-conectar-rede" data-rede="tiktok">
+                  <span>Conectar</span>
+                </button>
+              </article>
+            </div>
+
+            <!-- 4) Reserva pelo navegador (cortelive.autopost_navegador, desligada por padrão) -->
+            <details class="detalhes-reserva" id="detalhes-reserva-nav">
+              <summary>Modo reserva pelo navegador (opcional — desligado por padrão)</summary>
+              <div class="reserva-corpo">
+                <label class="switch-linha" for="chk-reserva-navegador">
+                  <div class="switch-textos">
+                    <strong>Ativar envio reserva pelo navegador</strong>
+                    <span>Usa sessão logada do navegador somente quando você ativar esta opção</span>
+                  </div>
+                  <input type="checkbox" id="chk-reserva-navegador" class="switch-input">
+                </label>
+
+                <div id="controles-reserva-redes" class="grade-contas" hidden>
+                  <div class="conta-item">
+                    <div>
+                      <strong>YouTube (Navegador)</strong>
+                      <p class="conta-status-texto" id="status-nav-youtube">Reserva desligada</p>
+                    </div>
+                    <button type="button" class="btn btn-secundario btn-compacto btn-conectar-nav" data-rede="youtube">Conectar janela</button>
+                  </div>
+                  <div class="conta-item">
+                    <div>
+                      <strong>Instagram (Navegador)</strong>
+                      <p class="conta-status-texto" id="status-nav-instagram">Reserva desligada</p>
+                    </div>
+                    <button type="button" class="btn btn-secundario btn-compacto btn-conectar-nav" data-rede="instagram">Conectar janela</button>
+                  </div>
+                  <div class="conta-item">
+                    <div>
+                      <strong>TikTok (Navegador)</strong>
+                      <p class="conta-status-texto" id="status-nav-tiktok">Reserva desligada</p>
+                    </div>
+                    <button type="button" class="btn btn-secundario btn-compacto btn-conectar-nav" data-rede="tiktok">Conectar janela</button>
+                  </div>
+                </div>
+              </div>
+            </details>
+            </section>
+          </details>
+        </div>
+      </div>
+    </main>
+
+    <footer class="rodape-app">
+      <span id="rodape-pasta">Arquivos salvos na pasta do CorteLive</span>
+      <span id="rodape-atualizacao-info">Mantenha o painel aberto durante a instalação</span>
+    </footer>
+  </div>
+
+  <!-- Modal de Postagem de Corte -->
+  <dialog id="modal-postar" class="modal-dialogo" aria-labelledby="titulo-modal-postar">
+    <form method="dialog" class="modal-interno" id="form-modal-postar">
+      <div class="modal-cabecalho">
+        <h3 id="titulo-modal-postar">Preparar postagem do corte</h3>
+        <button type="button" id="btn-fechar-modal-postar" class="btn-icone" aria-label="Fechar janela de postagem">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div id="corpo-postar-breve" class="modal-corpo" hidden>
+        <p class="texto-apoio">
+          A postagem está indisponível. Clique em <strong>Pasta</strong> no corte para acessar o vídeo.
+        </p>
+      </div>
+
+      <div id="corpo-postar-form" class="modal-corpo" hidden>
+        <input type="hidden" id="postar-caminho-video">
+        <div class="campo-grupo">
+          <label for="postar-titulo" class="campo-rotulo">Título (YouTube Shorts)</label>
+          <input type="text" id="postar-titulo" class="campo-texto" maxlength="100">
+        </div>
+        <div class="campo-grupo">
+          <label for="postar-descricao" class="campo-rotulo">Legenda / Descrição e hashtags</label>
+          <textarea id="postar-descricao" class="campo-texto campo-area" rows="3" placeholder="#cortes #live"></textarea>
+        </div>
+        <fieldset class="grupo-escolha">
+          <legend class="campo-rotulo">Redes de destino</legend>
+          <div class="redes-checks">
+            <label class="check-pilula"><input type="checkbox" name="rede-destino" value="youtube" checked> <span>YouTube Shorts</span></label>
+            <label class="check-pilula"><input type="checkbox" name="rede-destino" value="instagram" checked> <span>Instagram Reels</span></label>
+            <label class="check-pilula"><input type="checkbox" name="rede-destino" value="tiktok" checked> <span>TikTok</span></label>
+          </div>
+        </fieldset>
+        <pre id="postar-progresso-log" class="console-log console-compacto" role="status" hidden></pre>
+      </div>
+
+      <div class="modal-rodape">
+        <button type="button" id="btn-cancelar-postar" class="btn btn-secundario">Fechar</button>
+        <button type="button" id="btn-enfileirar-postar" class="btn btn-secundario" hidden>Pôr na fila (revisar)</button>
+        <button type="submit" id="btn-confirmar-postar" class="btn btn-primario" hidden>Enviar agora</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js"></script>
+  <script>
+    if (window.CORTELIVE_MODO === "dev") {
+      const dev = document.createElement("script");
+      dev.src = "/dev/dev.js";
+      document.body.appendChild(dev);
+    }
+  </script>
+</body>
+</html>

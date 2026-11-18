@@ -8,12 +8,16 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import log
+
+
+_NO_WIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 @dataclass
@@ -129,6 +133,9 @@ class Captura(threading.Thread):
         self.erro_fatal = None      # mensagem pronta quando o link nunca vai funcionar (link inválido)
         self.mensagem = ""          # última situação explicada ao usuário (offline, sem internet…)
         self._ff = None
+        self._fonte_proc = None
+        self._tipo_erro = None
+        self._proc_lock = threading.Lock()
         super().__init__(daemon=True)
         self._reg = log.atual()
         self.estado = "iniciando"
@@ -159,16 +166,35 @@ class Captura(threading.Thread):
         """Processo que escreve o vídeo da live no stdout (ou None para arquivo)."""
         sl = _bin("streamlink")
         if sl:
-            return subprocess.Popen([sl, "--stdout", "--loglevel", "error", "--twitch-disable-ads",
-                                     # best = a maior qualidade que a live oferece (1080p60 quando há);
-                                     # antes pedia 720p60 primeiro e a cam ficava ampliada ~2,7x
-                                     "--hls-live-edge", "2", self.url, "best"],
-                                    # stderr guardado: é ele que diz se o canal está offline, sem internet
-                                    # ou se o link não é de live (antes ia para o lixo e tudo virava "esperando")
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE), "streamlink"
-        yd = _bin("yt-dlp")
-        return subprocess.Popen([yd, "-q", "-f", "best[height<=1080]/best", "-o", "-", self.url],
-                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL), "yt-dlp"
+            # best = a maior qualidade que a live oferece (1080p60 quando há);
+            # antes pedia 720p60 primeiro e a cam ficava ampliada ~2,7x
+            cmd = [sl, "--stdout", "--loglevel", "error", "--twitch-disable-ads",
+                   "--hls-live-edge", "2", self.url, "best"]
+            nome = "streamlink"
+        else:
+            cmd = [_bin("yt-dlp"), "-q", "-f", "best[height<=1080]/best", "-o", "-", self.url]
+            nome = "yt-dlp"
+        if os.name == "nt":
+            # O intermediário entra no próprio Job antes de iniciar o downloader.
+            cmd = [sys.executable, "-m", "cortelive.processos", *cmd]
+        # stderr do streamlink guardado: é ele que diz se o canal está offline, sem internet
+        # ou se o link não é de live (antes ia para o lixo e tudo virava "esperando")
+        err = subprocess.PIPE if nome == "streamlink" else subprocess.DEVNULL
+        return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=err, creationflags=_NO_WIN), nome
+
+    def solicitar_parada(self, motivo="parado pelo usuário"):
+        if not self.acabou.is_set() and not self.motivo_fim:
+            self.motivo_fim = motivo
+        self.parar.set()
+        with self._proc_lock:
+            procs = (self._ff, self._fonte_proc)
+        for p in procs:
+            if p is not None and p.poll() is None:
+                try:
+                    p.kill()
+                except OSError:
+                    pass
 
     # --- laço ---------------------------------------------------------------------------------
     def run(self):
@@ -187,35 +213,9 @@ class Captura(threading.Thread):
         fora_desde = time.time()        # desde quando estamos sem receber nada
         while not self.parar.is_set():
             rodada += 1
-            fonte = None
             n_antes = self._n
-            if self.arquivo:
-                # retomada depois de queda: continua de onde parou
-                extra = ("-re", "-ss", f"{self.fim_live:.3f}") if self.fim_live > 0 else ("-re",)
-                cmd, lista = self._ffmpeg_seg(rodada, str(self.arquivo), extra_in=extra)
-                ff = subprocess.Popen(cmd, stderr=subprocess.PIPE)
-                if rodada == 1:
-                    log.info("Lendo o arquivo em tempo real (1x), como se fosse live.")
-                else:
-                    log.info(f"Captura reiniciada, continuando do ponto {self.fim_live:.0f} s.")
-            else:
-                fonte, nome = self._fonte()
-                cmd, lista = self._ffmpeg_seg(rodada, "pipe:0")
-                ff = subprocess.Popen(cmd, stdin=fonte.stdout, stderr=subprocess.PIPE)
-                fonte.stdout.close()
-                log.debug(f"rodada {rodada} via {nome}")
-            self._ff = ff
-            fim_normal = self._acompanhar(ff, lista, rodada)
-            tipo_erro = None
-            if fonte:
-                fonte.kill()
-                try:
-                    err_fonte = (fonte.stderr.read() or b"").decode("utf-8", "ignore") if fonte.stderr else ""
-                except Exception:
-                    err_fonte = ""
-                if err_fonte.strip():
-                    log.debug(f"{nome}: " + err_fonte.strip()[-600:])
-                tipo_erro = classificar_erro(err_fonte)
+            fim_normal = self._rodada(rodada)
+            tipo_erro = self._tipo_erro
             recebeu = self._n > n_antes
             if tipo_erro == "link_invalido" and not recebeu:
                 self.erro_fatal = mensagem("link_invalido", self.url)
@@ -263,6 +263,66 @@ class Captura(threading.Thread):
             self.parar.wait(espera)
             espera = min(60, espera * 2)
 
+    def _rodada(self, rodada):
+        fonte = ff = None
+        self._tipo_erro = None
+        with tempfile.TemporaryFile() as erros:
+            try:
+                if self.arquivo:
+                    extra = ("-re", "-ss", f"{self.fim_live:.3f}") if self.fim_live > 0 else ("-re",)
+                    cmd, lista = self._ffmpeg_seg(rodada, str(self.arquivo), extra_in=extra)
+                    ff = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stderr=erros, creationflags=_NO_WIN)
+                    with self._proc_lock:
+                        self._ff = ff
+                    if self.parar.is_set():
+                        return False
+                    if rodada == 1:
+                        log.info("Lendo o arquivo em tempo real (1x), como se fosse live.")
+                    else:
+                        log.info(f"Captura reiniciada, continuando do ponto {self.fim_live:.0f} s.")
+                else:
+                    fonte, nome = self._fonte()
+                    with self._proc_lock:
+                        self._fonte_proc = fonte
+                    if self.parar.is_set():
+                        return False
+                    cmd, lista = self._ffmpeg_seg(rodada, "pipe:0")
+                    ff = subprocess.Popen(cmd, stdin=fonte.stdout, stderr=erros, creationflags=_NO_WIN)
+                    fonte.stdout.close()
+                    with self._proc_lock:
+                        self._ff = ff
+                    if self.parar.is_set():
+                        return False
+                    log.debug(f"rodada {rodada} via {nome}")
+                return self._acompanhar(ff, lista, rodada)
+            finally:
+                with self._proc_lock:
+                    self._ff = None
+                    self._fonte_proc = None
+                for p in (ff, fonte):
+                    if p is not None:
+                        if p.poll() is None:
+                            try:
+                                p.kill()
+                            except OSError:
+                                pass
+                        p.wait()
+                if fonte and fonte.stdout:
+                    fonte.stdout.close()
+                if fonte is not None and fonte.stderr:
+                    try:
+                        err_fonte = (fonte.stderr.read() or b"").decode("utf-8", "ignore")
+                    except Exception:
+                        err_fonte = ""
+                    fonte.stderr.close()
+                    if err_fonte.strip():
+                        log.debug(f"{nome}: " + err_fonte.strip()[-600:])
+                    self._tipo_erro = classificar_erro(err_fonte)
+                erros.seek(max(0, erros.tell() - 800))
+                erro = erros.read().decode("utf-8", "ignore").strip()
+                if erro:
+                    log.debug("ffmpeg captura: " + erro)
+
     def _acompanhar(self, ff, lista: Path, rodada: int):
         """Devolve True se o ffmpeg terminou normalmente (fim do arquivo/live)."""
         lidas = 0
@@ -271,8 +331,6 @@ class Captura(threading.Thread):
             vivo = ff.poll() is None
             if vivo and time.time() - ultimo > self.travou_s:
                 log.aviso(f"Captura sem vídeo novo há {self.travou_s} s: reiniciando (watchdog).")
-                ff.kill()
-                ff.wait()
                 return False
             if lista.exists():
                 linhas = lista.read_text(encoding="utf-8", errors="ignore").splitlines()
@@ -305,13 +363,8 @@ class Captura(threading.Thread):
                         self.ao_chegar(seg)
                     self._limpar()
             if not vivo or self.parar.is_set():
-                if vivo:
-                    ff.terminate()
-                err = (ff.stderr.read() or b"").decode("utf-8", "ignore").strip() if ff.stderr else ""
-                if err:
-                    log.debug("ffmpeg captura: " + err[-800:])
                 return ff.returncode == 0 and not self.parar.is_set()
-            time.sleep(0.25)
+            self.parar.wait(0.25)
 
     def _limpar(self):
         with self.lock:

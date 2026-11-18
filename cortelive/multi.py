@@ -71,11 +71,13 @@ def criar_sessao(fonte, arquivo, canal, a):
 class Live:
     """Uma entrada (URL ou arquivo) e as execuções da sessão dela (uma nova a cada reinício)."""
 
-    def __init__(self, fonte, arquivo, canal, a):
+    def __init__(self, fonte, arquivo, canal, a, criar=None):
         self.fonte, self.arquivo, self.canal, self.a = fonte, arquivo, canal, a
         self.s = None
+        self.criar = criar or criar_sessao
         self.reinicios = 0
         self.cortes_antes = 0
+        self.descartados_antes = 0
         self.resumos, self.pastas = [], []
         self.encerrar = False          # tirada da lista / Ctrl+C: não reiniciar
         self.terminou = False
@@ -86,7 +88,7 @@ class Live:
         self._live_s, self._t_avanco = -1.0, time.time()
 
     def iniciar(self):
-        self.s = criar_sessao(self.fonte, self.arquivo, self.canal, self.a)
+        self.s = self.criar(self.fonte, self.arquivo, self.canal, self.a)
         self.s.iniciar()
         self.proximo_inicio, self.nota, self.derrubada = None, "", False
         self._live_s, self._t_avanco = -1.0, time.time()
@@ -101,6 +103,18 @@ class Live:
         aberta = self.s is not None and self.s is not self._fechada
         return self.cortes_antes + ((self.st().get("cortes") or 0) if aberta else 0)
 
+    def cortes_descartados(self):
+        aberta = self.s is not None and self.s is not self._fechada
+        return self.descartados_antes + ((self.st().get("cortes_descartados_parada") or 0) if aberta else 0)
+
+    def parar(self, descartar_cortes=False):
+        self.encerrar = True
+        if self.s:
+            try:
+                self.s.parar(descartar_cortes=descartar_cortes)
+            except TypeError:
+                self.s.parar()
+
     def derrubar(self, motivo="derrubada de propósito (teste)"):
         self.derrubada = True      # a sessão sai "encerrada" quando pedimos parar; vale como queda
         self.s.erro = RuntimeError(motivo)
@@ -113,6 +127,7 @@ class Live:
         self._fechada = self.s
         st = self.st()
         self.cortes_antes += st.get("cortes") or 0
+        self.descartados_antes += st.get("cortes_descartados_parada") or 0
         if st.get("pasta") and st["pasta"] not in self.pastas:
             self.pastas.append(st["pasta"])
         if getattr(self.s, "resumo", None):
@@ -120,8 +135,9 @@ class Live:
 
 
 class Supervisor:
-    def __init__(self, urls, arquivos, lista, a, painel=True, travou_s=TRAVOU_S):
+    def __init__(self, urls, arquivos, lista, a, painel=True, travou_s=TRAVOU_S, repetir=True, criar=None):
         self.a, self.lista, self.painel, self.travou_s = a, lista, painel, travou_s
+        self.repetir, self.criar = repetir, criar
         self.lives = {}
         self.t0 = time.time()
         self.eventos = collections.deque(maxlen=8)
@@ -148,7 +164,7 @@ class Supervisor:
         base, n = canal, 2
         while canal in usados:                 # mesmo canal duas vezes: pasta/cam são por canal
             canal, n = f"{base}_{n}", n + 1
-        lv = Live(fonte, arquivo, canal, self.a)
+        lv = Live(fonte, arquivo, canal, self.a, self.criar)
         self.lives[fonte] = lv
         lv.iniciar()
         self.evento(f"+ {canal} adicionada")
@@ -156,9 +172,7 @@ class Supervisor:
     def remover(self, fonte):
         lv = self.lives.get(fonte)
         if lv and not lv.encerrar:
-            lv.encerrar = True
-            if lv.s:
-                lv.s.parar()
+            lv.parar()
             self.evento(f"- {lv.canal} saiu da lista (encerrando)")
 
     def reler_lista(self, primeira=False):
@@ -211,6 +225,8 @@ class Supervisor:
                 continue
             lv.fechar_execucao()
             if lv.encerrar:
+                lv.terminou = True
+            elif not self.repetir:
                 lv.terminou = True
             elif estado == "erro" or lv.derrubada:
                 espera = ESPERA_REINICIO[min(lv.reinicios, len(ESPERA_REINICIO) - 1)]
@@ -283,13 +299,13 @@ class Supervisor:
             pass
         return self.fechar()
 
-    def fechar(self):
-        print("\nParando todas as lives… terminando os cortes em andamento.", flush=True)
+    def fechar(self, descartar_cortes=False, silencioso=False):
+        if not silencioso:
+            print("\nParando todas as lives… terminando os cortes em andamento.", flush=True)
         for lv in self.lives.values():
-            lv.encerrar = True
-            if lv.s:
-                lv.s.parar()
-        limite = time.time() + FECHAR_S
+            if not lv.terminou:
+                lv.parar(descartar_cortes=descartar_cortes)
+        limite = time.time() + (5 if descartar_cortes else FECHAR_S)
         try:
             for lv in self.lives.values():
                 if lv.s:
@@ -305,6 +321,8 @@ class Supervisor:
             servicos.desligar()
         except Exception:
             pass
+        if silencioso:
+            return 0
         print("=" * 70)
         print("RESUMO POR LIVE")
         total = 0

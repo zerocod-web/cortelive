@@ -98,6 +98,7 @@
           <p id="texto-aviso-sistema" class="faixa-subtexto"></p>
         </div>
       </div>
+      <button type="button" id="btn-enviar-erro-aviso" class="btn btn-secundario btn-compacto btn-enviar-erro" hidden><span class="rotulo-enviar-erro">Enviar erro para o Gabriel</span></button>
       <button type="button" id="btn-fechar-aviso" class="btn-icone" aria-label="Fechar aviso">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
@@ -219,6 +220,7 @@
               </svg>
               <span id="texto-copiar-log">Copiar log</span>
             </button>
+            <button type="button" class="btn btn-secundario btn-enviar-erro"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg><span class="rotulo-enviar-erro">Enviar erro para o Gabriel</span></button>
             <button type="button" id="btn-tentar-novamente" class="btn btn-primario">
               <span>Tentar novamente</span>
             </button>
@@ -416,7 +418,10 @@
                   <strong id="erro-sessao-texto">Erro ao acompanhar a live</strong>
                 </div>
               </div>
-              <button type="button" id="btn-copiar-log-sessao" class="btn btn-secundario btn-compacto">Copiar log</button>
+              <div class="erro-botoes">
+                <button type="button" id="btn-copiar-log-sessao" class="btn btn-secundario btn-compacto">Copiar log</button>
+                <button type="button" class="btn btn-secundario btn-compacto btn-enviar-erro"><span class="rotulo-enviar-erro">Enviar erro para o Gabriel</span></button>
+              </div>
             </div>
 
             <!-- Feed de Eventos ao Vivo -->
@@ -469,6 +474,16 @@
               </button>
             </div>
             <p id="feedback-historico" class="ajuda-campo" role="status" aria-live="polite" hidden></p>
+          </section>
+          <section class="painel-card contas-card" aria-labelledby="titulo-enviar-erro">
+            <div>
+              <h2 id="titulo-enviar-erro" class="titulo-secao">Algo deu errado?</h2>
+              <p class="texto-apoio">Cria um arquivo na Área de Trabalho com o registro do que aconteceu, para você mandar ao Gabriel pelo WhatsApp. Nada é enviado pela internet. Senhas, chaves, e-mails e o seu nome no Windows são apagados do arquivo. Seus vídeos não vão junto.</p>
+            </div>
+            <div>
+              <button type="button" id="btn-enviar-erro-config" class="btn btn-primario btn-enviar-erro"><span class="rotulo-enviar-erro">Enviar erro para o Gabriel</span></button>
+            </div>
+            <p id="feedback-enviar-erro" class="ajuda-campo" role="status" aria-live="polite" hidden></p>
           </section>
         </div>
 

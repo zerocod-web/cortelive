@@ -1177,10 +1177,11 @@ namespace CorteLivePainel
             }
 
             if (rota == "/api/drive/detectar" || rota == "/api/drive/config" ||
-                rota == "/api/drive/enviar" || rota == "/api/cortes/postado")
+                rota == "/api/drive/enviar" || rota == "/api/cortes/postado" ||
+                rota == "/api/enviar-erro")
             {
                 // O envio manual aguarda a cópia integral na pasta sincronizada.
-                int prazoMs = rota == "/api/drive/enviar" && metodo == "POST" ? 15 * 60 * 1000 : 30000;
+                int prazoMs = rota == "/api/drive/enviar" && metodo == "POST" ? 15 * 60 * 1000 : rota == "/api/enviar-erro" ? 90000 : 30000;
                 if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo, prazoMs))
                     EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
                 return;

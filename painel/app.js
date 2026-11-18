@@ -150,6 +150,8 @@
     el("titulo-aviso-sistema").textContent = titulo;
     el("texto-aviso-sistema").textContent = texto;
     el("faixa-aviso-sistema").hidden = false;
+    // Todo aviso de erro oferece o envio do relatório; o aviso de "arquivo salvo" não.
+    el("btn-enviar-erro-aviso").hidden = titulo === "Arquivo salvo" || /^(Aviso|Atualização|O corte entrou)/i.test(titulo);
   }
 
   // --- Abas ---
@@ -182,6 +184,41 @@
     feedbackAcao(aviso, res.ok === false
       ? (res.erro || "Não consegui apagar o histórico. Tente de novo.")
       : (res.mensagem || "Histórico apagado. Seus cortes continuam onde estavam."), res.ok === false);
+  }
+
+  // --- Enviar erro para o Gabriel: gera um .zip na Área de Trabalho (nada vai pela internet) ---
+  let gerandoRelatorioErro = false;
+  async function enviarErroParaGabriel() {
+    if (gerandoRelatorioErro) return;
+    gerandoRelatorioErro = true;
+    const botoes = Array.from(document.querySelectorAll(".btn-enviar-erro"));
+    const rotulos = botoes.map((b) => b.querySelector(".rotulo-enviar-erro"));
+    botoes.forEach((b, i) => { b.disabled = true; if (rotulos[i]) rotulos[i].textContent = "Juntando os registros…"; });
+    const feedback = el("feedback-enviar-erro");
+    feedbackAcao(feedback, "");
+    const s = (estadoAtual && estadoAtual.sessao) || {};
+    const msgErro = [s.erro, estadoAtual && estadoAtual.instalacao && estadoAtual.instalacao.erro].filter(Boolean).join(" | ");
+    const corpo = {
+      mensagem_erro: msgErro,
+      estado: estadoAtual ? {
+        versao: estadoAtual.versao, instalado: estadoAtual.instalado, instalacao: estadoAtual.instalacao,
+        sessao: Object.assign({}, s, { log_completo: undefined, log_recente: undefined })
+      } : null,
+      log_painel: [s.log_completo, estadoAtual && estadoAtual.instalacao && estadoAtual.instalacao.log_recente]
+        .filter(Boolean).map((t) => Array.isArray(t) ? t.join("
+") : String(t)).join("
+---
+")
+    };
+    const res = await api("/api/enviar-erro", "POST", corpo);
+    botoes.forEach((b, i) => { b.disabled = false; if (rotulos[i]) rotulos[i].textContent = "Enviar erro para o Gabriel"; });
+    gerandoRelatorioErro = false;
+    const falhou = res.ok === false;
+    const texto = falhou
+      ? (res.erro || "Não consegui juntar o arquivo. Tente de novo.")
+      : (res.mensagem || "Arquivo salvo na Área de Trabalho. Mande para o Gabriel pelo WhatsApp.");
+    feedbackAcao(feedback, texto, falhou);
+    mostrarAvisoSistema(falhou ? "Não deu para salvar o arquivo" : "Arquivo salvo", texto);
   }
 
   // --- Tela de Instalação ---
@@ -1551,6 +1588,7 @@
     el("aba-btn-contas").addEventListener("click", () => alternarAba("contas"));
     el("aba-btn-config").addEventListener("click", () => alternarAba("config"));
     el("btn-apagar-historico").addEventListener("click", apagarHistorico);
+    document.querySelectorAll(".btn-enviar-erro").forEach((b) => b.addEventListener("click", enviarErroParaGabriel));
     el("form-postiz").addEventListener("submit", conectarPostiz);
     el("filtro-postagem").addEventListener("click", selecionarFiltroPostagem);
     el("btn-detectar-drive").addEventListener("click", detectarDrive);

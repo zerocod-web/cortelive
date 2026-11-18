@@ -508,6 +508,22 @@ class ApiPainel:
         )
         return {"video": str(video), "canal": canal, "metadados": dados}
 
+    def enviar_erro(self, corpo):
+        """Junta logs/versão/máquina num .zip na Área de Trabalho (sem segredos, sem internet) e abre a pasta."""
+        if str(self.raiz) not in sys.path:
+            sys.path.insert(0, str(self.raiz))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        try:
+            import relatorio_erro
+            try:
+                pasta = self.pasta_cortes()
+            except ErroApi:
+                pasta = self.raiz / "cortes"
+            r = relatorio_erro.gerar(self.raiz, pasta, corpo if isinstance(corpo, dict) else {})
+        except OSError:
+            raise ErroApi(502, "Não consegui salvar o arquivo na Área de Trabalho. Confira se há espaço livre.") from None
+        return {**r, "mensagem": "Arquivo salvo na Área de Trabalho. Mande para o Gabriel pelo WhatsApp."}
+
     def responder(self, metodo, alvo, corpo):
         try:
             dados = self._rota(metodo, alvo, corpo)
@@ -530,7 +546,7 @@ class ApiPainel:
         acao = acoes[0] if len(acoes) == 1 else ""
         consultas = {("cortes", ""), ("miniatura", ""), ("postar", "status"), ("autopost", "fila"),
                      ("drive", "detectar")}
-        acoes_post = {("historico", "apagar"), ("abrir-video", ""), ("abrir-pasta", ""), ("postar", "conectar"),
+        acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""), ("postar", "conectar"),
                       ("postar", "conectar-postiz"), ("postar", "enviar"),
                       ("drive", "enviar"), ("cortes", "postado"),
                       *(("autopost", a) for a in ("gerar", "editar", "aprovar", "rejeitar", "processar",
@@ -554,6 +570,8 @@ class ApiPainel:
             return self.miniatura(self.dentro_dos_cortes(texto))
         if grupo == "historico":
             return self.apagar_historico(corpo)
+        if grupo == "enviar-erro":
+            return self.enviar_erro(corpo)
         if grupo == "postar":
             return self.postar(acao, corpo)
         if grupo == "autopost":

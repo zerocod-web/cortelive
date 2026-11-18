@@ -117,6 +117,23 @@ def _pele(p):
 
 
 PELE_MIN = 0.15
+_OLHOS = []
+
+
+def _olhos(p):
+    """True se o detector de olhos acha olho na metade de cima do recorte. Salva o rosto sob luz colorida forte
+    (neon magenta/azul tira o tom de pele: mira_irl 18/11/2026 deu 0 de pele, mas tem olhos)."""
+    import cv2
+    if not _OLHOS:
+        _OLHOS.append(cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml"))
+    if p.size == 0 or p.shape[0] < 24:
+        return False
+    g = cv2.cvtColor(p[: int(p.shape[0] * 0.6)], cv2.COLOR_BGR2GRAY)
+    return len(_OLHOS[0].detectMultiScale(g, 1.1, 3, minSize=(max(8, p.shape[1] // 10),) * 2)) > 0
+
+
+def _parece_rosto(p):
+    return _pele(p) >= PELE_MIN or _olhos(p)
 
 
 def _na_borda(cam, w, h, tol=0.15):
@@ -144,18 +161,49 @@ def _agrupar(achados, w, h, tx, ty):
             float(np.median([g[2] for g in mesmos])), float(np.median([g[3] for g in mesmos])), votos)
 
 
-def _rosto_estavel(achados, w, h, imgs=None):
+def _filtrar(achados, imgs, tx=0.03, ty=0.04, minimo=0.2):
+    """Tira 'rostos' desenhados no jogo (parados) e os grupos que não parecem rosto. A decisão é por GRUPO de
+    aparições no mesmo ponto (a luz muda quadro a quadro; um grupo vale se >= 20% das aparições têm tom de pele ou
+    olhos: ícone da barra de habilidades 0%, pessoa sob neon passa pelos olhos)."""
+    h, w = imgs[0].shape[:2]
+    fixos = {f for lista in achados for f in lista if _rosto_parado(imgs, f)}
+    achados = [[f for f in lista if f not in fixos] for lista in achados]
+    grupos = []
+    for k, lista in enumerate(achados):
+        for f in lista:
+            cx, cy = f[0] + f[2] / 2, f[1] + f[3] / 2
+            for g in grupos:
+                if abs(g[0] - cx) < tx * w and abs(g[1] - cy) < ty * h:
+                    g[2].append((k, f))
+                    break
+            else:
+                grupos.append([cx, cy, [(k, f)]])
+    ruins = set()
+    for _, _, ms in grupos:
+        ok = sum(1 for k, f in ms if _parece_rosto(imgs[k][max(0, f[1]):f[1] + f[3], max(0, f[0]):f[0] + f[2]]))
+        if ok < minimo * len(ms):
+            ruins |= {(k, f) for k, f in ms}
+    return [[f for f in lista if (k, f) not in ruins] for k, lista in enumerate(achados)]
+
+
+def _rosto_estavel(achados, w, h, imgs=None, minimo=0.2):
     """O rosto que aparece no mesmo ponto em >= metade dos quadros. -> (cx, cy, fw, fh, votos) ou None.
-    Com imgs: descarta 'rostos' desenhados no jogo (idênticos em todos os quadros) antes de votar, e tenta de novo
-    com tolerância maior (pessoa se mexe na cam; liviomateus 18/11/2026: o ícone parado ganhou da pessoa)."""
+    Com imgs: descarta 'rostos' desenhados no jogo (idênticos em todos os quadros) e o que não parece rosto antes de
+    votar, e tenta de novo com tolerância maior (pessoa se mexe na cam; liviomateus 18/11/2026: o ícone parado ganhou
+    da pessoa)."""
     if imgs is not None:
-        fixos = {f for lista in achados for f in lista if _rosto_parado(imgs, f)}
-        achados = [[f for f in lista if f not in fixos] for lista in achados]
-        # rosto de verdade tem tom de pele: tira ícone de habilidade, arma de inventário, etc.
-        achados = [[f for f, i in ((f, imgs[k]) for f in lista)
-                    if _pele(i[max(0, f[1]):f[1] + f[3], max(0, f[0]):f[0] + f[2]]) >= PELE_MIN]
-                   for k, lista in enumerate(achados)]
+        achados = _filtrar(achados, imgs, minimo=minimo)
     return _agrupar(achados, w, h, 0.03, 0.04) or _agrupar(achados, w, h, 0.10, 0.12)
+
+
+def _solo_cam(achados, w, h, imgs):
+    """Layout 'só cam' (Just Chatting): rosto GRANDE (>= 18% da altura), no meio da tela, em metade dos quadros.
+    Aí a câmera é a tela inteira. Rosto de cam de canto fica em 5–15% da altura (medido em 25 lives)."""
+    grandes = [[f for f in lista if f[3] >= 0.18 * h and 0.2 * w <= f[0] + f[2] / 2 <= 0.8 * w] for lista in achados]
+    if sum(1 for l in grandes if l) < max(4, len(achados) * 3 // 4):
+        return None
+    r = _agrupar(_filtrar(grandes, imgs, 0.07, 0.09), w, h, 0.07, 0.09)
+    return (0, 0, w // 2 * 2, h // 2 * 2) if r else None
 
 
 LARG_ANALISE = 640   # largura da análise de movimento (3 px de erro na borda numa live 1920)
@@ -474,15 +522,36 @@ def detectar(arquivos, prop=1080 / 640):
         return None
     h, w = imgs[0].shape[:2]
     achados = [[tuple(int(v) for v in f) for f in rostos(i)] for i in imgs]
-    rosto = _rosto_estavel(achados, w, h, imgs)
-    if not rosto:
-        achados2 = [rostos_sensivel(i) for i in imgs]
-        rosto = _rosto_estavel(achados2, w, h, imgs)
-        if rosto:
-            ULTIMO["rosto_sensivel"] = True
-    if not rosto:
+    solo = _solo_cam(achados, w, h, imgs)
+    if solo:
+        ULTIMO["solo_cam"] = True
+        ULTIMO["final"] = solo
+        return solo
+    cams = None
+    achados2 = None
+    for passada in ("normal", "sensivel"):
+        if passada == "sensivel":
+            achados2 = [rostos_sensivel(i) for i in imgs]
+        lista = achados if passada == "normal" else achados2
+        for _ in range(1):     # só o melhor grupo de rosto (tentar o 2º trouxe falso positivo: leokaos, tftoddy)
+            rosto = _rosto_estavel(lista, w, h, imgs, 0.2 if passada == "normal" else 0.5)
+            if not rosto:
+                break
+            ULTIMO.pop("motivo", None)
+            if passada == "sensivel":
+                ULTIMO["rosto_sensivel"] = True
+            cams = _cam_do_rosto(imgs, rosto, w, h, prop)
+            if cams:
+                return cams
+            cx, cy = rosto[0], rosto[1]
+            lista = [[f for f in l if not (abs(f[0] + f[2] / 2 - cx) < 0.10 * w and abs(f[1] + f[3] / 2 - cy) < 0.12 * h)]
+                     for l in lista]
+    if "motivo" not in ULTIMO:
         ULTIMO["motivo"] = "nenhum rosto fixo"
-        return None
+    return None
+
+
+def _cam_do_rosto(imgs, rosto, w, h, prop):
     ULTIMO["rosto"] = [round(v) for v in rosto]
     cam, bordas, _ = _overlay(imgs, rosto)
     ULTIMO["overlay"] = cam

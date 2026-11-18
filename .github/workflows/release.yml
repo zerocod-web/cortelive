@@ -1,0 +1,88 @@
+name: Lancar Versao
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Empacotar e publicar Release
+    runs-on: windows-latest
+    steps:
+      - name: Baixar codigo do repositorio
+        uses: actions/checkout@v4
+
+      - name: Conferir se a tag bate com o VERSION
+        shell: pwsh
+        env:
+          TAG_ATUAL: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:TAG_ATUAL.Trim()
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+            Write-Error "Tag invalida '$tag'. Use o formato vX.Y.Z (exemplo: v0.1.1)."
+            exit 1
+          }
+          if (-not (Test-Path -LiteralPath 'VERSION')) {
+            Write-Error 'Arquivo VERSION nao encontrado na raiz do repositorio.'
+            exit 1
+          }
+          $versao = (Get-Content -LiteralPath 'VERSION' -Raw -Encoding UTF8).Trim()
+          $esperada = "v$versao"
+          if ($tag -cne $esperada) {
+            Write-Error "A tag '$tag' nao bate com o arquivo VERSION ('$versao' -> esperado '$esperada'). Atualize o VERSION antes de criar a tag."
+            exit 1
+          }
+          Write-Host "OK: tag '$tag' confere com VERSION ('$versao')."
+
+      - name: Gerar cortelive_amigos.zip e .sha256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./instalador/empacotar.ps1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "empacotar.ps1 falhou com codigo $LASTEXITCODE."
+            exit 1
+          }
+          $zip = 'dist/cortelive_amigos.zip'
+          $sha = 'dist/cortelive_amigos.zip.sha256'
+          if (-not (Test-Path -LiteralPath $zip) -or -not (Test-Path -LiteralPath $sha)) {
+            Write-Error 'Os artefatos dist/cortelive_amigos.zip e .sha256 nao foram gerados.'
+            exit 1
+          }
+          $hashReal = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToUpperInvariant()
+          $hashArq  = (((Get-Content -LiteralPath $sha -Raw -Encoding ASCII).Trim()) -split '\s+')[0].ToUpperInvariant()
+          if ($hashReal -ne $hashArq) {
+            Write-Error "SHA-256 divergente apos empacotar ($hashReal != $hashArq)."
+            exit 1
+          }
+          Write-Host "Pacote verificado: $zip (SHA-256 $hashReal)"
+
+      - name: Criar Release no GitHub com zip e sha256
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_ATUAL: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:TAG_ATUAL.Trim()
+          $arquivos = @('dist/cortelive_amigos.zip', 'dist/cortelive_amigos.zip.sha256')
+          foreach ($opc in @('dist/CorteLive.exe', 'dist/CorteLive.exe.sha256')) {
+            if (Test-Path -LiteralPath $opc) {
+              $arquivos += $opc
+            }
+          }
+          & gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "A Release $tag ja existe. Os arquivos publicados serao preservados."
+            exit 0
+          }
+          & gh release create $tag @arquivos --title "CorteLive $tag" --generate-notes --verify-tag
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Falha ao publicar a Release $tag no GitHub."
+            exit 1
+          }

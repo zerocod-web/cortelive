@@ -96,7 +96,10 @@ jobs:
               exit 1
             }
           }
-          foreach ($opc in @('dist/CorteLive.exe', 'dist/CorteLive.exe.sha256')) {
+          Copy-Item -LiteralPath 'Atualizar CorteLive.bat' -Destination 'dist/Atualizar.CorteLive.bat' -Force
+          $hb = (Get-FileHash -LiteralPath 'dist/Atualizar.CorteLive.bat' -Algorithm SHA256).Hash
+          "$hb  Atualizar CorteLive.bat" | Set-Content -LiteralPath 'dist/Atualizar.CorteLive.bat.sha256' -Encoding ASCII
+          foreach ($opc in @('dist/CorteLive.exe', 'dist/CorteLive.exe.sha256', 'dist/Atualizar.CorteLive.bat', 'dist/Atualizar.CorteLive.bat.sha256')) {
             if (Test-Path -LiteralPath $opc) {
               $arquivos += $opc
             }

@@ -159,7 +159,9 @@ class Sinais:
             # palavra sozinha é fraca: só vale cheia junto com volume alto ou chat
             combina = vz >= self.cfg.get("combina_volume_z", 1.15) or cz >= 1.0
             peso_fala = 1.0 if combina else (0.6 if any("risada" in m for m in fm) else 0.35)
-            nota = min(vz, 3.0) * 0.9 + fp * peso_fala + min(cz, 3.0) * 0.8
+            # volume sozinho sem fala nem chat não é momento do streamer (é tiro/motor/barulho do jogo)
+            peso_vol = 0.9 if (fp >= 0.3 or cz >= 0.5) else 0.55
+            nota = min(vz, 3.0) * peso_vol + fp * peso_fala + min(cz, 3.0) * 0.8
             mot = []
             if vz >= 1.2:
                 mot.append(f"volume alto ({vz:.1f}x acima do normal)")
@@ -262,9 +264,15 @@ com sem que se eu tu ele ela nos vos eles elas me te lhe mim ti vc voce isso ess
 la ta to tô tá ne né mas porque pq quando como onde tipo ate até ja já so só mais mano cara velho vei véi irmao irmão
 ah oh ô eh hum uh é foi vai ser ter tem""".split())
 
+# palavras e conectores subordinativos que deixam o título com cara de corte no meio da frase
+VAZIAS_INICIO = set("""a o as os um uma uns umas e ou de do da dos das em no na nos nas pra pro pras pros para por pelo pela
+com que se como quando onde tipo entao então dai daí ai aí ne né mas porque pq ja já so só ah oh ô eh hum uh
+mano cara velho vei véi eita vish""".split())
+CLITICOS = ("-se", "-te", "-me", "-nos", "-vos", "-lhe", "-lhes")
+
 
 def _limpa_titulo(ws):
-    """Tira pontuação, repetição colada ('mano mano') e palavras vazias do fim. -> lista de palavras."""
+    """Tira pontuação, repetição colada ('mano mano'), conectores do início e palavras vazias do fim."""
     t = [re.sub(r"[.,;:…\"]+", "", w).strip() for w in ws]
     t = [w for w in t if w]
     out = []
@@ -272,6 +280,12 @@ def _limpa_titulo(ws):
         if not out or _norm(w).strip("!?") != _norm(out[-1]).strip("!?"):
             out.append(w)
     while out and _norm(out[-1]).strip("!?") in VAZIAS:
+        out.pop()
+    while len(out) > 3 and _norm(out[0]).strip("!?") in VAZIAS_INICIO:
+        out.pop(0)
+    while out and _norm(out[-1]).strip("!?") in VAZIAS:
+        out.pop()
+    if out and len(out) > 3 and any(out[-1].lower().endswith(sfx) for sfx in CLITICOS):
         out.pop()
     return out
 
@@ -281,9 +295,9 @@ def _conteudo(ws):
 
 
 def titulo_heuristico(texto, motivos, palavras=None, t_evento=None, quentes=()):
-    """Usa até 8 palavras da frase mais forte perto do momento (palavra-gatilho, exclamação, risada).
-    Precisa de pelo menos 3 palavras de conteúdo e terminar em palavra de conteúdo; senão tenta a próxima
-    frase mais forte; por fim a primeira frase completa do corte."""
+    """Usa até 10 palavras da frase mais forte perto do momento (palavra-gatilho, exclamação, risada).
+    Preserva orações completas sem cortar na 8ª palavra em verbo/conector; limpa conectores soltos do início;
+    garante pontuação adequada."""
     if palavras and t_evento is not None:
         perto = [w for w in palavras if t_evento - 10 <= w["s"] <= t_evento + 8]
         if perto:
@@ -292,32 +306,34 @@ def titulo_heuristico(texto, motivos, palavras=None, t_evento=None, quentes=()):
             def forca(i):
                 w = perto[i]
                 n = re.sub(r"[^\w ]", "", _norm(w["w"]))
-                f = 3.0 if n in q else 0.0
-                f += 2.0 if RISADA.match(n) else 0.0
-                f += 1.5 if "!" in w["w"] or "?" in w["w"] else 0.0
-                return f - abs(w["s"] - t_evento) / 6
+                f = 3.5 if n in q else 0.0
+                f += 2.5 if RISADA.match(n) else 0.0
+                f += 2.0 if "!" in w["w"] or "?" in w["w"] else 0.0
+                return f - abs(w["s"] - t_evento) / 5
             vistos = set()
-            for i in sorted(range(len(perto)), key=forca, reverse=True)[:12]:
+            for i in sorted(range(len(perto)), key=forca, reverse=True)[:14]:
                 # frase em volta do gatilho, sem atravessar pausa longa nem fim de frase anterior
                 a = i
-                while a > 0 and i - a < 4 and perto[a]["s"] - perto[a - 1]["e"] < 0.7 \
+                while a > 0 and i - a < 5 and perto[a]["s"] - perto[a - 1]["e"] < 0.7 \
                         and perto[a - 1]["w"][-1:] not in ".!?":
                     a -= 1
                 if a in vistos:
                     continue
                 vistos.add(a)
-                frase = [w["w"] for w in perto[a:a + 9]]
+                frase = [w["w"] for w in perto[a:a + 12]]
                 for k, t in enumerate(frase):   # para no fim de frase depois do gatilho
                     if k >= i - a and t[-1:] in ".!?":
                         frase = frase[:k + 1]
                         break
-                ws = _limpa_titulo(frase)[:8]
-                ws = _limpa_titulo(ws)
+                else:
+                    if len(frase) > 9:
+                        frase = frase[:9]
+                ws = _limpa_titulo(frase)
                 if _conteudo(ws) >= 3:
                     t = " ".join(ws)
                     return (t[0].upper() + t[1:])[:70]
     for f in re.split(r"(?<=[.!?…])\s+", texto):
-        ws = _limpa_titulo(f.split()[:8])
+        ws = _limpa_titulo(f.split()[:10])
         if _conteudo(ws) >= 3:
             t = " ".join(ws)
             return (t[0].upper() + t[1:])[:70]
@@ -388,37 +404,45 @@ def duracao_maxima(cfg):
 def _score_ini(a, b, gap, t, hook):
     sc = 0.0
     term = a is None or _terminal(a["w"])
-    sc += 3.0 if term else 0.0
-    sc += 1.5 if gap >= 0.6 else 0.0
+    sc += 3.5 if term else 0.0
+    sc += 1.5 if gap >= 0.5 else 0.0
     sc += 0.8 * min(gap, 1.2)
     if not term:
         if _lim(a["w"]) in SOLTAS or a["w"].rstrip().endswith(","):
-            sc -= 3.0
+            sc -= 3.5
         if _lim(b["w"]) in CONECTORES:
-            sc -= 2.0
+            sc -= 2.5
         if b["w"][:1].islower() and gap < 0.6:
             sc -= 2.0
+    if _lim(b["w"]) in SOLTAS:   # abrir em artigo/preposição solto ('uma', 'até') soa cortado
+        sc -= 1.5
     if b["w"][:1].islower() is False and b["w"][:1].isalpha():
-        sc += 0.5
+        sc += 0.8
     if gap < 0.15:
         sc -= 6.0
-    sc += hook
-    sc -= 0.1 * abs((t - b["s"]) - 12.0)
+    sc += hook * 1.5
+    sc -= 0.08 * abs((t - b["s"]) - 8.0)
     return sc
 
 
 def _score_fim(a, b, gap, t, alvo):
-    sc = 3.0 if _terminal(a["w"]) else 0.0
-    sc += 1.5 if gap >= 0.6 else 0.0
+    term = _terminal(a["w"])
+    sc = 3.5 if term else 0.0
+    if gap >= 0.5:
+        sc += 2.0
     sc += 0.8 * min(gap, 1.2)
-    if not _terminal(a["w"]):
+    if not term:
         if _lim(a["w"]) in SOLTAS:
-            sc -= 3.0
+            sc -= 4.0
         if a["w"].rstrip().endswith(","):
-            sc -= 2.0
+            sc -= 2.5
     if gap < 0.15:
         sc -= 6.0
-    sc -= 0.12 * abs((a["e"] - t) - alvo)
+    # Fechamento pós-reação: se já fechou frase e há pausa/fim, prioriza fechar limpo sem cauda morta
+    if term and (b is None or gap >= 0.8):
+        sc += 2.5
+    else:
+        sc -= 0.08 * abs((a["e"] - t) - alvo)
     return sc
 
 
@@ -444,11 +468,17 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
         while i > 0 and antes[i]["s"] - antes[i - 1]["e"] < bur:
             i -= 1
         piso = max(piso, antes[i]["s"] - 0.5)
+
+    amin_cand = amin
+    cands_pre = [b for b in P if piso - 0.3 <= b["s"] <= t - amin]
+    if not cands_pre and antes:
+        amin_cand = max(1.8, min(amin, t - antes[-1]["s"]))
+
     cand = []
     for k, b in enumerate(P):
         a = P[k - 1] if k else None
         gap = b["s"] - a["e"] if a else 9.0
-        if not (piso - 0.3 <= b["s"] <= t - amin):
+        if not (piso - 0.3 <= b["s"] <= t - amin_cand):
             continue
         if a is not None and gap >= 9.0:
             a = None
@@ -457,16 +487,26 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
             hook = 1.0
         cand.append((_score_ini(a, b, gap, t, hook), a, b, gap))
     ini, lim_ini = None, None
-    cand = [c for c in cand if c[2]["s"] - min(0.3, c[3] * 0.5) >= min_ini]
+    cand = [c for c in cand if c[2]["s"] - min(0.3, c[3] * 0.4) >= min_ini]
     if cand:
         sc, a, b, gap = max(cand, key=lambda c: c[0])
-        ini = b["s"] - min(0.3, gap * 0.5)
+        ini = b["s"] - min(0.25, gap * 0.4)
         m = min(0.08, gap / 3)
-        lim_ini = (a["e"] + m, b["s"] - m) if a is not None and gap < 9.0 else (b["s"] - 0.5, b["s"] - 0.08)
+        lim_ini = (max(a["e"] + m, b["s"] - 0.4), b["s"] - m) if a is not None and gap < 9.0 else (b["s"] - 0.4, b["s"] - 0.08)
     else:
-        ini = max(piso, t - 12.0, min_ini)
+        if antes:
+            ini = max(piso, antes[0]["s"] - 0.4, min_ini)
+        else:
+            ini = max(piso, t - 6.0, min_ini)
+        lim_ini = None
     ini = max(ini, min_ini, 0.0)
-    if ini > t - 3.0:       # sem lugar para abrir o corte antes do pico (colado no corte anterior/emenda)
+
+    # Gancho imediato nos primeiros 2s: elimina silêncio inicial morto > 0.8s antes da primeira fala
+    primeira_pal = next((w for w in P if w["s"] >= ini - 0.1), None)
+    if primeira_pal and (primeira_pal["s"] - ini) > 0.8:
+        ini = max(min_ini, primeira_pal["s"] - 0.35)
+
+    if ini > t - 1.5:       # sem lugar para abrir o corte antes do pico (colado no corte anterior/emenda)
         return {"ini": ini, "fim": ini, "lim_ini": None, "lim_fim": None, "buraco_frac": 1.0, "recusado": True}
 
     # --- fim: depois da reação, em frase que fecha, sem passar de uma cauda muda
@@ -488,22 +528,39 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
             continue
         gap = (b["s"] - a["e"]) if b else 9.0
         candf.append((_score_fim(a, b, gap, t, depois), a, b, gap))
+    if not candf and not longo:     # nada fecha depois da reação mínima: aceita frase que fecha logo depois do pico
+        for k, a in enumerate(P):
+            b = P[k + 1] if k + 1 < len(P) else None
+            if t + 2.5 <= a["e"] <= teto and _terminal(a["w"]):
+                gap = (b["s"] - a["e"]) if b else 9.0
+                candf.append((_score_fim(a, b, gap, t, depois), a, b, gap))
     longos = [c for c in candf if c[1]["e"] - ini >= soft]
     if longo and not longos:        # nenhuma frase que fecha sustenta 61 s: descarta (nunca estica)
         return {"ini": ini, "fim": ini, "lim_ini": None, "lim_fim": None, "buraco_frac": 1.0, "recusado": True}
-    candf = longos or candf
+    candf = longos if longo else (candf or [])
     if candf:
         sc, a, b, gap = max(candf, key=lambda c: c[0])
-        fim = a["e"] + min(0.3, gap * 0.5)
+        fim = a["e"] + min(0.4, gap * 0.4)
         m = min(0.08, gap / 3)
-        lim_fim = (a["e"] + m, b["s"] - m) if b is not None else (a["e"] + 0.08, a["e"] + 0.5)
+        lim_fim = (a["e"] + m, min(b["s"] - m, a["e"] + 0.5)) if b is not None else (a["e"] + 0.08, a["e"] + 0.5)
     else:
-        fim, lim_fim = t + depois, None
+        fim, lim_fim = min(teto, t + depois), None
     fim = min(fim, hi, ini + dmax)
+
+    # Eliminação de cauda morta: se fim - ini < soft e NÃO é modo longo:
+    # em vez de esticar com silêncio artificial (ini + soft), tenta recuar ini em fala anterior
+    # ou fecha limpo na piada sem adicionar silêncio morto!
     if fim - ini < soft:
-        if longo:           # nunca estica com silêncio/repetição: o trecho não chega a 61 s -> descarta
+        if longo:
             return {"ini": ini, "fim": ini, "lim_ini": None, "lim_fim": None, "buraco_frac": 1.0, "recusado": True}
-        fim, lim_fim = min(hi, ini + soft), None
+        falas_antes = [w for w in P if min_ini <= w["s"] < ini]
+        if falas_antes and (ini - falas_antes[-1]["e"]) < bur:
+            ini_cand = max(min_ini, fim - soft)
+            p_cand = next((w for w in P if w["s"] >= ini_cand - 0.1), None)
+            if p_cand:
+                ini = max(min_ini, p_cand["s"] - 0.35)
+        # Não empurrar fim com silêncio vazio!
+
     # fração do corte em buracos mudos (>= 3 s sem palavra)
     pal = sorted((max(w["s"], ini), min(w["e"], fim)) for w in P if w["e"] > ini and w["s"] < fim)
     mudo, cur = 0.0, ini

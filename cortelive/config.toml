@@ -13,7 +13,7 @@ depois_min = 7              # o fim fica pelo menos tantos segundos depois do pi
 buraco_max_s = 2.8          # buraco sem fala: o início não recua além dele
 cauda_max_s = 2.0           # silêncio depois da reação: o corte termina antes dele
 cortes_longos = false      # true = só cortes de 61 s ou mais (monetização); trecho mais curto é descartado
-duracao_piso_frac = 0.6     # corte enxuto: pode ficar até 60% de duracao_min se o resto seria silêncio
+duracao_piso_frac = 0.35    # corte enxuto: pode ficar até 60% de duracao_min se o resto seria silêncio
 modelo = "cam-em-cima"      # cam-em-cima | jogo-fundo-desfocado | jogo-tela-cheia-crop
 # cam-em-cima sem câmera identificada no trecho nunca sai: o corte troca sozinho para o 1º da lista que servir
 recuo_sem_cam = ["jogo-fundo-desfocado", "jogo-tela-cheia-crop"]   # desfocado primeiro, tela cheia em segundo

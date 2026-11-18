@@ -331,6 +331,12 @@
     return /pouco espaço|disco quase lotado|libere espaço/i.test(String(msg));
   }
 
+  // Aviso "Seu PC aguenta bem até N lives..." que o motor põe na frente da mensagem quando há lives demais.
+  function avisoCapacidade(msg) {
+    const m = /Seu PC aguenta bem até \d+ lives?;[^·]*/.exec(String(msg || ""));
+    return m ? m[0].trim() : "";
+  }
+
   function formatarTempoAtras(seg) {
     const s = Math.max(0, Number(seg) || 0);
     if (s < 45) return "agora mesmo";
@@ -407,7 +413,8 @@
   }
 
   function montarResumoAoVivo(sessao, lives, ativas, aoVivoLives, cortesSessao, ultimoCorteHaS) {
-    const avisoDisco = sessao.aviso_disco || (ehAvisoDisco(sessao.ultima_mensagem) ? String(sessao.ultima_mensagem).trim() : "");
+    const avisoDisco = sessao.aviso_disco || (ehAvisoDisco(sessao.ultima_mensagem) ? String(sessao.ultima_mensagem).trim() : "")
+      || avisoCapacidade(sessao.ultima_mensagem);
     if (lives.length === 0) {
       const canal = sessao.canal ? `Acompanhando ${sessao.canal}` : "Acompanhando transmissão em tempo real";
       const msg = sessao.ultima_mensagem && !ehMensagemLargada(sessao.ultima_mensagem) ? String(sessao.ultima_mensagem).trim() : "";

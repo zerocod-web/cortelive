@@ -74,9 +74,11 @@ def test_live_adicionada_depois_le_a_chave_de_novo(tmp_path, monkeypatch):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "painel"))
     import motor_painel
     monkeypatch.chdir(tmp_path)
-    assert motor_painel.config_postagem(tmp_path)["cortes_longos"] is False
-    (tmp_path / "painel_config.json").write_text(json.dumps({"cortes_longos": True}), encoding="utf-8")
-    assert motor_painel.config_postagem(Path.cwd())["cortes_longos"] is True
+    assert motor_painel.config_postagem(tmp_path)["duracao_minima_modo"] == "61"      # padrão: mínimo 1 minuto
+    (tmp_path / "painel_config.json").write_text(json.dumps({"duracao_minima_modo": "livre"}), encoding="utf-8")
+    assert motor_painel.config_postagem(Path.cwd())["cortes_longos"] is False
+    (tmp_path / "painel_config.json").write_text(json.dumps({"duracao_minima_modo": "45"}), encoding="utf-8")
+    assert motor_painel.config_postagem(Path.cwd())["duracao_minima_modo"] == "45"
 
 
 # --- v1.0.11: enquadramento "Câmera em cima" (jogo cheio sem cam duplicada, sem barra preta, faixa a 60%) ---

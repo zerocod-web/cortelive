@@ -544,16 +544,20 @@ class Sessao:
 
             def aceitar(dec):
                 s, nota, mot, sinais, j = dec["pico"], dec["nota"], dec["mot"], dec["sinais"], dec["janela"]
-                ini, fim = j["ini"], j["fim"]
-                aa = max(0.0, ini - 1)
-                aud = fl.audio_trecho(aa, fim + 1)
-                # corte só em silêncio: dentro da pausa entre palavras (nunca dentro de uma palavra)
-                ini = momento.ajustar_no_vale(ini, aud, aa, limites=j["lim_ini"])
-                fim = momento.ajustar_no_vale(fim, aud, aa, limites=j["lim_fim"])
-                segs = cap.trecho(ini, fim)
-                if not segs or segs[0].ini > ini + 0.5 or segs[-1].fim < fim - 0.5:
-                    log.aviso(f"Momento em {_hms(s)} caiu num buraco da captura; pulado.")
-                    return False
+                partes = j.get("partes") or [j]
+                preparados = []
+                for idx, jj in enumerate(partes):
+                    ini, fim = jj["ini"], jj["fim"]
+                    aa = max(0.0, ini - 1)
+                    aud = fl.audio_trecho(aa, fim + 1)
+                    # corte só em silêncio: dentro da pausa entre palavras (nunca dentro de uma palavra)
+                    ini = momento.ajustar_no_vale(ini, aud, aa, limites=jj["lim_ini"])
+                    fim = momento.ajustar_no_vale(fim, aud, aa, limites=jj["lim_fim"])
+                    segs = cap.trecho(ini, fim)
+                    if not segs or segs[0].ini > ini + 0.5 or segs[-1].fim < fim - 0.5:
+                        log.aviso(f"Momento em {_hms(s)} caiu num buraco da captura; pulado.")
+                        return False
+                    preparados.append((ini, fim, segs))
                 if dec["substitui"]:     # clímax muito mais forte que o corte ainda esperando render: troca
                     with lk:
                         velho = pendentes.pop() if pendentes else None
@@ -561,20 +565,24 @@ class Sessao:
                         cap.prender(velho["segs"], False)
                         log.info(f"Momento forte em {_hms(s)} (nota {nota:.1f}) substitui o corte em fila de "
                                  f"{_hms(velho['evento'])} (nota {velho['nota']:.1f}).")
-                pal = fl.palavras_entre(ini, fim)
-                motivos = [m for k in range(int(ini), int(fim)) if k in notas
-                           and notas[k][0] >= cfg["limiar_nota"] * 0.6 for m in notas[k][1]] or mot
-                titulo = momento.titulo_heuristico(
-                    " ".join(w["w"] for w in pal), motivos, pal, s, quentes_titulo)
-                motivo = "; ".join(dict.fromkeys(motivos))
-                seg_ev = next((x for x in segs if x.ini <= s < x.fim), segs[-1])
                 antes_fim = sel.ultimo_fim
-                dec["fim"] = fim
-                cap.prender(segs, True)
-                log.info(f"Momento bom em {_hms(s)} ({', '.join(dict.fromkeys(mot))}). Cortando {_hms(ini)}–{_hms(fim)}…")
-                enfileirar({"ini": ini, "fim": fim, "evento": float(s), "segs": segs, "palavras": pal, "nota": nota,
-                            "sinais": sinais, "motivos": list(dict.fromkeys(motivos)), "ultimo_fim_antes": antes_fim,
-                            "titulo": titulo, "motivo": motivo, "chegou_evento": seg_ev.chegou, "decidido": time.time()})
+                for idx, (ini, fim, segs) in enumerate(preparados):
+                    pal = fl.palavras_entre(ini, fim)
+                    motivos = [m for k in range(int(ini), int(fim)) if k in notas
+                               and notas[k][0] >= cfg["limiar_nota"] * 0.6 for m in notas[k][1]] or mot
+                    titulo = momento.titulo_heuristico(
+                        " ".join(w["w"] for w in pal), motivos, pal, s, quentes_titulo)
+                    if len(preparados) > 1:      # contexto longo demais para um corte: Parte 1 / Parte 2 (título e legenda do post)
+                        titulo = f"{titulo[:56].rstrip()} - Parte {idx + 1}"
+                    motivo = "; ".join(dict.fromkeys(motivos))
+                    seg_ev = next((x for x in segs if x.ini <= s < x.fim), segs[-1])
+                    dec["fim"] = fim
+                    cap.prender(segs, True)
+                    log.info(f"Momento bom em {_hms(s)} ({', '.join(dict.fromkeys(mot))}). Cortando {_hms(ini)}–{_hms(fim)}"
+                             f"{f' (parte {idx + 1} de {len(preparados)})' if len(preparados) > 1 else ''}…")
+                    enfileirar({"ini": ini, "fim": fim, "evento": float(s), "segs": segs, "palavras": pal, "nota": nota,
+                                "sinais": sinais, "motivos": list(dict.fromkeys(motivos)), "ultimo_fim_antes": antes_fim,
+                                "titulo": titulo, "motivo": motivo, "chegou_evento": seg_ev.chegou, "decidido": time.time()})
                 return True
 
             sel.passo(notas, fl.palavras, disponivel, limite, notas_ate, limiar, list(cap.emendas), aceitar,

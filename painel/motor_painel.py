@@ -31,6 +31,8 @@ PADRAO_POSTAGEM = {
     "postar_sozinho": False, "revisar_antes": True, "reserva_navegador": False,
     "cortes_longos": False,
 }
+DURACAO_MODOS = ("livre", "30", "45", "61")     # duração mínima dos cortes; padrão: mínimo 1 minuto (61 s)
+DURACAO_PADRAO = "61"
 CHAVES_ANTIGAS_POSTAGEM = {
     "postar_max_dia": "max_posts_dia", "postar_intervalo_min": "intervalo_min_posts",
     "postar_canais": "canais_postiz", "postar_rodizio": "rodizio",
@@ -61,6 +63,10 @@ def config_postagem(raiz: Path):
         chave: dados[chave] if isinstance(dados.get(chave), bool) else padrao
         for chave, padrao in PADRAO_POSTAGEM.items()
     }
+    modo = str(dados.get("duracao_minima_modo", DURACAO_PADRAO))
+    modo = modo if modo in DURACAO_MODOS else DURACAO_PADRAO
+    config["duracao_minima_modo"] = modo
+    config["cortes_longos"] = modo != "livre"        # compatível com o interruptor antigo
     return {**config, **opcoes_agenda(dados)}
 
 
@@ -219,10 +225,16 @@ class ApiPainel:
         if metodo == "GET":
             return config_postagem(self.raiz)
         alteracoes = {k: corpo[k] for k in PADRAO_POSTAGEM | PADROES_AGENDA if k in corpo}
+        if "duracao_minima_modo" in corpo:
+            if str(corpo["duracao_minima_modo"]) not in DURACAO_MODOS:
+                raise ErroApi(400, "Opção de duração inválida.")
+            alteracoes["duracao_minima_modo"] = str(corpo["duracao_minima_modo"])
+            alteracoes.pop("cortes_longos", None)
         if not alteracoes:
             raise ErroApi(400, "Informe pelo menos uma opção de postagem.")
         for chave, valor in alteracoes.items():
-            valido = isinstance(valor, bool) if chave in PADRAO_POSTAGEM else opcao_valida(chave, valor)
+            valido = (True if chave == "duracao_minima_modo" else
+                      isinstance(valor, bool) if chave in PADRAO_POSTAGEM else opcao_valida(chave, valor))
             if not valido:
                 raise ErroApi(400, f"Opção de postagem inválida: {chave}.")
         with self.trava_config:

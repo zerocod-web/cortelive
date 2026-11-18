@@ -1,0 +1,6 @@
+CorteLive by zerocod
+Fonte: marca/zero-cod.jpg (1254 × 1254 px, RGB).
+Método: mediana por canal RGB em regiões internas, medida com Pillow.
+Preto de papel: #121212 — região (120, 135, 340, 350)
+Creme: #F7E6C9 — região (366, 470, 471, 490)
+Vermelho: #F72C12 — região (848, 645, 865, 771)

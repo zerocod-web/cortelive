@@ -199,6 +199,7 @@ class Sessao:
 
         cfg = carregar_config(args)
         cfg.update(self.cfg_extra)
+        momento.ajustar_cortes_longos(cfg)
         copias_destino = []
         for tipo, nome in (("modelo", cfg["modelo"]), ("legenda", cfg["legenda"])):
             if nome not in render.listar(tipo):

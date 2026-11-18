@@ -29,6 +29,7 @@ LIMITE_CORPO = 65536
 PARADA_APOS_S = 3600   # log sem mexer há 1 h = live terminada ou parada
 PADRAO_POSTAGEM = {
     "postar_sozinho": False, "revisar_antes": True, "reserva_navegador": False,
+    "cortes_longos": False,
 }
 CHAVES_ANTIGAS_POSTAGEM = {
     "postar_max_dia": "max_posts_dia", "postar_intervalo_min": "intervalo_min_posts",

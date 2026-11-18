@@ -542,6 +542,24 @@
             </form>
             <ul id="canais-postiz" class="grade-canais" aria-label="Canais do Postiz" hidden></ul>
           </section>
+          <section class="painel-card contas-card" aria-labelledby="titulo-cortes-longos">
+            <div class="contas-cabecalho">
+              <div>
+                <h2 id="titulo-cortes-longos" class="titulo-secao">Duração dos cortes</h2>
+                <p class="subtitulo-secao">Cortes com mais de 1 minuto podem ser monetizados.</p>
+              </div>
+            </div>
+            <div class="grade-switches">
+              <label class="switch-linha" for="chk-cortes-longos">
+                <div class="switch-textos">
+                  <strong>Só cortes de mais de 1 minuto (monetização)</strong>
+                  <span>Cada corte fica com 1:01 ou mais. Trechos que não chegam a 1:01 são descartados. Vale para as próximas lives que você iniciar</span>
+                </div>
+                <input type="checkbox" role="switch" id="chk-cortes-longos" class="switch-input">
+              </label>
+            </div>
+            <p id="feedback-cortes-longos" class="ajuda-campo" role="status" hidden></p>
+          </section>
           <!-- 1) Interruptores de Configuração Automática -->
           <section class="painel-card contas-card" aria-labelledby="titulo-automacao-postar">
             <div class="contas-cabecalho">

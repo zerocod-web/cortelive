@@ -85,6 +85,7 @@ As chamadas de CLI de postagem têm prazo limitado e não impedem o polling de e
 | `postar_sozinho` | `false` | Booleano. |
 | `revisar_antes` | `true` | Booleano. |
 | `reserva_navegador` | `false` | Booleano. |
+| `cortes_longos` | `false` | Booleano. Ligado: todo corte novo tem no mínimo 61 s (teto: o atual, ou 90 s se o atual for menor que 61 s); trecho que não chega a 61 s é descartado, nunca esticado. Vale para as lives iniciadas depois de salvar. |
 | `max_posts_dia` | `48` | Inteiro de 1 a 500, por canal do Postiz, em janela móvel de 24 horas. |
 | `intervalo_min_posts` | `30` | Inteiro de 0 a 240 minutos entre publicações no mesmo canal do Postiz. Zero desliga o intervalo. |
 | `canais_postiz` | `[]` | IDs dos canais padrão. Lista vazia usa todos os canais ativos das redes do corte. |

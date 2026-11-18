@@ -348,9 +348,41 @@ def _terminal(w):
     return t.endswith((".", "!", "?"))
 
 
+DURACAO_MONETIZACAO_S = 61.0       # corte "de mais de 1 minuto" (monetização): nunca abaixo de 1:01
+DURACAO_MAX_MONETIZACAO_S = 90.0
+
+
+def cortes_longos(cfg):
+    return bool(cfg.get("cortes_longos"))
+
+
 def duracao_minima(cfg):
-    """Corte enxuto: pode ficar abaixo de duracao_min quando só há silêncio para completar (60% do mínimo)."""
+    """Corte enxuto: pode ficar abaixo de duracao_min quando só há silêncio para completar (60% do mínimo).
+    Com 'cortes_longos' ligado o piso é fixo em 61 s: trecho menor é descartado, nunca esticado."""
+    if cortes_longos(cfg):
+        return DURACAO_MONETIZACAO_S
     return cfg.get("duracao_piso_frac", 0.6) * cfg["duracao_min"]
+
+
+def ajustar_cortes_longos(cfg):
+    """Com 'cortes_longos' ligado, abre espaço para sustentar 61 s: olha mais para trás/frente do pico, piso 61 s
+    e teto = o atual (90 s se o atual for menor que 61 s). Desligado: devolve cfg intacto."""
+    if not cortes_longos(cfg):
+        return cfg
+    cfg["duracao_min"] = max(cfg["duracao_min"], DURACAO_MONETIZACAO_S)
+    cfg["duracao_max"] = duracao_maxima(cfg)
+    cfg["antes_max"] = max(cfg.get("antes_max", 18.0), 30.0)
+    cfg["depois_do_momento"] = max(cfg["depois_do_momento"], 40.0)
+    cfg["depois_min"] = max(cfg.get("depois_min", 7.0), 12.0)
+    return cfg
+
+
+def duracao_maxima(cfg):
+    """Teto do corte: o configurado; com 'cortes_longos' e teto < 61 s vira 90 s."""
+    dmax = cfg["duracao_max"]
+    if cortes_longos(cfg) and dmax < DURACAO_MONETIZACAO_S:
+        return max(dmax, DURACAO_MAX_MONETIZACAO_S)
+    return dmax
 
 
 def _score_ini(a, b, gap, t, hook):
@@ -394,7 +426,8 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
     """Janela do corte em volta do evento t. Início numa frase que abre (pergunta/exclamação/pico), fim numa frase que
     fecha; nunca recua além de um buraco mudo; fim logo depois da reação (sem cauda muda). Os pontos de corte caem
     DENTRO da pausa entre palavras. -> dict(ini, fim, lim_ini, lim_fim, buraco_frac) (lim_* = intervalo de silêncio)."""
-    dmin, dmax = cfg["duracao_min"], cfg["duracao_max"]
+    dmin, dmax = cfg["duracao_min"], duracao_maxima(cfg)
+    longo = cortes_longos(cfg)
     amax, amin = cfg.get("antes_max", 18.0), cfg.get("antes_min", 6.0)
     depois = cfg["depois_do_momento"]
     dep_min = cfg.get("depois_min", 7.0)
@@ -445,6 +478,8 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
             teto = min(teto, prev_fim + 0.3)
             break
         prev_fim = w["e"]
+    if longo:        # procura frase que fecha logo depois dos 61 s (a cauda muda continua limitando o teto acima)
+        teto = max(teto, ini + soft + 12.0)
     teto = min(teto, ini + dmax - 0.3, hi - 0.3 if hi < 1e8 else teto)
     candf = []
     for k, a in enumerate(P):
@@ -454,6 +489,8 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
         gap = (b["s"] - a["e"]) if b else 9.0
         candf.append((_score_fim(a, b, gap, t, depois), a, b, gap))
     longos = [c for c in candf if c[1]["e"] - ini >= soft]
+    if longo and not longos:        # nenhuma frase que fecha sustenta 61 s: descarta (nunca estica)
+        return {"ini": ini, "fim": ini, "lim_ini": None, "lim_fim": None, "buraco_frac": 1.0, "recusado": True}
     candf = longos or candf
     if candf:
         sc, a, b, gap = max(candf, key=lambda c: c[0])
@@ -464,6 +501,8 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
         fim, lim_fim = t + depois, None
     fim = min(fim, hi, ini + dmax)
     if fim - ini < soft:
+        if longo:           # nunca estica com silêncio/repetição: o trecho não chega a 61 s -> descarta
+            return {"ini": ini, "fim": ini, "lim_ini": None, "lim_fim": None, "buraco_frac": 1.0, "recusado": True}
         fim, lim_fim = min(hi, ini + soft), None
     # fração do corte em buracos mudos (>= 3 s sem palavra)
     pal = sorted((max(w["s"], ini), min(w["e"], fim)) for w in P if w["e"] > ini and w["s"] < fim)

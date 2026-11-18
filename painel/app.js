@@ -1014,6 +1014,7 @@
       if (cfg.ok === false || salvandoPreferencias) return;
       el("chk-postar-sozinho").checked = Boolean(cfg.postar_sozinho);
       el("chk-revisar-antes").checked = cfg.revisar_antes !== false;
+      el("chk-cortes-longos").checked = Boolean(cfg.cortes_longos);
       const navLigada = Boolean(cfg.reserva_navegador);
       el("chk-reserva-navegador").checked = navLigada;
       el("controles-reserva-redes").hidden = !navLigada;
@@ -1031,10 +1032,11 @@
       postar_sozinho: el("chk-postar-sozinho").checked,
       revisar_antes: el("chk-revisar-antes").checked,
       reserva_navegador: el("chk-reserva-navegador").checked,
+      cortes_longos: el("chk-cortes-longos").checked,
       ...limites
     };
     el("controles-reserva-redes").hidden = !payload.reserva_navegador;
-    const ids = ["chk-postar-sozinho", "chk-revisar-antes", "chk-reserva-navegador"];
+    const ids = ["chk-postar-sozinho", "chk-revisar-antes", "chk-reserva-navegador", "chk-cortes-longos"];
     ids.forEach((id) => { el(id).disabled = true; });
     const botao = el("btn-salvar-limites-postagem");
     botao.disabled = true;
@@ -1888,6 +1890,7 @@
     el("chk-postar-sozinho").addEventListener("change", salvarInterruptoresPostagem);
     el("chk-revisar-antes").addEventListener("change", salvarInterruptoresPostagem);
     el("chk-reserva-navegador").addEventListener("change", salvarInterruptoresPostagem);
+    el("chk-cortes-longos").addEventListener("change", salvarInterruptoresPostagem);
     const formLimites = el("form-limites-postagem");
     formLimites.addEventListener("input", (evento) => {
       if (evento.target.type === "number") editandoLimites = true;

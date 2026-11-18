@@ -40,6 +40,7 @@ NITIDEZ_CAM = "unsharp=5:5:0.5:5:5:0.0"
 # PNG RGBA 1080x220 em presets\faixas; o papel é opaco das linhas ~36 a ~178 (medido nos 4 arquivos),
 # o resto é a borda rasgada e transparência. Sem o PNG, cai numa faixa lisa da mesma cor.
 FAIXAS = PRESETS / "faixas"
+MAX_AMPLIA_JOGO = 1.4   # v1.0.13: ampliação máxima do jogo no painel (acima disso a imagem borra)
 FAIXA_ESCALA = 0.6    # v1.0.11: a faixa ocupa 60% da altura anterior (o PNG é esticado para essa altura)
 FAIXA_ALT, FAIXA_OPACO = round(220 * FAIXA_ESCALA), (round(36 * FAIXA_ESCALA), round(178 * FAIXA_ESCALA))
 FAIXA_COR_LISA = {"vermelha": "0xBA0000", "creme": "0xEFE6D2"}
@@ -118,21 +119,16 @@ def janela_do_jogo(video, inicio, fim, sw, sh, cam=None):
     return (x0, 0, x1 - x0, sh)
 
 
-def janela_jogo_cheia(sw, sh, W, hj, cam=None):
-    """v1.0.11: jogo em tela cheia (16:9 sem faixas pretas) preenche TODO o painel abaixo da faixa (sem barra preta):
-    recorta uma janela com a proporção do painel (W:hj), na altura inteira, e a posiciona para FORA da caixa da cam
-    (que já aparece em cima), o mais perto possível do centro do jogo. Se nenhuma posição exclui a cam sem perder o
-    centro, devolve a posição central e cobrir=True (o filtro cobre a cam com o jogo ao lado).
-    Devolve (x, y, w, h, cobrir) em px do vídeo."""
-    ww = min(sw, int(sh * W / hj) // 2 * 2)       # arredonda para baixo: o jogo escalado nunca fica mais baixo que o painel
+def _jogo_cheia_larg(sw, sh, ww, cam):
+    """Posição (x, cobrir) de uma janela de largura ww, na altura inteira, fora da caixa da cam."""
     pref = (sw - ww) // 2
     if not cam:
-        return (pref // 2 * 2, 0, ww, sh, False)
+        return pref // 2 * 2, False
     cx, cy, cw, ch = cam
     mg = max(32, int(0.11 * sw))     # a caixa medida é menor que a moldura real da cam (máscara/borda): margem larga
     c0, c1 = cx - mg, cx + cw + mg
     if pref + ww <= c0 or pref >= c1:             # já não toca a cam
-        return (pref // 2 * 2, 0, ww, sh, False)
+        return pref // 2 * 2, False
     ops = []
     if c1 + ww <= sw:
         ops.append(c1)                            # janela à direita da cam
@@ -141,8 +137,26 @@ def janela_jogo_cheia(sw, sh, W, hj, cam=None):
     if ops:
         x = min(ops, key=lambda v: abs(v - pref))
         if abs((x + ww / 2) - sw / 2) <= 0.30 * sw:   # não perde o centro do jogo
-            return (int(x) // 2 * 2, 0, ww, sh, False)
-    return (pref // 2 * 2, 0, ww, sh, True)
+            return int(x) // 2 * 2, False
+    return pref // 2 * 2, True
+
+
+def janela_jogo_cheia(sw, sh, W, hj, cam=None):
+    """v1.0.11: jogo em tela cheia (16:9 sem faixas pretas) preenche TODO o painel abaixo da faixa (sem barra preta):
+    recorta uma janela com a proporção do painel (W:hj), na altura inteira, e a posiciona para FORA da caixa da cam
+    (que já aparece em cima), o mais perto possível do centro do jogo. Se nenhuma posição exclui a cam sem perder o
+    centro, devolve a posição central e cobrir=True (o filtro cobre a cam com o jogo ao lado).
+    v1.0.13: live de 720p ampliava o jogo 1,8x (borrado). Primeiro tenta uma janela mais larga (ampliação máxima
+    MAX_AMPLIA_JOGO; o resto da altura vira o fundo desfocado do jogo); se ela só cabe cobrindo a cam, volta à
+    janela do painel. Devolve (x, y, w, h, cobrir) em px do vídeo."""
+    ww = min(sw, int(sh * W / hj) // 2 * 2)       # arredonda para baixo: o jogo escalado nunca fica mais baixo que o painel
+    larga = min(sw, max(ww, int(W / MAX_AMPLIA_JOGO) // 2 * 2))
+    if larga > ww:
+        x, cobrir = _jogo_cheia_larg(sw, sh, larga, cam)
+        if not cobrir:
+            return (x, 0, larga, sh, False)
+    x, cobrir = _jogo_cheia_larg(sw, sh, ww, cam)
+    return (x, 0, ww, sh, cobrir)
 
 
 def faixa_arquivo(cor="vermelha", variacao=0):
@@ -239,7 +253,9 @@ def filtro_modelo(m, sw, sh):
         # sobre a mesma janela desfocada preenchendo o painel (sem faixa preta)
         nw, nh, jx, jy, _hg = _jogo_janela(m, sw, sh)
         # jogo 4:3 (faixas pretas achadas) não enche o painel: o resto vira o fundo desfocado do próprio jogo
-        fundo = "drawbox=c=black:t=fill" if (preto and not m.get("_jogo_auto")) else "boxblur=24:2,eq=brightness=-0.12"
+        # desfoque em 1/4 da resolução (o resultado é igual de borrado e muito mais rápido)
+        fundo = ("drawbox=c=black:t=fill" if (preto and not m.get("_jogo_auto"))
+                 else f"scale={W // 8 * 2}:{hj // 8 * 2},boxblur=6:2,scale={W}:{hj},eq=brightness=-0.12")
         base = (f"[0:v]split=3[a][b][c];"
                 f"[a]{cam_f}[cam];"
                 f"[b]crop={nw}:{nh}:{jx}:{jy},scale={W}:{hj}:force_original_aspect_ratio=increase,crop={W}:{hj},"
@@ -641,7 +657,8 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     except Exception as e:
         aviso = f"A legenda deste corte não pôde ser gerada ({e}); o vídeo foi salvo sem legenda."
     enc = encoder_corte(encoder)
-    base_fc = filtro_modelo(m, sw, sh)[:-3] + f",fps={fps}"
+    # v1.0.13: 30 fps logo na entrada (antes era no fim e todo o filtro, inclusive o desfoque, rodava a 60 fps)
+    base_fc = filtro_modelo(m, sw, sh)[:-3].replace("[0:v]", f"[0:v]fps={fps},", 1) + f",fps={fps}"
     aud = ["-map", "0:a:0", *AUDIO_CORTE] if tem_audio else []
 
     def _ffmpeg(fc, e_):

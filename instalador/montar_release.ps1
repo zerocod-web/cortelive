@@ -84,15 +84,14 @@ else {
 Etapa '4) gitleaks (segredos)'
 $gl = (Get-Command gitleaks -ErrorAction SilentlyContinue)
 if (-not $gl) { Falhou 'gitleaks nao encontrado no PATH.' }
-& gitleaks detect --source $raiz --no-git --no-banner --redact -v 2>&1 | Select-Object -Last 3 | ForEach-Object { Write-Host $_ }
-if ($LASTEXITCODE -ne 0) { Falhou 'gitleaks achou segredo na arvore.' }
-if ($Final) {
-  Push-Location $repo
-  try { & gitleaks detect --source $repo --no-banner --redact 2>&1 | Select-Object -Last 2 | ForEach-Object { Write-Host $_ } }
-  finally { Pop-Location }
-  if ($LASTEXITCODE -ne 0) { Falhou 'gitleaks achou segredo no historico.' }
-  Ok 'gitleaks: arvore e historico limpos'
-} else { Ok 'gitleaks: arvore limpa (historico so no -Final)' }
+$ErrorActionPreference = 'Continue'
+Push-Location $repo
+try { $glSaida = & gitleaks detect --source $repo --no-banner --redact 2>&1 | Out-String; $glCod = $LASTEXITCODE }
+finally { Pop-Location }
+$ErrorActionPreference = 'Stop'
+Write-Host (($glSaida -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -Last 2) -join ' | ')
+if ($glCod -ne 0) { Falhou 'gitleaks achou segredo (arvore versionada e historico).' }
+Ok 'gitleaks: historico e arquivos versionados limpos'
 
 # --- 5) Empacotar e Setup ---------------------------------------------------------------------
 Etapa '5) empacotar.ps1 e build_setup.ps1'

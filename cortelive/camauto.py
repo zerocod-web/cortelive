@@ -70,6 +70,21 @@ def rostos(img):
                                  minSize=(int(h * 0.04), int(h * 0.04)), maxSize=(int(h * 0.3), int(h * 0.3)))
 
 
+def rostos_sensivel(img):
+    """2ª passada (só quando a normal não achou rosto fixo): detector alt2 + padrão menos exigente. Pega a pessoa
+    olhando para baixo ou virada (ovotz 18/11/2026: 16 de 74 quadros sem rosto na passada normal)."""
+    import cv2
+    _sem_opencl()
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    h = img.shape[0]
+    m = (int(h * 0.04), int(h * 0.04)), (int(h * 0.3), int(h * 0.3))
+    out = []
+    for nome in ("haarcascade_frontalface_alt2.xml", "haarcascade_frontalface_default.xml"):
+        casc = cv2.CascadeClassifier(cv2.data.haarcascades + nome)
+        out += [tuple(int(v) for v in f) for f in casc.detectMultiScale(g, 1.05, 3, minSize=m[0], maxSize=m[1])]
+    return out
+
+
 def caixa_da_cam(face, w, h):
     """Caixa em volta do rosto (usada só no marcar-cam como sugestão)."""
     fx, fy, fw, fh = face
@@ -435,6 +450,11 @@ def detectar(arquivos, prop=1080 / 640):
     h, w = imgs[0].shape[:2]
     achados = [[tuple(int(v) for v in f) for f in rostos(i)] for i in imgs]
     rosto = _rosto_estavel(achados, w, h, imgs)
+    if not rosto:
+        achados2 = [rostos_sensivel(i) for i in imgs]
+        rosto = _rosto_estavel(achados2, w, h, imgs)
+        if rosto:
+            ULTIMO["rosto_sensivel"] = True
     if not rosto:
         ULTIMO["motivo"] = "nenhum rosto fixo"
         return None

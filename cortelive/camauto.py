@@ -61,7 +61,44 @@ def _quadro(arquivo):
     return cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR) if raw else None
 
 
+MODELO_YUNET = Path(__file__).parent / "modelos_cam" / "face_detection_yunet_2023mar.onnx"
+_YUNET = {}
+
+
+def _yunet(img, limiar):
+    """Rostos (x, y, w, h) pelo YuNet (cv2.FaceDetectorYN, ONNX de ~230 KB do opencv_zoo, roda em CPU). Bem mais
+    sensível que o Haar: acha rosto de lado, olhando para baixo, sob neon e de pele escura. None se não der."""
+    import cv2
+    if not hasattr(cv2, "FaceDetectorYN") or not MODELO_YUNET.exists():
+        return None
+    _sem_opencl()
+    h, w = img.shape[:2]
+    esc = min(1.0, 1280 / w)
+    im = cv2.resize(img, (int(w * esc), int(h * esc))) if esc < 1 else img
+    chave = (im.shape[1], im.shape[0], limiar)
+    det = _YUNET.get(chave)
+    if det is None:
+        det = _YUNET[chave] = cv2.FaceDetectorYN.create(str(MODELO_YUNET), "", (im.shape[1], im.shape[0]), limiar, 0.3, 300)
+    _, f = det.detect(im)
+    if f is None:
+        return []
+    out = []
+    for r in f:
+        x, y, fw, fh = (int(round(float(v) / esc)) for v in r[:4])
+        x, y = max(0, x), max(0, y)
+        if fw >= int(h * 0.025) and fh >= int(h * 0.025):
+            out.append((x, y, min(fw, w - x), min(fh, h - y)))
+    return out
+
+
 def rostos(img):
+    r = None
+    try:
+        r = _yunet(img, 0.6)
+    except Exception:
+        r = None
+    if r is not None:
+        return r
     import cv2
     _sem_opencl()
     casc = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
@@ -71,6 +108,16 @@ def rostos(img):
 
 
 def rostos_sensivel(img):
+    try:
+        r = _yunet(img, 0.4)
+        if r is not None:
+            return r
+    except Exception:
+        pass
+    return _rostos_haar_sensivel(img)
+
+
+def _rostos_haar_sensivel(img):
     """2ª passada (só quando a normal não achou rosto fixo): detector alt2 + padrão menos exigente. Pega a pessoa
     olhando para baixo ou virada (ovotz 18/11/2026: 16 de 74 quadros sem rosto na passada normal)."""
     import cv2
@@ -83,6 +130,24 @@ def rostos_sensivel(img):
         casc = cv2.CascadeClassifier(cv2.data.haarcascades + nome)
         out += [tuple(int(v) for v in f) for f in casc.detectMultiScale(g, 1.05, 3, minSize=m[0], maxSize=m[1])]
     return out
+
+
+def caixa_estimada(cx, cy, fw, fh, w, h):
+    """Caixa em volta do rosto (1,6:1) quando não se acha a moldura: o rosto ocupa ~60% da altura da cam. Cola nas bordas
+    da tela quando fica a menos de 4% delas."""
+    ch = fh / 0.62
+    cw = ch * 1.6
+    x, y = cx - cw / 2, cy - ch * 0.55
+    x, y = min(max(0, x), w - cw), min(max(0, y), h - ch)
+    if x < 0.04 * w:
+        x = 0
+    if x + cw > 0.96 * w:
+        x = w - cw
+    if y < 0.04 * h:
+        y = 0
+    if y + ch > 0.96 * h:
+        y = h - ch
+    return (int(x) // 2 * 2, int(y) // 2 * 2, int(cw) // 2 * 2, int(ch) // 2 * 2)
 
 
 def caixa_da_cam(face, w, h):
@@ -179,7 +244,7 @@ def _filtrar(achados, imgs, tx=0.03, ty=0.04, minimo=0.2):
             else:
                 grupos.append([cx, cy, [(k, f)]])
     ruins = set()
-    for _, _, ms in grupos:
+    for _, _, ms in (grupos if minimo > 0 else []):
         ok = sum(1 for k, f in ms if _parece_rosto(imgs[k][max(0, f[1]):f[1] + f[3], max(0, f[0]):f[0] + f[2]]))
         if ok < minimo * len(ms):
             ruins |= {(k, f) for k, f in ms}
@@ -196,14 +261,79 @@ def _rosto_estavel(achados, w, h, imgs=None, minimo=0.2):
     return _agrupar(achados, w, h, 0.03, 0.04) or _agrupar(achados, w, h, 0.10, 0.12)
 
 
-def _solo_cam(achados, w, h, imgs):
-    """Layout 'só cam' (Just Chatting): rosto GRANDE (>= 18% da altura), no meio da tela, em metade dos quadros.
-    Aí a câmera é a tela inteira. Rosto de cam de canto fica em 5–15% da altura (medido em 25 lives)."""
-    grandes = [[f for f in lista if f[3] >= 0.18 * h and 0.2 * w <= f[0] + f[2] / 2 <= 0.8 * w] for lista in achados]
-    if sum(1 for l in grandes if l) < max(4, len(achados) * 3 // 4):
-        return None
-    r = _agrupar(_filtrar(grandes, imgs, 0.07, 0.09), w, h, 0.07, 0.09)
-    return (0, 0, w // 2 * 2, h // 2 * 2) if r else None
+def _semente(r, esc=1.0):
+    """Rosto do YuNet -> 'rosto' quadrado do tamanho que a busca da moldura foi calibrada (Haar, ~altura do YuNet)."""
+    cx, cy, fw, fh, v = r
+    lado = max(fw, fh * 0.95) * esc
+    return (cx, cy, lado, lado, v)
+
+
+def _tamanho_ok(cam, w, h):
+    """Webcam de verdade tem >= 10% da largura e da altura da tela (menor medida: 11,7% x 12,2%). Caixa menor é
+    ícone/logo com rosto (oatley 18/11/2026)."""
+    return cam is not None and cam[2] >= 0.10 * w and cam[3] >= 0.10 * h
+
+
+def _minimo():
+    """Com YuNet não precisa do teste de pele/olhos (o detector já devolve só rostos); com Haar precisa."""
+    import cv2
+    return 0.0 if (MODELO_YUNET.exists() and hasattr(cv2, "FaceDetectorYN")) else 0.2
+
+
+def _candidatos(lista, w, h, tx=0.05, ty=0.06, n=4):
+    """Grupos de rosto que aparecem no mesmo ponto em >= metade dos quadros (>= 3): (cx, cy, fw, fh, votos),
+    os melhores primeiro (votos x tamanho do rosto)."""
+    grupos = []
+    for k, l in enumerate(lista):
+        for f in l:
+            cx, cy = f[0] + f[2] / 2, f[1] + f[3] / 2
+            for g in grupos:
+                # rosto grande se mexe mais (cam em tela cheia): tolerância cresce com o tamanho do rosto
+                if abs(g["cx"] - cx) < max(tx * w, 0.8 * g["fw"]) and abs(g["cy"] - cy) < max(ty * h, 0.8 * g["fh"]):
+                    g["m"].append((k, f))
+                    break
+            else:
+                grupos.append({"cx": cx, "cy": cy, "fw": f[2], "fh": f[3], "m": [(k, f)]})
+    out = []
+    for g in grupos:
+        v = len({k for k, _ in g["m"]})
+        if v < max(3, len(lista) // 2):
+            continue
+        ms = [f for _, f in g["m"]]
+        out.append((float(np.median([f[0] + f[2] / 2 for f in ms])), float(np.median([f[1] + f[3] / 2 for f in ms])),
+                    float(np.median([f[2] for f in ms])), float(np.median([f[3] for f in ms])), v))
+    out.sort(key=lambda r: -r[4] * r[2])
+    return out[:n]
+
+
+def _mexe(lista, cand):
+    """Quanto o rosto do grupo se mexe entre quadros (amplitude de x + de y, em larguras de rosto). Pessoa de
+    verdade ~0,3 ou mais; logo/avatar animado parado ~0,15 (oatley)."""
+    cx, cy, fw, fh, _ = cand
+    xs, ys = [], []
+    for l in lista:
+        melhor = None
+        for f in l:
+            fx, fy = f[0] + f[2] / 2, f[1] + f[3] / 2
+            d = abs(fx - cx) + abs(fy - cy)
+            if abs(fx - cx) < max(0.05 * 1280, 0.8 * fw) and (melhor is None or d < melhor[0]):
+                melhor = (d, fx, fy)
+        if melhor:
+            xs.append(melhor[1])
+            ys.append(melhor[2])
+    if len(xs) < 2:
+        return 0.0
+    return ((max(xs) - min(xs)) + (max(ys) - min(ys))) / max(fw, 1)
+
+
+def _solo_cam(cands, w, h, n_quadros):
+    """Layout 'só cam' (Just Chatting): rosto GRANDE (>= 13% da altura), no meio da tela (20-80% da largura), em
+    >= 62% dos quadros. Aí a câmera é a tela inteira. Cam de canto fica no canto (junitombl/leokaos/bokaofc: fora do
+    meio) e com rosto de 5-15% da altura."""
+    for cx, cy, fw, fh, v in cands:
+        if fh >= 0.13 * h and 0.2 * w <= cx <= 0.8 * w and v >= max(4, n_quadros * 5 // 8):
+            return (0, 0, w // 2 * 2, h // 2 * 2)
+    return None
 
 
 LARG_ANALISE = 640   # largura da análise de movimento (3 px de erro na borda numa live 1920)
@@ -521,33 +651,54 @@ def detectar(arquivos, prop=1080 / 640):
         ULTIMO["motivo"] = "poucos quadros"
         return None
     h, w = imgs[0].shape[:2]
+    mini = _minimo()
     achados = [[tuple(int(v) for v in f) for f in rostos(i)] for i in imgs]
-    solo = _solo_cam(achados, w, h, imgs)
+    cands = _candidatos(_filtrar(achados, imgs, minimo=mini), w, h)
+    if not cands:
+        achados2 = [[tuple(int(v) for v in f) for f in rostos_sensivel(i)] for i in imgs]
+        cands = _candidatos(_filtrar(achados2, imgs, minimo=mini), w, h)
+        if cands:
+            ULTIMO["rosto_sensivel"] = True
+    if not cands:
+        ULTIMO["motivo"] = "nenhum rosto fixo"
+        return None
+    ULTIMO["candidatos"] = [[round(v) for v in c] for c in cands]
+    # layout só cam: rosto grande no meio da tela -> a câmera é a tela inteira
+    solo = _solo_cam(cands, w, h, len(imgs))
     if solo:
         ULTIMO["solo_cam"] = True
         ULTIMO["final"] = solo
         return solo
-    cams = None
-    achados2 = None
-    for passada in ("normal", "sensivel"):
-        if passada == "sensivel":
-            achados2 = [rostos_sensivel(i) for i in imgs]
-        lista = achados if passada == "normal" else achados2
-        for _ in range(1):     # só o melhor grupo de rosto (tentar o 2º trouxe falso positivo: leokaos, tftoddy)
-            rosto = _rosto_estavel(lista, w, h, imgs, 0.2 if passada == "normal" else 0.5)
-            if not rosto:
-                break
+    ULTIMO["mexe"] = round(_mexe(achados, cands[0]), 2)
+    if ULTIMO["mexe"] < 0.12:     # logo/avatar do jogo: parado demais (oatley 0,07; pessoa real >= 0,16)
+        ULTIMO["motivo"] = "rosto parado demais (logo/avatar)"
+        return None
+    # cam de canto: moldura em volta do rosto estável (os 3 melhores grupos, um por vez)
+    for rosto in cands[:3]:
+        for esc in (1.0, 1.4, 1.8):      # a busca da moldura depende do tamanho do rosto-semente: tenta 3
             ULTIMO.pop("motivo", None)
-            if passada == "sensivel":
-                ULTIMO["rosto_sensivel"] = True
-            cams = _cam_do_rosto(imgs, rosto, w, h, prop)
-            if cams:
-                return cams
-            cx, cy = rosto[0], rosto[1]
-            lista = [[f for f in l if not (abs(f[0] + f[2] / 2 - cx) < 0.10 * w and abs(f[1] + f[3] / 2 - cy) < 0.12 * h)]
-                     for l in lista]
-    if "motivo" not in ULTIMO:
-        ULTIMO["motivo"] = "nenhum rosto fixo"
+            cam = _cam_do_rosto(imgs, _semente(rosto, esc), w, h, prop)
+            if cam and not _tamanho_ok(cam, w, h):
+                ULTIMO["motivo"] = "caixa pequena demais"
+                cam = None
+            if cam:
+                ULTIMO["semente_esc"] = esc
+                return cam
+    # sem moldura reconhecível: rosto muito estável encostado numa lateral -> caixa estimada em volta do rosto
+    cx, cy, fw, fh, votos = cands[0]
+    n = len(imgs)
+    if votos >= max(5, n * 3 // 4) and (cx <= 0.3 * w or cx >= 0.7 * w) and fh >= 0.035 * h and fh <= 0.3 * h:
+        x, y, cw, ch = caixa_estimada(cx, cy, fw, fh, w, h)
+        if cw * ch <= 0.3 * w * h:
+            ULTIMO["cam_estimada"] = (x, y, cw, ch)
+            ULTIMO.pop("motivo", None)
+            final = ajustar_proporcao((x, y, cw, ch), cands[0], w, h, prop, None, None)
+            if _tamanho_ok((x, y, cw, ch), w, h):
+                ULTIMO["final"] = final
+                return final
+            ULTIMO["motivo"] = "caixa pequena demais"
+            return None
+    ULTIMO["motivo"] = "overlay incerto"
     return None
 
 
@@ -561,12 +712,12 @@ def _cam_do_rosto(imgs, rosto, w, h, prop):
     # bordas: cada lado tem de ter achado o fim da janela OU estar encostado na borda da tela
     encostado = [x <= 4, x + cw >= w - 4, y <= 4, y + ch >= h - 4]
     lados_ok = all(b or e for b, e in zip(bordas, [encostado[0], encostado[1], encostado[2], encostado[3]]))
-    plausivel = (cw <= 0.5 * w and ch <= 0.6 * h and cw * ch <= 0.2 * w * h and _na_borda((x, y, cw, ch), w, h) and cw >= fw * 2.2 and ch >= fh * 1.8
+    plausivel = (cw <= 0.5 * w and ch <= 0.6 * h and cw * ch <= 0.3 * w * h and cw >= fw * 2.2 and ch >= fh * 1.8
                  and x + fw * 0.3 < cx - fw / 2 and cx + fw / 2 < x + cw - fw * 0.3 and y <= cy - fh / 2)
     ULTIMO.update(lados_ok=lados_ok, plausivel=plausivel, votos=votos)
     def _plaus(c):
         x_, y_, w_, h_ = c
-        return (w_ <= 0.5 * w and h_ <= 0.6 * h and w_ * h_ <= 0.2 * w * h and _na_borda(c, w, h) and w_ >= fw * 2.2 and h_ >= fh * 1.8
+        return (w_ <= 0.5 * w and h_ <= 0.6 * h and w_ * h_ <= 0.3 * w * h and w_ >= fw * 2.2 and h_ >= fh * 1.8
                 and x_ + fw * 0.3 < cx - fw / 2 and cx + fw / 2 < x_ + w_ - fw * 0.3 and y_ <= cy - fh / 2)
     if not (lados_ok and plausivel):
         # 1ª reserva: quando o lado direito/esquerdo encosta num painel parado do jogo (HUD), o contraste some;
@@ -593,7 +744,7 @@ def _cam_do_rosto(imgs, rosto, w, h, prop):
         ULTIMO["overlay_2"] = cam
         if cam:
             x, y, cw, ch = cam
-            plausivel = (cw <= 0.5 * w and ch <= 0.6 * h and cw * ch <= 0.2 * w * h and _na_borda(cam, w, h) and cw >= fw * 2.2 and ch >= fh * 1.8
+            plausivel = (cw <= 0.5 * w and ch <= 0.6 * h and cw * ch <= 0.3 * w * h and cw >= fw * 2.2 and ch >= fh * 1.8
                          and x + fw * 0.3 < cx - fw / 2 and cx + fw / 2 < x + cw - fw * 0.3 and y <= cy - fh / 2)
         if not cam or not plausivel:
             ULTIMO["motivo"] = "overlay incerto"

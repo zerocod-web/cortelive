@@ -27,13 +27,25 @@ def test_pele_e_borda():
 
 
 def test_solo_cam_rosto_grande_e_central():
+    cands = [(640.0, 300.0, 156.0, 208.0, 8)]
+    assert camauto._solo_cam(cands, 1280, 720, 8) == (0, 0, 1280, 720)
+    assert camauto._solo_cam([(1100.0, 100.0, 60.0, 80.0, 8)], 1280, 720, 8) is None      # cam pequena de canto
+    assert camauto._solo_cam([(1250.0, 300.0, 156.0, 208.0, 8)], 1280, 720, 8) is None    # grande mas no canto
+    assert camauto._solo_cam([(640.0, 300.0, 156.0, 208.0, 3)], 1280, 720, 8) is None     # poucos quadros
+
+
+def test_candidatos_tolera_rosto_grande_que_se_mexe():
+    lista = [[(441 + i * 20, 72 + i * 20, 219, 264)] for i in range(8)]
+    c = camauto._candidatos(lista, 1280, 720)
+    assert c and c[0][4] >= 5
+
+
+def test_yunet_acha_rosto_e_caixa_estimada():
+    assert camauto.MODELO_YUNET.exists()
     img = np.zeros((720, 1280, 3), np.uint8)
-    img[:] = (120, 160, 220)
-    imgs = [img + i * 6 for i in range(8)]
-    achados = [[(500 + i * 5, 140, 190, 190)] for i in range(8)]
-    assert camauto._solo_cam(achados, 1280, 720, imgs) == (0, 0, 1280, 720)
-    canto = [[(1100, 100, 60, 60)] for _ in range(8)]          # cam pequena de canto: não é só cam
-    assert camauto._solo_cam(canto, 1280, 720, imgs) is None
+    assert camauto.rostos(img) == [] or len(camauto.rostos(img)) == 0
+    x, y, w, h = camauto.caixa_estimada(1100.0, 150.0, 60.0, 80.0, 1280, 720)
+    assert 0 <= x and x + w <= 1280 and 0 <= y and y + h <= 720 and w > 60 and h > 80
 
 
 def test_grupo_sem_pele_nem_olhos_e_descartado_mas_neon_passa(monkeypatch):

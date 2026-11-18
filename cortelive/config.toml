@@ -64,7 +64,7 @@ segundos_bom_para_subir = 120
 bloco_normal_s = 6          # transcreve a cada ~6 s de live
 bloco_lento_s = 12          # no menor modelo e ainda atrasado: blocos maiores (menos rodadas)
 travou_render_s = 300      # render de um corte passando disso = cancela só esse corte
-encodes_simultaneos = 2     # quantos cortes renderizam ao mesmo tempo (todas as lives somadas). GeForce aceita
+encodes_simultaneos = 3     # quantos cortes renderizam ao mesmo tempo (todas as lives somadas). GeForce aceita
                             # poucas sessões de NVENC; 2 deixa folga para OBS/jogo. Placa profissional: pode subir
 fila_max_cortes = 3        # cortes esperando render; se encher, descarta o mais fraco
 

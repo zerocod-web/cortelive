@@ -2160,6 +2160,10 @@ a:focus-visible,
 .lista-lives[hidden] { display: none; }
 .item-live { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; }
 .item-live-nome { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-live-texto { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.item-live-texto .item-live-nome { flex: none; }
+.item-live-atividade { font-size: 13px; color: #9fd8ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-live-atividade[hidden] { display: none; }
 .item-live-estado { font-size: 13px; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .btn-parar-live { min-height: 44px; min-width: 88px; }
 

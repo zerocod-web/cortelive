@@ -303,7 +303,14 @@
       bt.disabled = !lv.pode_parar;
       bt.textContent = lv.pode_parar ? "Parar" : "Parada";
       bt.setAttribute("aria-label", "Parar a live " + (lv.canal || ""));
-      li.append(nome, est, bt);
+      const bloco = document.createElement("div");
+      bloco.className = "item-live-texto";
+      const ativ = document.createElement("span");
+      ativ.className = "item-live-atividade";
+      ativ.textContent = lv.atividade || "";
+      ativ.hidden = !lv.atividade;
+      bloco.append(nome, ativ);
+      li.append(bloco, est, bt);
       ul.appendChild(li);
     });
   }

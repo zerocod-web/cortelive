@@ -652,7 +652,7 @@ class Sessao:
             nonlocal cam, cam_status
             if cam_status != "procurar":
                 return
-            if not amostras_cam or seg.ini - amostras_cam[-1][0] >= 12:
+            if not amostras_cam or seg.ini - amostras_cam[-1][0] >= 6:
                 amostras_cam.append((seg.ini, Path(seg.arquivo)))
                 cap.prender([seg], True)
             if len(amostras_cam) == 8:

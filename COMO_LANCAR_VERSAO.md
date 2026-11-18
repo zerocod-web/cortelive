@@ -53,6 +53,6 @@ script não protegia a pasta `webview_app` (perfil do Edge do painel), tentava c
 travava o arquivo `Network\Cookies`. Isso não tem como ser consertado de fora: o script antigo roda antes de
 qualquer arquivo novo. A correção vale a partir da 1.0.6 (a pasta `webview_*` nunca entra em backup nem em troca).
 
-Para quem está preso: fechar o CorteLive (botão direito no ícone ao lado do relógio, Sair) e rodar o
-`CorteLive-Setup.exe` da versão nova por cima, na mesma pasta. O Setup preserva `webview_app`, modelos, cortes,
+Para quem está preso: rodar o `CorteLive-Setup.exe` da versão nova por cima, na mesma pasta (o Setup fecha sozinho o painel
+aberto e a janela dele). Alternativa: fechar o CorteLive e a janela dele e dar dois cliques em `atualizar.cmd` na pasta instalada. O Setup preserva `webview_app`, modelos, cortes,
 configurações e histórico. Depois disso o botão Atualizar funciona normalmente.

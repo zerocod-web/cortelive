@@ -16,7 +16,7 @@ import time
 import types
 from pathlib import Path
 
-from . import __version__, hw, log, pastas
+from . import __version__, disco, hw, log, pastas
 from .cli import carregar_config, _hms, AQUI
 
 ESTADOS = ("iniciando", "esperando live", "ao vivo", "reconectando", "encerrada", "erro")
@@ -47,6 +47,13 @@ class Sessao:
         self._ultimo_corte = None
         self._estado_forcado = "iniciando"
         self._th = None
+        self._aviso_disco = ""        # frase de 'pouco espaço' (vazia = tudo certo)
+        self._parou_disco = ""        # frase do motivo, se a gravação parou por disco quase cheio
+        self._limpar_bruto = True
+        self._job_atual = None        # corte em andamento: {"evento", "dur", "t0", "fase"} (para a linha de atividade)
+        self._pendentes = None        # lista de cortes esperando render (mesma lista do renderizador)
+        self._pronto_em = (0.0, "")   # (quando, título) do último corte pronto
+        self._render_hist = []        # (duração do corte, segundos de render): estima o % do corte em andamento
 
     # --- API -----------------------------------------------------------------------------------
     def iniciar(self):
@@ -92,9 +99,66 @@ class Sessao:
                 "live_s": round(cap.fim_live, 1) if cap else 0.0,
                 "atraso_transcricao_s": round(max(0.0, cap.fim_live - fl.feito_ate), 1) if cap and fl else None,
                 "ultimo_corte": self._ultimo_corte,
+                "atividade": self.atividade(estado),
                 # frase pronta para mostrar ao usuário (offline, sem internet, link inválido…); "" = tudo normal
-                "mensagem": (str(self.erro) if self.erro else (cap.mensagem if cap else "")),
-                "motivo_fim": (self.resumo or {}).get("motivo_fim") or (str(self.erro) if self.erro else None)}
+                "aviso_disco": self._aviso_disco or None,
+                "mensagem": (str(self.erro) if self.erro else (self._parou_disco or self._aviso_disco
+                                                             or (cap.mensagem if cap else ""))),
+                "motivo_fim": self._parou_disco or (self.resumo or {}).get("motivo_fim") or (str(self.erro) if self.erro else None)}
+
+    def atividade(self, estado=None):
+        """Uma frase curta do que esta live está fazendo agora (vai para o painel, perto de cada live)."""
+        cap, fl = self._cap, self._fl
+        if cap is None or fl is None:
+            return "Preparando…"
+        estado = estado or cap.estado
+        if estado in ("encerrada", "erro"):
+            return ""
+        agora = time.time()
+        job = self._job_atual
+        if job:
+            quando = _hms(job["evento"])
+            quando = quando[3:] if quando.startswith("00:") else quando
+            fase = job["fase"]
+            if fase == "cortando":
+                pct = self._pct_render(job, agora)
+                return f"Achou um momento às {quando} — cortando ({pct}%)"
+            if fase == "fila_render":
+                try:
+                    from . import servicos
+                    st = servicos.render().status()
+                    na_frente = max(0, st["rodando"] + st["esperando"] - 1) if st["rodando"] >= st["limite"] else 0
+                except Exception:
+                    na_frente = 0
+                if na_frente:
+                    return f"Achou um momento às {quando} — na fila para cortar ({na_frente} na frente)"
+                return f"Achou um momento às {quando} — começando a cortar"
+            if fase == "cam":
+                return f"Achou um momento às {quando} — achando a câmera do streamer (só na 1ª vez)"
+            return f"Achou um momento às {quando} — esperando a legenda ficar pronta"
+        pend = self._pendentes
+        if pend:
+            return f"Na fila para cortar ({len(pend)} {'momento' if len(pend) == 1 else 'momentos'})"
+        if self._pronto_em[0] and agora - self._pronto_em[0] < 45:
+            return "Corte pronto: " + self._pronto_em[1]
+        if estado == "reconectando":
+            return "A live caiu — tentando voltar sozinho"
+        if estado == "esperando live":
+            return "Esperando a live começar"
+        if estado != "ao vivo":
+            return ""
+        atraso = max(0.0, cap.fim_live - fl.feito_ate)
+        return f"Ouvindo a fala (atraso {atraso:.0f} s)"
+
+    def _pct_render(self, job, agora):
+        """Estimativa do andamento do render: tempo gasto / tempo esperado (histórico desta live)."""
+        decorrido = agora - job["t_render"]
+        if self._render_hist:
+            razao = sum(r for _, r in self._render_hist) / max(1e-6, sum(d for d, _ in self._render_hist))
+        else:
+            razao = 0.9
+        total = max(8.0, job["dur"] * razao)
+        return int(min(95, max(1, decorrido / total * 100)))
 
     # --- interno -------------------------------------------------------------------------------
     def _avisar(self):
@@ -121,6 +185,11 @@ class Sessao:
             if self._cap:
                 self._cap.parar.set()
                 self._cap.join()
+            if self.pasta and self._limpar_bruto:     # também no erro/parada: não deixa gravação bruta para trás
+                try:
+                    disco.limpar_bruto(self.pasta, pastas.interno(self.pasta))
+                except Exception:
+                    pass
             self._fim_ev.set()
             self._avisar()
 
@@ -145,6 +214,11 @@ class Sessao:
         pasta = Path(cfg["pasta_saida"]) / pastas.nome_sessao(canal)
         pasta.mkdir(parents=True, exist_ok=True)
         dint = pastas.interno(pasta)
+        self._limpar_bruto = bool(cfg.get("limpar_bruto", True))
+        nivel, livre, frase = disco.avaliar(pasta, cfg)
+        if nivel == "critico":                        # nem começa: o disco não aguenta gravar a live
+            raise RuntimeError(frase)
+        self._aviso_disco = frase
         arq_log = log.configurar(dint, args.detalhado, terminal=self.terminal)
         self.pasta = pasta
         t_sessao = time.time()
@@ -193,6 +267,7 @@ class Sessao:
 
         # ---------------- render em fila limitada, cada corte num processo separado ----------------
         pendentes = []                     # jobs esperando (lista protegida por lock)
+        self._pendentes = pendentes
         lk = threading.Lock()
         tem_job = threading.Event()
         acabar_render = threading.Event()
@@ -223,6 +298,9 @@ class Sessao:
 
         def _rodar_render_proc(pedido_arq):
             cmd = [sys.executable, "-m", "cortelive.render_job", str(pedido_arq)]
+            if self._job_atual:
+                self._job_atual["fase"] = "cortando"
+                self._job_atual["t_render"] = time.time()
             if os.name == "nt":
                 cmd = [sys.executable, "-m", "cortelive.processos", *cmd]
             proc = subprocess.Popen(
@@ -295,6 +373,15 @@ class Sessao:
 
         def fazer_corte(job):
             ini, fim = job["ini"], job["fim"]
+            self._job_atual = {"evento": job["evento"], "dur": fim - ini, "t0": time.time(), "fase": "legenda",
+                               "t_render": time.time()}
+            try:
+                return _fazer_corte(job)
+            finally:
+                self._job_atual = None
+
+        def _fazer_corte(job):
+            ini, fim = job["ini"], job["fim"]
             n_corte[0] += 1
             nome = f"corte_{n_corte[0]:03d}_{_hms(job['evento']).replace(':', '')}"
             t0 = time.time()
@@ -309,6 +396,7 @@ class Sessao:
             job["palavras"] = fl.palavras_entre(ini, fim)
             # cam ainda sendo medida (primeiro 1,5 min): espera, para o corte não sair sem cam à toa
             while cam_status == "procurar" and time.time() - t0 < 150 and not cap.acabou.is_set():
+                self._job_atual["fase"] = "cam"
                 if self._descartar_ev.wait(0.5):
                     raise _CorteDescartado()
                 if self._parar_ev.is_set():
@@ -329,6 +417,7 @@ class Sessao:
                                           "faixa_cor": cfg.get("faixa_cor", "vermelha"),
                                           "recuo_sem_cam": cfg.get("recuo_sem_cam")},
                                          ensure_ascii=False), encoding="utf-8")
+            self._job_atual["fase"] = "fila_render"
             try:
                 rc = servicos.render().executar(_rodar_render_proc, pedido)
             except _CorteDescartado:
@@ -348,7 +437,11 @@ class Sessao:
             if not r.get("ok"):
                 log.debug(r.get("trace", ""))
                 raise RuntimeError(r.get("erro", "erro desconhecido no render"))
+            if r.get("caiu_sem_cam"):
+                log.info(f"Modo do corte: {r.get('modelo')} — {r['caiu_sem_cam']}")
             pronto = time.time()
+            if self._job_atual:
+                self._render_hist = (self._render_hist + [(fim - ini, pronto - self._job_atual["t_render"])])[-6:]
             # render sai em _interno/corte_NNN_*; aqui ganha o nome legível e vai para a pasta visível
             dsl = pasta / pastas.SEM_LEGENDA
             legivel = pastas.unico(pasta, pastas.nome_corte(canal, job["titulo"], pronto, reserva=nome),
@@ -385,6 +478,7 @@ class Sessao:
             }
             (dint / f"{legivel}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
             self._ultimo_corte = final.name
+            self._pronto_em = (time.time(), job["titulo"])
             if cfg.get("postar_sozinho"):      # autopost em thread própria: só enfileira, não segura o render
                 try:
                     from . import autopost
@@ -436,8 +530,6 @@ class Sessao:
             sem_corte = limite - max(sel.ultimo_fim, 0)
             if cfg["minutos_sem_corte_para_adaptar"] and sem_corte > cfg["minutos_sem_corte_para_adaptar"] * 60 \
                     and len(hist_notas) > 240:
-            if r.get("caiu_sem_cam"):
-                log.info(f"Modo do corte: {r.get('modelo')} — {r['caiu_sem_cam']}")
                 import numpy as np
                 limiar = max(cfg["limiar_minimo"], min(limiar, float(np.percentile(list(hist_notas.values()), 97))))
             if janela:
@@ -579,8 +671,30 @@ class Sessao:
                 log.info(f"Cam do streamer: {'achei em ' + ','.join(map(str, cam)) if cam else ('confiança baixa (' + camauto.ULTIMO.get('motivo', '?') + ') — usando o enquadramento definido pelo modelo de corte')}"
                          f" (guardado para o canal '{canal}')")
 
+        prox_disco = [0.0]
+
+        def vigiar_disco():
+            """Avisa (painel) abaixo do limite de aviso; abaixo do crítico para com segurança."""
+            if time.time() < prox_disco[0]:
+                return
+            prox_disco[0] = time.time() + cfg.get("disco_checar_s", 15)
+            nv, lv, fr = disco.avaliar(pasta, cfg)
+            if nv == "critico":
+                self._parou_disco = fr
+                self._aviso_disco = fr
+                log.aviso(fr)
+                # descarta o corte em andamento (não precisa de disco para terminar); cortes prontos ficam
+                self.parar(descartar_cortes=True)
+                cap.motivo_fim = "disco quase cheio"
+            elif fr != self._aviso_disco:
+                self._aviso_disco = fr
+                if fr:
+                    log.aviso(fr)
+            self._avisar()
+
         try:
             while not self._parar_ev.is_set():
+                vigiar_disco()
                 try:
                     seg = fila.get(timeout=0.25)
                 except queue.Empty:
@@ -627,7 +741,11 @@ class Sessao:
         if chat:
             chat.parar.set()
         exe.shutdown(wait=False, cancel_futures=True)
-        shutil.rmtree(buf, ignore_errors=True)
+        if self._limpar_bruto:
+            livres = disco.limpar_bruto(pasta, dint)
+            log.debug(f"limpeza do bruto: {livres / 1024 ** 2:.0f} MB liberados")
+        else:
+            log.debug("limpeza do bruto desligada (limpar_bruto = false): gravação mantida em _interno/.buffer")
         feitas, pendentes_copia = cf.wait(copias_destino, timeout=120)
         if pendentes_copia:
             log.aviso("Ainda há cópias em andamento. Confira o Drive e reenvie pelo painel se faltar algum corte.")

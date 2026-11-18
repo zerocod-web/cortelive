@@ -1035,7 +1035,9 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
             estado = ("ao vivo" if any(st.get("estado") == "ao vivo" for st in ativas)
                       else ativas[0].get("estado") if ativas
                       else "encerrando" if pendentes else "encerrada")
-            emitir({"estado": estado, "lives": dados, **status_servicos(modo_resumo)})
+            avisos_disco = [st["aviso_disco"] for st in dados if st.get("aviso_disco")]
+            extra_disco = {"mensagem": avisos_disco[0]} if avisos_disco else {}
+            emitir({"estado": estado, "lives": dados, **status_servicos(modo_resumo), **extra_disco})
             if not pendentes:
                 break
             if acordar_ev is not None:
@@ -1058,7 +1060,9 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
     dados = estados()
     unica = unica and (unica_cel is None or unica_cel[0])
     erro = dados[0].get("motivo_fim") if unica and dados[0].get("estado") == "erro" else None
-    emitir({"estado": "erro" if erro else "encerrada", "erro": erro, "lives": dados, "modo": modo_resumo})
+    disco_parou = next((st["mensagem"] for st in dados if st.get("aviso_disco") and "Disco quase lotado" in str(st.get("mensagem"))), None)
+    emitir({"estado": "erro" if erro else "encerrada", "erro": erro, "lives": dados, "modo": modo_resumo,
+            **({"mensagem": disco_parou} if disco_parou else {})})
     return int(bool(erro))
 
 

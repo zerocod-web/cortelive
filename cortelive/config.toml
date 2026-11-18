@@ -95,3 +95,11 @@ destino_ativo = false          # copia cada corte pronto quando ligado
 destino_pasta = ""              # caminho completo da pasta sincronizada no computador
 destino_txt = false            # inclui título, legenda e hashtags num TXT
 destino_mover_postados = true  # organiza as cópias marcadas na subpasta postados
+
+# --- Espaço em disco e limpeza da gravação bruta ------------------------------------------------
+# Gravar live ocupa espaço (a captura guarda ~buffer_min minutos, o resto é apagado). O painel avisa
+# quando o disco da pasta de cortes tem pouco espaço e para a gravação com segurança antes de lotar.
+disco_aviso_gb = 10         # abaixo disso: "Pouco espaço no disco: X GB livres" (0 = desliga o vigia)
+disco_critico_gb = 3        # abaixo disso: para a gravação (cortes prontos ficam) e explica o motivo
+disco_checar_s = 15         # de quanto em quanto tempo olhar o disco durante a live
+limpar_bruto = true         # fim da live: apaga gravação bruta/temporários e fica só com os cortes finais

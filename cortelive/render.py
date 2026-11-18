@@ -40,9 +40,10 @@ NITIDEZ_CAM = "unsharp=5:5:0.5:5:5:0.0"
 # PNG RGBA 1080x220 em presets\faixas; o papel é opaco das linhas ~36 a ~178 (medido nos 4 arquivos),
 # o resto é a borda rasgada e transparência. Sem o PNG, cai numa faixa lisa da mesma cor.
 FAIXAS = PRESETS / "faixas"
-FAIXA_ALT, FAIXA_OPACO = 220, (36, 178)
+FAIXA_ESCALA = 0.6    # v1.0.11: a faixa ocupa 60% da altura anterior (o PNG é esticado para essa altura)
+FAIXA_ALT, FAIXA_OPACO = round(220 * FAIXA_ESCALA), (round(36 * FAIXA_ESCALA), round(178 * FAIXA_ESCALA))
 FAIXA_COR_LISA = {"vermelha": "0xBA0000", "creme": "0xEFE6D2"}
-FAIXA_FOLGA = 12  # papel opaco passa N px além do blur em cima e embaixo
+FAIXA_FOLGA = 8  # papel opaco passa N px além do blur em cima e embaixo
 
 
 def _jogo_janela(m, sw, sh):
@@ -113,6 +114,33 @@ def janela_do_jogo(video, inicio, fim, sw, sh, cam=None):
     return (x0, 0, x1 - x0, sh)
 
 
+def janela_jogo_cheia(sw, sh, W, hj, cam=None):
+    """v1.0.11: jogo em tela cheia (16:9 sem faixas pretas) preenche TODO o painel abaixo da faixa (sem barra preta):
+    recorta uma janela com a proporção do painel (W:hj), na altura inteira, e a posiciona para FORA da caixa da cam
+    (que já aparece em cima), o mais perto possível do centro do jogo. Se nenhuma posição exclui a cam sem perder o
+    centro, devolve a posição central e cobrir=True (o filtro cobre a cam com o jogo ao lado).
+    Devolve (x, y, w, h, cobrir) em px do vídeo."""
+    ww = min(sw, int(sh * W / hj) // 2 * 2)       # arredonda para baixo: o jogo escalado nunca fica mais baixo que o painel
+    pref = (sw - ww) // 2
+    if not cam:
+        return (pref // 2 * 2, 0, ww, sh, False)
+    cx, cy, cw, ch = cam
+    mg = max(16, int(0.06 * sw))     # a caixa medida costuma ser menor que a moldura real da cam
+    c0, c1 = cx - mg, cx + cw + mg
+    if pref + ww <= c0 or pref >= c1:             # já não toca a cam
+        return (pref // 2 * 2, 0, ww, sh, False)
+    ops = []
+    if c1 + ww <= sw:
+        ops.append(c1)                            # janela à direita da cam
+    if c0 - ww >= 0:
+        ops.append(c0 - ww)                       # janela à esquerda da cam
+    if ops:
+        x = min(ops, key=lambda v: abs(v - pref))
+        if abs((x + ww / 2) - sw / 2) <= 0.30 * sw:   # não perde o centro do jogo
+            return (int(x) // 2 * 2, 0, ww, sh, False)
+    return (pref // 2 * 2, 0, ww, sh, True)
+
+
 def faixa_arquivo(cor="vermelha", variacao=0):
     """PNG da faixa na cor pedida; as variações de rasgo (_v2, _v3...) alternam pelo número do corte."""
     arqs = sorted(FAIXAS.glob(f"faixa_rasgada_{cor}*.png"))
@@ -149,7 +177,7 @@ def _tapa_cam(m, bx, by, bw, bh, nw, nh, jx, jy):
     v1.0.7: em vez de um bloco preto (aparecia como um quadradinho preto no canto do jogo), preenche com o próprio
     jogo em volta (delogo). A cam recebida já vem recortada para dentro da janela; o pedaço tapado cresce 8% para os
     lados/baixo e 22% para cima (faixa de nome) para cobrir a janela inteira da live."""
-    if not m.get("_jogo_auto"):
+    if not (m.get("_jogo_auto") or m.get("_cobrir_cam")):
         return ""
     mx, mb = int(bw * 0.08), int(bh * 0.08)
     x0, y0 = max(bx - mx, jx), max(by - int(bh * 0.22), jy)
@@ -564,6 +592,11 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
             jw_ = None
         if jw_:
             m = dict(m, jogo={"x": jw_[0] / sw, "y": 0.0, "w": jw_[2] / sw, "h": 1.0}, jogo_vista=0.0, _jogo_auto=True)
+    if m["tipo"] == "cam-em-cima" and not m.get("_jogo_auto") and cam is not None:
+        W_, hj_ = m["largura"], m["altura"] - m.get("altura_cam", 640)
+        jx_, jy_, jw2, jh2, cobrir = janela_jogo_cheia(sw, sh, W_, hj_, cam)
+        m = dict(m, jogo={"x": jx_ / sw, "y": 0.0, "w": jw2 / sw, "h": 1.0}, jogo_vista=0.0, _jogo_cheio=True,
+                 _cobrir_cam=cobrir)
     if m["tipo"] == "cam-em-cima" and m.get("enquadrar_rosto", True):
         visivel = None
         if (faixa or "rasgada").lower() not in ("blur", "nenhuma"):   # só a rasgada cobre a cam

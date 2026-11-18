@@ -77,3 +77,28 @@ def test_live_adicionada_depois_le_a_chave_de_novo(tmp_path, monkeypatch):
     assert motor_painel.config_postagem(tmp_path)["cortes_longos"] is False
     (tmp_path / "painel_config.json").write_text(json.dumps({"cortes_longos": True}), encoding="utf-8")
     assert motor_painel.config_postagem(Path.cwd())["cortes_longos"] is True
+
+
+# --- v1.0.11: enquadramento "Câmera em cima" (jogo cheio sem cam duplicada, sem barra preta, faixa a 60%) ---
+def test_janela_jogo_cheia_preenche_painel_e_exclui_cam():
+    from cortelive import render
+    for cam in ((1420, 46, 480, 284), (14, 46, 476, 282), (1498, 40, 396, 234)):   # cantos direito e esquerdo
+        x, y, w, h, cobrir = render.janela_jogo_cheia(1920, 1080, 1080, 1280, cam)
+        assert (y, h) == (0, 1080) and not cobrir
+        assert w * 1280 >= 1080 * 1080 - 1280 * 2          # escalada para 1080 de largura, preenche >= 1280 de altura
+        assert x + w <= cam[0] - 16 or x >= cam[0] + cam[2] + 16      # fora da caixa da cam
+        assert 0 <= x and x + w <= 1920
+
+
+def test_janela_jogo_cheia_cam_no_meio_cobre_em_vez_de_perder_o_centro():
+    from cortelive import render
+    x, y, w, h, cobrir = render.janela_jogo_cheia(1920, 1080, 1080, 1280, (700, 40, 520, 300))
+    assert cobrir is True
+
+
+def test_faixa_60_por_cento():
+    from cortelive import render
+    assert render.FAIXA_ALT == round(220 * 0.6)
+    m = {"largura": 1080, "altura": 1920, "altura_cam": 640, "jogo": {"x": 0.0, "y": 0.0, "w": 0.4745, "h": 1.0}}
+    g = render.geometria_faixa(m, 1920, 1080)
+    assert g["blur"] <= 2 and g["h"] <= 140

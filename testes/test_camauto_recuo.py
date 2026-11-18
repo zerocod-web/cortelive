@@ -8,7 +8,7 @@ def _quadros(n=8):
     out = []
     for _ in range(n):
         q = base.copy()
-        q[0:300, 0:465] = rng.integers(0, 255, (300, 465, 3), dtype=np.uint8)   # cam: muda a cada quadro
+        q[0:300, 0:465] = np.clip(np.array([120, 160, 220]) + rng.integers(-25, 25, (300, 465, 3)), 0, 255).astype(np.uint8)   # cam (tom de pele): muda a cada quadro
         out.append(q)
     return out
 

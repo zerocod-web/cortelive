@@ -4,7 +4,8 @@ from cortelive import camauto
 
 def test_passada_sensivel_so_roda_sem_rosto_fixo(monkeypatch):
     img = np.zeros((1080, 1920, 3), np.uint8)
-    imgs = [img + i for i in range(6)]
+    img[:] = (120, 160, 220)                      # tom de pele
+    imgs = [img + i * 6 for i in range(6)]
     chamadas = []
     monkeypatch.setattr(camauto, "_quadro", lambda a: a)
     monkeypatch.setattr(camauto, "rostos", lambda i: [])

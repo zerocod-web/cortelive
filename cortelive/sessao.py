@@ -587,6 +587,8 @@ class Sessao:
             nonlocal exe
             if self._parar_ev.is_set():
                 return
+            # live com momento já detectado (corte esperando legenda/render) passa na frente na fila da fala
+            (sv.prioritarias.add if (self._pendentes or self._job_atual) else sv.prioritarias.discard)(canal)
             gatilho = buf / "TRAVAR_TRANSCRICAO"     # só para teste de robustez: simula motor travado
             if gatilho.exists():
                 gatilho.unlink(missing_ok=True)

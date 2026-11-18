@@ -55,7 +55,9 @@ travou_transcricao_s = 90   # transcrição demorando mais que isso = reinicia o
 #   placa livre: large-v3-turbo 1,1 s (2,3 GB) | small 2,5 s (0,8 GB) | medium 4,1 s | base 4,6 s (0,5 GB)
 #   placa ocupada: turbo 3,5 s | small 5,1 s | base 9,8 s | medium 12,1 s
 # O turbo é o mais rápido; o small serve para liberar VRAM para o jogo. Depois dele, blocos maiores.
-modelos_reserva = ["small"]
+modelos_reserva = []        # o "small" era ~4x MAIS LENTO que o turbo (medido 18/11/2026: turbo 2% do tempo real, small 9-11%);
+                            # trocar para ele só piorava o atraso. Para liberar VRAM para jogo, coloque ["small"] aqui.
+blocos_extra_s = [24]       # degrau de bloco além do bloco_lento_s: 6 -> 12 -> 24 s conforme a carga
 atraso_max_s = 20           # transcrição mais que N segundos atrás da live = "atrasada"
 fator_max = 0.5             # ou gastando mais que 50% do tempo real
 fator_folga = 0.15          # abaixo disso (e sem atraso) a placa está folgada: volta a subir

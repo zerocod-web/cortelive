@@ -87,7 +87,12 @@ class ServicoTranscricao:
         self.modo, self.cfg = modo, cfg
         self.degraus = [modo.modelo_whisper] + [m for m in cfg.get("modelos_reserva", []) if m != modo.modelo_whisper]
         self.nivel = 0
+        # Blocos maiores gastam menos por segundo de áudio (menos sobreposição e menos chamadas):
+        # medido na RTX 5070, turbo: 8 s = 2,8% do tempo real, 14 s = 2,3%, 26 s = 1,9%.
+        self.blocos = sorted({cfg["bloco_normal_s"], cfg["bloco_lento_s"], *cfg.get("blocos_extra_s", [24])})
         self.bloco_s = cfg["bloco_normal_s"]
+        self.prioritarias = set()                      # sessões com momento detectado: vão na frente da fila
+        self.capacidade_lives = None
         self.tr = fala.Transcritor(modo)
         self.filas = collections.OrderedDict()        # sid -> deque de pedidos
         self.cv = threading.Condition()
@@ -129,7 +134,18 @@ class ServicoTranscricao:
         return {"modelo": self.nome_modelo, "fila": sum(len(q) for q in self.filas.values()),
                 "carga_60s": round(carga, 3),
                 "fator_tempo_real": round(sum(h[1] for h in rec) / max(1e-6, sum(h[2] for h in rec)), 3) if rec else None,
-                "bloco_s": self.bloco_s, "trocas": list(self.trocas)}
+                "bloco_s": self.bloco_s, "trocas": list(self.trocas),
+                "capacidade_lives": self.capacidade_lives, "aviso_capacidade": self.aviso_capacidade()}
+
+    def aviso_capacidade(self, lives=None):
+        """'Seu PC aguenta bem até N lives...' — N vem do desempenho medido (áudio transcrito por segundo de placa)."""
+        n = self.capacidade_lives
+        if not n:
+            return ""
+        vivas = lives if lives is not None else len({s for s in self.filas})
+        if vivas <= n:
+            return ""
+        return f"Seu PC aguenta bem até {n} lives; acima disso os cortes atrasam (você tem {vivas})."
 
     def desligar(self):
         self.parar = True
@@ -152,7 +168,9 @@ class ServicoTranscricao:
 
     def _proximo(self):
         """Rodízio justo: pega da primeira sessão com pedido e manda ela para o fim da fila."""
-        for sid in list(self.filas):
+        ordem = list(self.filas)
+        ordem.sort(key=lambda x: x not in self.prioritarias)   # estável: prioritárias primeiro, rodízio mantido
+        for sid in ordem:
             q = self.filas[sid]
             if q:
                 p = q.popleft()
@@ -214,6 +232,9 @@ class ServicoTranscricao:
         gasto = sum(h[1] for h in rec)
         fator = gasto / max(1e-6, audio)                    # segundos gastos por segundo de áudio
         espera = max(h[3] for h in rec)                     # maior tempo parado na fila
+        # capacidade: cada live pede 1 s de áudio por segundo; a placa entrega (áudio/gasto) por segundo ocupado.
+        # Usa 75% dela para sobrar folga ao render, à captura e ao jogo.
+        self.capacidade_lives = max(1, int(0.75 * audio / max(1e-6, gasto)))
         ocupado = gasto / 30.0                              # fração do tempo com a placa transcrevendo
         ruim = fator > c["fator_max"] or espera > c["atraso_max_s"] / 2 or ocupado > 0.85
         bom = fator < c["fator_folga"] and espera < 3 and ocupado < 0.5
@@ -224,18 +245,19 @@ class ServicoTranscricao:
         motivo = f"gastando {fator * 100:.0f}% do tempo real, fila de até {espera:.0f} s, placa {ocupado * 100:.0f}% ocupada"
         if ruim and agora - self.ruim_desde >= c["segundos_ruim_para_descer"]:
             self.ruim_desde = None
-            if self.nivel + 1 < len(self.degraus):
-                self._trocar(self.nivel + 1, motivo)
-            elif self.bloco_s < c["bloco_lento_s"]:
-                self.bloco_s = c["bloco_lento_s"]
+            maiores = [b for b in self.blocos if b > self.bloco_s]
+            if maiores:       # primeiro blocos maiores (barato e sem perder qualidade), só depois modelo menor
+                self.bloco_s = maiores[0]
                 self._anotar(self.nome_modelo, self.nome_modelo, f"blocos de {self.bloco_s:.0f} s ({motivo})")
+            elif self.nivel + 1 < len(self.degraus):
+                self._trocar(self.nivel + 1, motivo)
         elif bom and agora - self.bom_desde >= c["segundos_bom_para_subir"]:
             self.bom_desde = None
-            if self.bloco_s > c["bloco_normal_s"]:
-                self.bloco_s = c["bloco_normal_s"]
-                self._anotar(self.nome_modelo, self.nome_modelo, f"placa folgou: blocos de volta a {self.bloco_s:.0f} s")
-            elif self.nivel > 0:
+            if self.nivel > 0:
                 self._trocar(self.nivel - 1, f"placa folgou ({motivo})")
+            elif self.bloco_s > c["bloco_normal_s"]:
+                self.bloco_s = max(b for b in self.blocos if b < self.bloco_s)
+                self._anotar(self.nome_modelo, self.nome_modelo, f"placa folgou: blocos de volta a {self.bloco_s:.0f} s")
 
     def _anotar(self, de, para, motivo):
         self.trocas.append((time.strftime("%H:%M:%S"), de, para, motivo))

@@ -1137,6 +1137,13 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
             atraso_s, atraso_canal = _atraso_voz_sessao(ativas)
             avisos_disco = [st["aviso_disco"] for st in dados if st.get("aviso_disco")]
             mensagem = avisos_disco[0] if avisos_disco else _resumo_barra_sessao(dados, estado, ultimo_corte_ha_s)
+            try:   # PC com lives demais: aviso claro com N estimado pelo desempenho medido
+                from cortelive import servicos as _sv
+                aviso_cap = _sv.transcricao().aviso_capacidade(len(ativas)) if ativas else ""
+            except Exception:
+                aviso_cap = ""
+            if aviso_cap and not avisos_disco:
+                mensagem = f"{aviso_cap} · {mensagem}"
             emitir({
                 "estado": estado,
                 "mensagem": mensagem,

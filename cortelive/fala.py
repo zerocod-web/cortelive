@@ -47,7 +47,34 @@ def juntar_fragmentos(words):
     return [w for w in out if w["w"]]
 
 
+def filtrar_confianca(words, no_fala=0.6, logprob=-1.2, prob_media=0.45):
+    """Tira trecho que o Whisper 'inventou' sobre áudio sem fala em português (cutscene em inglês, jogo, ruído):
+    segmento com muita chance de não ser fala, logprob muito baixo ou palavras de baixa confiança em média.
+    Palavras sem os campos 'lp'/'np' (whisper.cpp) passam direto."""
+    grupos, atual = [], []
+    for w in words:
+        if atual and (w.get("lp"), w.get("np")) != (atual[-1].get("lp"), atual[-1].get("np")):
+            grupos.append(atual)
+            atual = []
+        atual.append(w)
+    if atual:
+        grupos.append(atual)
+    out = []
+    for g in grupos:
+        lp, nsp = g[0].get("lp"), g[0].get("np")
+        if lp is None:
+            out += g
+            continue
+        media = sum(w.get("p", 1.0) for w in g) / len(g)
+        if nsp > no_fala or lp < logprob or media < prob_media:
+            continue
+        out += g
+    return out
+
+
 class Transcritor:
+    filtrar = True      # a medição (qa/medicao_cortes) liga/desliga para comparar antes e depois
+
     def __init__(self, modo: hw.Modo, modelo: str | None = None):
         if modelo:
             import dataclasses
@@ -83,9 +110,12 @@ class Transcritor:
             segs, _ = self._m.transcribe(audio, language="pt", word_timestamps=True, beam_size=1,
                                          vad_filter=True, condition_on_previous_text=False,
                                          vad_parameters={"min_silence_duration_ms": 300})
-            ws = [{"w": w.word, "s": float(t0 + w.start), "e": float(t0 + w.end), "p": float(w.probability)}
-                  for sg in segs for w in (sg.words or [])]
-            return juntar_fragmentos(ws)
+            ws = []
+            for sg in segs:
+                lp, nsp = float(getattr(sg, "avg_logprob", 0.0)), float(getattr(sg, "no_speech_prob", 0.0))
+                ws += [{"w": w.word, "s": float(t0 + w.start), "e": float(t0 + w.end), "p": float(w.probability),
+                        "lp": lp, "np": nsp} for w in (sg.words or [])]
+            return juntar_fragmentos(ws if not self.filtrar else filtrar_confianca(ws))
         return self._cpp(audio, t0)
 
     def _cpp(self, audio, t0):

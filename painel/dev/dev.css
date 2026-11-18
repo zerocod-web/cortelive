@@ -9,14 +9,22 @@
   --dev-vermelho-selo: #d9220b;
   --dev-vermelho-borda: #ff5b45;
   --dev-vermelho-texto: #ffffff;
-  --dev-fundo-sutil: rgba(247, 44, 18, 0.12);
 }
 
 [data-tema="claro"] {
   --dev-vermelho-selo: #c81e09;
   --dev-vermelho-borda: #991505;
   --dev-vermelho-texto: #ffffff;
-  --dev-fundo-sutil: rgba(217, 34, 11, 0.10);
+}
+
+/* Foco visível completo também em selects e opções agrupadas da aba Dev */
+.dev-painel select:focus-visible,
+.dev-painel .dev-console-pre:focus-visible,
+.dev-painel .dev-canal-opcao:has(input:focus-visible),
+.dev-painel .dev-check-inline:has(input:focus-visible),
+.dev-modal-confirmacao button:focus-visible {
+  outline: 2px solid var(--foco-anel);
+  outline-offset: 2px;
 }
 
 /* Selo DEV vermelho no cabeçalho principal + indicador na aba Dev */
@@ -72,7 +80,7 @@
   font-size: 1.08rem;
 }
 
-/* 1. Barra de Pastas + Canal Beta + Lançar Versão */
+/* 1. Barra de Pastas + Canal de Atualização + Lançar Versão */
 .dev-topo-barra {
   display: flex;
   align-items: flex-start;
@@ -95,11 +103,22 @@
   flex-wrap: wrap;
 }
 
+.dev-meta-pastas {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--sinal-ok-texto);
+}
+
+.dev-meta-pastas[data-erro="true"] {
+  color: var(--sinal-ao-vivo-texto);
+}
+
 .dev-bloco-release {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex: 1 1 460px;
+  flex: 1 1 480px;
   align-items: flex-end;
 }
 
@@ -119,14 +138,15 @@
   background: var(--mesa-entrada);
   border: 1px solid var(--borda-forte);
   border-radius: var(--raio-controle);
+  flex-wrap: wrap;
 }
 
 .dev-canal-opcao {
-  min-height: 36px;
+  min-height: 44px;
   padding: 6px 12px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   border-radius: var(--raio-interno);
   font-size: 0.84rem;
   font-weight: 700;
@@ -136,9 +156,15 @@
 }
 
 .dev-canal-opcao input[type="radio"] {
+  width: 16px;
+  height: 16px;
   accent-color: var(--sinal-acao);
   margin: 0;
   cursor: pointer;
+}
+
+.dev-canal-opcao:hover {
+  color: var(--texto-primario);
 }
 
 .dev-canal-opcao:has(input:checked) {
@@ -156,9 +182,19 @@
 
 .dev-meta-status {
   margin: 0;
-  font-size: 0.82rem;
-  color: var(--texto-terciario);
+  font-size: 0.84rem;
+  color: var(--texto-secundario);
   text-align: right;
+}
+
+.dev-meta-status[data-erro="true"] {
+  color: var(--sinal-ao-vivo-texto);
+  font-weight: 600;
+}
+
+.dev-meta-status[data-ok="true"] {
+  color: var(--sinal-ok-texto);
+  font-weight: 600;
 }
 
 .dev-meta-status code,
@@ -172,7 +208,7 @@
   color: var(--texto-secundario);
 }
 
-/* 2. Bancada de Ensaio (3 colunas em telas largas) */
+/* 2. Bancada de Testes (3 colunas em telas largas) */
 .dev-secao-topo {
   display: flex;
   align-items: center;
@@ -192,7 +228,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px;
+  padding: 16px;
   background: var(--mesa-entrada);
   border: 1px solid var(--borda-sutil);
   border-radius: var(--raio-controle);
@@ -209,8 +245,8 @@
 
 .dev-ensaio-cabecalho h3 {
   margin: 0;
-  font-size: 0.96rem;
-  font-weight: 700;
+  font-size: 0.98rem;
+  font-weight: 800;
   color: var(--texto-primario);
 }
 
@@ -219,8 +255,8 @@
 .dev-pilula-erro {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 5px;
+  padding: 3px 9px;
+  border-radius: var(--raio-interno);
   font-family: var(--fonte-mono);
   font-size: 0.73rem;
   font-weight: 700;
@@ -256,6 +292,8 @@
 .dev-campo .campo-rotulo,
 .dev-redes-fieldset .campo-rotulo {
   font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--texto-secundario);
   margin: 0;
 }
 
@@ -266,6 +304,13 @@
   padding: 8px 10px;
   font-size: 0.88rem;
   border-radius: var(--raio-interno);
+  background: var(--mesa-painel);
+  border: 1px solid var(--borda-forte);
+  color: var(--texto-primario);
+}
+
+.dev-select {
+  cursor: pointer;
 }
 
 .dev-linha-dupla {
@@ -284,7 +329,7 @@
 .dev-redes-linha {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
 }
@@ -300,6 +345,10 @@
   color: var(--texto-secundario);
   cursor: pointer;
   border-radius: var(--raio-interno);
+}
+
+.dev-check-inline:hover {
+  color: var(--texto-primario);
 }
 
 .dev-check-inline input[type="checkbox"] {
@@ -320,11 +369,21 @@
 }
 
 .dev-feedback-curto {
-  font-size: 0.8rem;
-  color: var(--texto-terciario);
+  font-size: 0.82rem;
+  color: var(--texto-secundario);
 }
 
-/* Lista de diagnóstico de contas e servidor_tokens */
+.dev-feedback-curto[data-erro="true"] {
+  color: var(--sinal-ao-vivo-texto);
+  font-weight: 600;
+}
+
+.dev-feedback-curto[data-ok="true"] {
+  color: var(--sinal-ok-texto);
+  font-weight: 600;
+}
+
+/* Lista de diagnóstico de contas e servidor de tokens */
 .dev-diagnostico-lista {
   list-style: none;
   margin: 0;
@@ -339,15 +398,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 7px 10px;
   background: var(--mesa-painel);
   border: 1px solid var(--borda-sutil);
   border-radius: var(--raio-interno);
-  font-size: 0.82rem;
+  font-size: 0.83rem;
 }
 
 .dev-diagnostico-lista li span {
-  color: var(--texto-terciario);
+  color: var(--texto-secundario);
   white-space: nowrap;
 }
 
@@ -362,7 +421,19 @@
   white-space: nowrap;
 }
 
-/* 3. Monitores de Log ao Vivo (Corte + Postagem) */
+.dev-diagnostico-lista li strong[data-estado="ok"] {
+  color: var(--sinal-ok-texto);
+}
+
+.dev-diagnostico-lista li strong[data-estado="alerta"] {
+  color: var(--sinal-ao-vivo-texto);
+}
+
+.dev-diagnostico-lista li strong[data-estado="neutro"] {
+  color: var(--texto-terciario);
+}
+
+/* 3. Monitores de Registro ao Vivo (Corte + Postagem) */
 .dev-monitores-grade {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -400,13 +471,13 @@
 
 .dev-console-cmd {
   margin: 0;
-  padding: 6px 10px;
+  padding: 7px 10px;
   background: var(--mesa-entrada);
   border: 1px solid var(--borda-sutil);
   border-radius: var(--raio-interno);
-  font-family: var(--fonte-mono);
-  font-size: 0.78rem;
-  color: var(--texto-terciario);
+  font-family: var(--fonte-interface);
+  font-size: 0.82rem;
+  color: var(--texto-secundario);
   overflow-x: auto;
   white-space: nowrap;
 }
@@ -415,12 +486,12 @@
   margin: 0;
   min-height: 230px;
   max-height: 310px;
-  font-size: 0.8rem;
-  line-height: 1.5;
+  font-size: 0.81rem;
+  line-height: 1.55;
   font-variant-numeric: tabular-nums;
 }
 
-/* 4. Patchbay de Configuração (TOML) */
+/* 4. Editor de Configuração */
 .dev-config-card {
   display: flex;
   flex-direction: column;
@@ -441,7 +512,7 @@
   gap: 4px;
   padding: 4px;
   background: var(--mesa-entrada);
-  border: 1px solid var(--borda-sutil);
+  border: 1px solid var(--borda-forte);
   border-radius: var(--raio-controle);
   flex-wrap: wrap;
 }
@@ -452,17 +523,12 @@
   border: 1px solid transparent;
   border-radius: var(--raio-interno);
   background: transparent;
-  color: var(--texto-terciario);
+  color: var(--texto-secundario);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.86rem;
   font-weight: 700;
   cursor: pointer;
   transition: background-color var(--transicao-curta), color var(--transicao-curta);
-}
-
-.dev-cfg-aba code {
-  font-family: var(--fonte-mono);
-  font-size: 0.82rem;
 }
 
 .dev-cfg-aba:hover {
@@ -515,7 +581,7 @@
 }
 
 .dev-cfg-msg {
-  font-size: 0.85rem;
+  font-size: 0.86rem;
   color: var(--texto-secundario);
 }
 
@@ -536,6 +602,65 @@
   flex-wrap: wrap;
 }
 
+/* 5. Modal de Confirmação de Lançamento (ZeroCod) */
+.dev-modal-confirmacao {
+  width: min(92vw, 520px);
+  border-color: var(--borda-destaque);
+}
+
+.dev-modal-titulo-bloco {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.dev-modal-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dev-modal-resumo-caixa {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--mesa-entrada);
+  border: 1px solid var(--borda-forte);
+  border-radius: var(--raio-controle);
+}
+
+.dev-modal-linha-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.88rem;
+}
+
+.dev-modal-linha-info span {
+  color: var(--texto-secundario);
+}
+
+.dev-modal-linha-info strong {
+  color: var(--texto-primario);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dev-modal-texto-aviso {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--texto-secundario);
+}
+
+.dev-modal-rodape {
+  flex-wrap: wrap;
+}
+
 .dev-sr-only {
   position: absolute;
   width: 1px;
@@ -548,8 +673,8 @@
   border: 0;
 }
 
-/* Responsividade (1024 / 768 / 375 px — zero rolagem horizontal) */
-@media (max-width: 1040px) {
+/* Responsividade (1440 / 1024 / 768 / 375 px — zero rolagem horizontal) */
+@media (max-width: 1080px) {
   .dev-grade-ensaios {
     grid-template-columns: 1fr;
   }
@@ -578,5 +703,17 @@
 
   .dev-divisor-vertical {
     display: none;
+  }
+
+  .dev-modal-rodape .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dev-painel *,
+  .dev-modal-confirmacao * {
+    transition: none !important;
+    animation: none !important;
   }
 }

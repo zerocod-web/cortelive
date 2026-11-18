@@ -7,7 +7,6 @@ Ideias reaproveitadas (reescritas, não copiadas linha a linha):
   legenda ASS com a palavra ativa destacada.
 - `clip_selection.py` → prender início/fim do corte em pausas entre palavras (`snap_clip_to_words`) e não
   soltar cortes sobrepostos (`dedupe_overlapping`) — em `cortelive/momento.py` e `cortelive/cli.py`.
-- `llm_backend.py` → juiz por LLM local devolvendo JSON (aqui via Ollama, `cortelive/momento.py: Juiz`).
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
 > documentation files (the "Software"), to deal in the Software without restriction, including without limitation

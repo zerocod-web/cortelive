@@ -1,39 +1,40 @@
 <!-- Aba Dev — Exclusiva do CorteLive Dev.exe (compilado com /define:MODO_DEV) -->
 <div id="aba-painel-dev" class="pilha-secoes dev-painel" hidden>
 
-  <!-- 1. Faixa Superior: Pastas Rápidas + Canal Beta + Lançar Versão -->
+  <!-- 1. Faixa Superior: Atalhos de Pastas + Canal de Atualização + Lançar Versão -->
   <section class="painel-card dev-topo-barra" aria-labelledby="dev-titulo-atalhos">
     <div class="dev-bloco-pastas">
       <div class="dev-rotulo-grupo">
-        <span class="dev-kicker">AMBIENTE DO PROJETO</span>
-        <h2 id="dev-titulo-atalhos" class="titulo-secao dev-titulo-compacto">Pastas e lançamento</h2>
+        <span class="dev-kicker">ATALHOS DO PROJETO</span>
+        <h2 id="dev-titulo-atalhos" class="titulo-secao dev-titulo-compacto">Pastas e versão</h2>
       </div>
-      <div class="dev-acoes-pastas" role="group" aria-label="Abrir pastas do projeto">
-        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="cortes">
+      <div class="dev-acoes-pastas" role="group" aria-label="Abrir pastas no Explorador de Arquivos">
+        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="cortes" data-nome-pasta="Pasta de cortes" title="Abre a pasta onde os vídeos cortados ficam salvos">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
           </svg>
           <span>Pasta de cortes</span>
         </button>
-        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="logs">
+        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="logs" data-nome-pasta="Pasta de registros e testes" title="Abre a pasta de registros e testes de qualidade do projeto">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/>
           </svg>
-          <span>Pasta de logs</span>
+          <span>Pasta de registros</span>
         </button>
-        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="config">
+        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="config" data-nome-pasta="Pasta principal do projeto" title="Abre a pasta principal onde ficam os arquivos do CorteLive">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0-4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
-          <span>Pasta de config</span>
+          <span>Pasta do projeto</span>
         </button>
-        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="dados_local" title="Abre %LOCALAPPDATA%\CorteLive (postar.toml e cofre DPAPI)">
+        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="dados_local" data-nome-pasta="Dados salvos neste computador" title="Abre a pasta local onde ficam guardadas as contas e opções de postagem deste PC">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
           </svg>
-          <span>Dados locais (DPAPI)</span>
+          <span>Dados salvos no PC</span>
         </button>
       </div>
+      <p id="dev-feedback-pastas" class="dev-meta-pastas" role="status" aria-live="polite" hidden></p>
     </div>
 
     <div class="dev-bloco-release">
@@ -41,11 +42,11 @@
         <div class="dev-canal-seletor" role="radiogroup" aria-label="Canal de atualização">
           <label class="dev-canal-opcao">
             <input type="radio" name="dev-canal-update" value="beta" checked>
-            <span>Canal Beta (pre-release)</span>
+            <span>Canal Beta (testes)</span>
           </label>
           <label class="dev-canal-opcao">
             <input type="radio" name="dev-canal-update" value="estavel">
-            <span>Estável</span>
+            <span>Canal Estável (amigos)</span>
           </label>
         </div>
 
@@ -53,22 +54,22 @@
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
           </svg>
-          <span>Checar canal</span>
+          <span>Verificar atualizações</span>
         </button>
 
         <button type="button" id="dev-btn-aplicar-update" class="btn btn-secundario btn-compacto" hidden>
-          <span>Atualizar pelo canal</span>
+          <span>Instalar atualização</span>
         </button>
 
-        <button type="button" id="dev-btn-voltar-update" class="btn btn-secundario btn-compacto" title="Restaura backup anterior em versoes_antigas\">
-          <span>Rollback</span>
+        <button type="button" id="dev-btn-voltar-update" class="btn btn-secundario btn-compacto" title="Restaura a versão anterior caso exista cópia guardada">
+          <span>Voltar versão anterior</span>
         </button>
 
         <span class="dev-divisor-vertical" aria-hidden="true"></span>
 
-        <label class="dev-check-inline" for="dev-chk-simular-release" title="Executa lancar_versao.cmd -Simular sem dar push no GitHub">
+        <label class="dev-check-inline" for="dev-chk-simular-release" title="Testa a preparação da versão neste PC sem enviar nada para o GitHub">
           <input type="checkbox" id="dev-chk-simular-release">
-          <span>-Simular</span>
+          <span>Apenas simular</span>
         </label>
 
         <button type="button" id="dev-btn-lancar-versao" class="btn btn-primario btn-compacto">
@@ -81,7 +82,7 @@
         </button>
       </div>
       <p id="dev-status-update-linha" class="dev-meta-status" role="status" aria-live="polite">
-        Canal Beta ativo no Dev · consulta releases e pre-releases em <code>instalador\atualizar.ps1 -Canal beta</code>.
+        Canal Beta selecionado: verifica versões de teste antes de liberar para os amigos.
       </p>
     </div>
   </section>
@@ -90,40 +91,41 @@
   <section class="painel-card dev-bancada" aria-labelledby="dev-titulo-bancada">
     <div class="dev-secao-topo">
       <div>
-        <span class="dev-kicker">BANCADA DE ENSAIO</span>
-        <h2 id="dev-titulo-bancada" class="titulo-secao">Testes de corte, postagem dry-run e diagnóstico</h2>
+        <span class="dev-kicker">BANCADA DE TESTES</span>
+        <h2 id="dev-titulo-bancada" class="titulo-secao">Ensaios de corte, simulação de postagem e contas</h2>
       </div>
-      <span id="dev-git-info" class="tag-versao">main</span>
+      <span id="dev-git-info" class="tag-versao" title="Ramo e versão atual do projeto">Versão local</span>
     </div>
 
     <div class="dev-grade-ensaios">
-      <!-- Ensaio 1: Corte com teste_video\ -->
+      <!-- Ensaio 1: Corte de teste com vídeo local -->
       <article class="dev-ensaio-card" aria-labelledby="dev-card-corte-t">
         <div class="dev-ensaio-cabecalho">
-          <h3 id="dev-card-corte-t">1. Corte com <code>teste_video\</code></h3>
-          <span class="dev-pilula-neutra">Motor real</span>
+          <h3 id="dev-card-corte-t">1. Corte de teste</h3>
+          <span class="dev-pilula-neutra">Vídeo de teste</span>
         </div>
 
         <div class="dev-campo">
-          <label for="dev-sel-video-teste" class="campo-rotulo">Arquivo de <code>teste_video\</code></label>
+          <label for="dev-sel-video-teste" class="campo-rotulo">Vídeo de amostra</label>
           <select id="dev-sel-video-teste" class="campo-texto dev-select"></select>
         </div>
 
         <div class="dev-linha-dupla">
           <div class="dev-campo">
-            <label for="dev-sel-modelo-teste" class="campo-rotulo">Modelo 9:16</label>
+            <label for="dev-sel-modelo-teste" class="campo-rotulo">Formato vertical (9:16)</label>
             <select id="dev-sel-modelo-teste" class="campo-texto dev-select">
-              <option value="cam-em-cima">cam-em-cima</option>
-              <option value="jogo-fundo-desfocado">jogo-fundo-desfocado</option>
-              <option value="jogo-tela-cheia-crop">jogo-tela-cheia-crop</option>
+              <option value="cam-em-cima">Câmera em cima (padrão)</option>
+              <option value="jogo-fundo-desfocado">Fundo desfocado</option>
+              <option value="jogo-tela-cheia-crop">Tela cheia</option>
             </select>
           </div>
           <div class="dev-campo">
-            <label for="dev-sel-minutos-teste" class="campo-rotulo">Trecho máximo</label>
+            <label for="dev-sel-minutos-teste" class="campo-rotulo">Trecho analisado</label>
             <select id="dev-sel-minutos-teste" class="campo-texto dev-select">
-              <option value="2">Primeiros 2 min (rápido)</option>
+              <option value="1">Primeiro 1 min (mais rápido)</option>
+              <option value="2" selected>Primeiros 2 min (rápido)</option>
               <option value="5">Primeiros 5 min</option>
-              <option value="">Vídeo completo</option>
+              <option value="240">Vídeo completo</option>
             </select>
           </div>
         </div>
@@ -134,40 +136,41 @@
             <span>Testar corte</span>
           </button>
           <button type="button" id="dev-btn-parar-corte" class="btn btn-perigo btn-compacto" hidden>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
             <span>Parar corte</span>
           </button>
           <span id="dev-feedback-corte" class="dev-feedback-curto" role="status" aria-live="polite"></span>
         </div>
       </article>
 
-      <!-- Ensaio 2: Postagem em Dry-Run -->
+      <!-- Ensaio 2: Simulação de Postagem (Sem publicar de verdade) -->
       <article class="dev-ensaio-card" aria-labelledby="dev-card-dry-t">
         <div class="dev-ensaio-cabecalho">
-          <h3 id="dev-card-dry-t">2. Postagem em <code>--dry-run</code></h3>
-          <span class="dev-pilula-ok">Zero upload real</span>
+          <h3 id="dev-card-dry-t">2. Simulação de postagem</h3>
+          <span class="dev-pilula-ok">Sem publicar</span>
         </div>
 
         <div class="dev-campo">
-          <label for="dev-sel-video-dry" class="campo-rotulo">Vídeo para ensaio</label>
+          <label for="dev-sel-video-dry" class="campo-rotulo">Corte pronto para simular</label>
           <select id="dev-sel-video-dry" class="campo-texto dev-select"></select>
         </div>
 
         <div class="dev-linha-dupla">
           <div class="dev-campo">
-            <label for="dev-sel-via-dry" class="campo-rotulo">Provedor (<code>--via</code>)</label>
+            <label for="dev-sel-via-dry" class="campo-rotulo">Por onde enviar</label>
             <select id="dev-sel-via-dry" class="campo-texto dev-select">
-              <option value="direto">direto (OAuth)</option>
-              <option value="postiz">postiz (API)</option>
+              <option value="direto">Conexão direta</option>
+              <option value="postiz">Postiz</option>
             </select>
           </div>
           <div class="dev-campo">
-            <label for="dev-inp-titulo-dry" class="campo-rotulo">Título de teste</label>
-            <input type="text" id="dev-inp-titulo-dry" class="campo-texto" value="Ensaio Dry-Run CorteLive Dev" maxlength="100">
+            <label for="dev-inp-titulo-dry" class="campo-rotulo">Título do teste</label>
+            <input type="text" id="dev-inp-titulo-dry" class="campo-texto" value="Teste de postagem — CorteLive" maxlength="100">
           </div>
         </div>
 
         <fieldset class="dev-redes-fieldset">
-          <legend class="campo-rotulo">Redes (<code>--redes</code>)</legend>
+          <legend class="campo-rotulo">Redes de destino</legend>
           <div class="dev-redes-linha">
             <label class="dev-check-inline"><input type="checkbox" name="dev-rede-dry" value="youtube" checked> <span>YouTube</span></label>
             <label class="dev-check-inline"><input type="checkbox" name="dev-rede-dry" value="instagram" checked> <span>Instagram</span></label>
@@ -178,9 +181,9 @@
         <div class="dev-ensaio-rodape">
           <button type="button" id="dev-btn-postar-dry" class="btn btn-primario btn-compacto">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
             </svg>
-            <span>Rodar postagem dry-run</span>
+            <span>Simular postagem</span>
           </button>
           <span id="dev-feedback-dry" class="dev-feedback-curto" role="status" aria-live="polite"></span>
         </div>
@@ -189,16 +192,16 @@
       <!-- Ensaio 3: Status das Contas e Servidor de Tokens -->
       <article class="dev-ensaio-card" aria-labelledby="dev-card-status-t">
         <div class="dev-ensaio-cabecalho">
-          <h3 id="dev-card-status-t">3. Contas &amp; <code>servidor_tokens</code></h3>
+          <h3 id="dev-card-status-t">3. Contas e servidor de tokens</h3>
           <span id="dev-pilula-worker" class="dev-pilula-neutra">Não verificado</span>
         </div>
 
         <ul id="dev-lista-diagnostico" class="dev-diagnostico-lista" aria-live="polite">
-          <li><span>Worker tokens</span><strong id="dev-st-worker">—</strong></li>
-          <li><span>YouTube (DPAPI)</span><strong id="dev-st-youtube">—</strong></li>
-          <li><span>Instagram (DPAPI)</span><strong id="dev-st-instagram">—</strong></li>
-          <li><span>TikTok (DPAPI)</span><strong id="dev-st-tiktok">—</strong></li>
-          <li><span>Postiz API</span><strong id="dev-st-postiz">—</strong></li>
+          <li><span>Servidor de tokens</span><strong id="dev-st-worker">—</strong></li>
+          <li><span>YouTube Shorts</span><strong id="dev-st-youtube">—</strong></li>
+          <li><span>Instagram Reels</span><strong id="dev-st-instagram">—</strong></li>
+          <li><span>TikTok</span><strong id="dev-st-tiktok">—</strong></li>
+          <li><span>Postiz</span><strong id="dev-st-postiz">—</strong></li>
         </ul>
 
         <div class="dev-ensaio-rodape">
@@ -206,30 +209,30 @@
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
             </svg>
-            <span>Checar contas e tokens</span>
+            <span>Verificar contas e servidor</span>
           </button>
-          <label class="dev-check-inline" for="dev-chk-status-online" title="Valida tokens online e faz probe HTTP no servidor_tokens">
+          <label class="dev-check-inline" for="dev-chk-status-online" title="Testa na hora se as contas conectadas e o servidor de tokens respondem pela internet">
             <input type="checkbox" id="dev-chk-status-online" checked>
-            <span>Probe online</span>
+            <span>Testar na internet</span>
           </label>
         </div>
       </article>
     </div>
   </section>
 
-  <!-- 3. Foco Principal: Monitores de Log ao Vivo (Corte + Postagem) -->
-  <section class="dev-monitores-grade" aria-label="Logs ao vivo do corte e da postagem">
-    <!-- Bus A: Log ao Vivo do Corte -->
+  <!-- 3. Foco Principal: Monitores de Registro ao Vivo (Corte + Postagem) -->
+  <section class="dev-monitores-grade" aria-label="Registros ao vivo do corte e da postagem">
+    <!-- Bus A: Registro ao Vivo do Corte -->
     <article class="painel-card dev-console-card" aria-labelledby="dev-log-corte-titulo">
       <div class="dev-console-topo">
         <div class="dev-console-titulo-bloco">
           <span id="dev-badge-estado-corte" class="tally-pilula tally-parado">PARADO</span>
-          <h2 id="dev-log-corte-titulo" class="titulo-secao dev-titulo-compacto">Log ao vivo · Corte</h2>
+          <h2 id="dev-log-corte-titulo" class="titulo-secao dev-titulo-compacto">Registro ao vivo · Corte</h2>
         </div>
         <div class="dev-console-controles">
           <label class="dev-check-inline" for="dev-autoscroll-corte">
             <input type="checkbox" id="dev-autoscroll-corte" checked>
-            <span>Auto-rolar</span>
+            <span>Rolar sozinho</span>
           </label>
           <button type="button" id="dev-btn-copiar-corte" class="btn btn-secundario btn-compacto">
             <span>Copiar</span>
@@ -239,21 +242,21 @@
           </button>
         </div>
       </div>
-      <p id="dev-sub-corte" class="dev-console-cmd">Aguardando sessão de corte ou arquivo de teste_video\…</p>
-      <pre id="dev-pre-log-corte" class="console-log dev-console-pre" tabindex="0">Nenhuma linha de corte nesta sessão ainda.</pre>
+      <p id="dev-sub-corte" class="dev-console-cmd">Aguardando um corte para mostrar o andamento em tempo real…</p>
+      <pre id="dev-pre-log-corte" class="console-log dev-console-pre" tabindex="0">Nenhuma atividade de corte registrada nesta sessão ainda.</pre>
     </article>
 
-    <!-- Bus B: Log ao Vivo da Postagem -->
+    <!-- Bus B: Registro ao Vivo da Postagem -->
     <article class="painel-card dev-console-card" aria-labelledby="dev-log-post-titulo">
       <div class="dev-console-topo">
         <div class="dev-console-titulo-bloco">
-          <span id="dev-badge-estado-post" class="tally-pilula tally-parado">OCIOSO</span>
-          <h2 id="dev-log-post-titulo" class="titulo-secao dev-titulo-compacto">Log ao vivo · Postagem</h2>
+          <span id="dev-badge-estado-post" class="tally-pilula tally-parado">AGUARDANDO</span>
+          <h2 id="dev-log-post-titulo" class="titulo-secao dev-titulo-compacto">Registro ao vivo · Postagem</h2>
         </div>
         <div class="dev-console-controles">
           <label class="dev-check-inline" for="dev-autoscroll-post">
             <input type="checkbox" id="dev-autoscroll-post" checked>
-            <span>Auto-rolar</span>
+            <span>Rolar sozinho</span>
           </label>
           <button type="button" id="dev-btn-copiar-post" class="btn btn-secundario btn-compacto">
             <span>Copiar</span>
@@ -263,47 +266,47 @@
           </button>
         </div>
       </div>
-      <p id="dev-sub-post" class="dev-console-cmd">$ python -m cortelive.postar enviar … --dry-run</p>
-      <pre id="dev-pre-log-postagem" class="console-log dev-console-pre" tabindex="0">Clique em "Rodar postagem dry-run" acima para testar o fluxo completo e ver os eventos JSONL em tempo real.</pre>
+      <p id="dev-sub-post" class="dev-console-cmd">Simulação segura: testa o envio sem publicar vídeos reais nas redes.</p>
+      <pre id="dev-pre-log-postagem" class="console-log dev-console-pre" tabindex="0">Clique em "Simular postagem" acima para testar o envio passo a passo sem publicar nada de verdade.</pre>
     </article>
   </section>
 
-  <!-- 4. Editor Completo de Configuração (cortelive\config.toml + postar.toml + config.toml local) -->
+  <!-- 4. Editor Completo de Configuração -->
   <section class="painel-card dev-config-card" aria-labelledby="dev-cfg-titulo">
     <div class="dev-config-cabecalho">
       <div>
-        <span class="dev-kicker">PATCHBAY DE CONFIGURAÇÃO (TOML)</span>
-        <h2 id="dev-cfg-titulo" class="titulo-secao">Configuração completa editável</h2>
+        <span class="dev-kicker">ARQUIVOS DE CONFIGURAÇÃO</span>
+        <h2 id="dev-cfg-titulo" class="titulo-secao">Editar configurações avançadas</h2>
       </div>
 
-      <div class="dev-cfg-abas" role="tablist" aria-label="Arquivo de configuração">
+      <div class="dev-cfg-abas" role="tablist" aria-label="Escolher arquivo de configuração">
         <button type="button" role="tab" class="dev-cfg-aba ativa" data-cfg-alvo="cortelive" aria-selected="true">
-          <code>cortelive\config.toml</code>
+          <span>Padrões do corte</span>
         </button>
         <button type="button" role="tab" class="dev-cfg-aba" data-cfg-alvo="postar" aria-selected="false">
-          <code>postar.toml</code> (Postagem)
+          <span>Postagem e contas</span>
         </button>
         <button type="button" role="tab" class="dev-cfg-aba" data-cfg-alvo="raiz" aria-selected="false">
-          <code>config.toml</code> (Local raiz)
+          <span>Ajustes desta pasta</span>
         </button>
       </div>
     </div>
 
     <div class="dev-cfg-barra-info">
       <span id="dev-cfg-caminho" class="dev-cfg-path">cortelive\config.toml</span>
-      <span id="dev-cfg-estado-edicao" class="dev-pilula-neutra">Sincronizado</span>
+      <span id="dev-cfg-estado-edicao" class="dev-pilula-ok">Salvo e em dia</span>
     </div>
 
-    <label for="dev-textarea-cfg" class="dev-sr-only">Conteúdo TOML do arquivo de configuração selecionado</label>
+    <label for="dev-textarea-cfg" class="dev-sr-only">Conteúdo do arquivo de configuração selecionado</label>
     <textarea id="dev-textarea-cfg" class="campo-texto dev-cfg-editor" rows="16" spellcheck="false"></textarea>
 
     <div class="dev-cfg-rodape">
       <div id="dev-cfg-feedback" class="dev-cfg-msg" role="status" aria-live="polite">
-        Validação sintática com <code>tomllib</code> antes de gravar (atalho: Ctrl+S).
+        O texto é conferido automaticamente antes de salvar para evitar erros de digitação (atalho: Ctrl+S).
       </div>
       <div class="dev-cfg-botoes">
         <button type="button" id="dev-btn-recarregar-cfg" class="btn btn-secundario btn-compacto">
-          <span>Recarregar do disco</span>
+          <span>Recarregar arquivo</span>
         </button>
         <button type="button" id="dev-btn-salvar-cfg" class="btn btn-primario btn-compacto">
           <span>Salvar configuração</span>
@@ -311,5 +314,48 @@
       </div>
     </div>
   </section>
+
+  <!-- Modal de Confirmação Antes de Lançar Versão -->
+  <dialog id="dev-modal-lancar" class="modal-dialogo dev-modal-confirmacao" aria-labelledby="dev-modal-lancar-titulo" aria-describedby="dev-modal-lancar-aviso">
+    <div class="modal-interno">
+      <div class="modal-cabecalho">
+        <div class="dev-modal-titulo-bloco">
+          <span id="dev-modal-lancar-selo" class="dev-pilula-erro">Publicação oficial</span>
+          <h3 id="dev-modal-lancar-titulo">Confirmar lançamento de versão?</h3>
+        </div>
+        <button type="button" id="dev-btn-fechar-modal-lancar" class="btn-icone" aria-label="Fechar janela de confirmação">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="dev-modal-corpo">
+        <div id="dev-modal-lancar-resumo" class="dev-modal-resumo-caixa">
+          <div class="dev-modal-linha-info">
+            <span>Versão atual desta pasta</span>
+            <strong id="dev-modal-versao-atual">v1.0.1</strong>
+          </div>
+          <div class="dev-modal-linha-info">
+            <span>Destino escolhido</span>
+            <strong id="dev-modal-destino-texto">GitHub oficial (visível para os amigos)</strong>
+          </div>
+        </div>
+
+        <p id="dev-modal-lancar-aviso" class="dev-modal-texto-aviso">
+          Ao confirmar, o assistente de lançamento será aberto para preparar e publicar uma nova versão no GitHub. Assim que publicada, o painel dos seus amigos vai avisar e atualizar automaticamente.
+        </p>
+      </div>
+
+      <div class="modal-rodape dev-modal-rodape">
+        <button type="button" id="dev-btn-cancelar-lancar" class="btn btn-secundario">
+          <span>Cancelar</span>
+        </button>
+        <button type="button" id="dev-btn-confirmar-lancar" class="btn btn-primario">
+          <span id="dev-txt-confirmar-lancar">Sim, abrir assistente de lançamento</span>
+        </button>
+      </div>
+    </div>
+  </dialog>
 
 </div>

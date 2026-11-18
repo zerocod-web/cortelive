@@ -67,6 +67,8 @@ class Sessao:
                 "live_s": round(cap.fim_live, 1) if cap else 0.0,
                 "atraso_transcricao_s": round(max(0.0, cap.fim_live - fl.feito_ate), 1) if cap and fl else None,
                 "ultimo_corte": self._ultimo_corte,
+                # frase pronta para mostrar ao usuário (offline, sem internet, link inválido…); "" = tudo normal
+                "mensagem": (str(self.erro) if self.erro else (cap.mensagem if cap else "")),
                 "motivo_fim": (self.resumo or {}).get("motivo_fim") or (str(self.erro) if self.erro else None)}
 
     # --- interno -------------------------------------------------------------------------------
@@ -95,14 +97,20 @@ class Sessao:
             self._avisar()
 
     def _executar(self):
-        from . import camauto, captura, fala, momento, render, trecho, servicos
+        from . import camauto, captura, destino, fala, momento, render, trecho, servicos
         args = self.args
 
         cfg = carregar_config(args)
         cfg.update(self.cfg_extra)
+        copias_destino = []
         for tipo, nome in (("modelo", cfg["modelo"]), ("legenda", cfg["legenda"])):
             if nome not in render.listar(tipo):
                 raise RuntimeError(f"{tipo} '{nome}' não existe. Opções: {', '.join(render.listar(tipo))}")
+        if args.url and not args.arquivo:
+            # link que nunca vai funcionar (digitado errado, vídeo gravado): avisa já, antes de carregar a fala
+            problema = captura.verificar_link(args.url)
+            if problema:
+                raise RuntimeError(problema)
         canal = args.canal or (Path(args.arquivo).stem if args.arquivo else captura.canal_da_url(args.url))
         args.canal = canal
         # pasta da sessão só com os vídeos prontos; o resto vai para _interno (oculta). Ver pastas.py.
@@ -127,8 +135,6 @@ class Sessao:
                                f"Tente: cortelive ... --fala faster-whisper-cpu")
         tr = servicos.Cliente(sv, canal, timeout=None)
         log.ok(f"Transcrição pronta ({modo.transcricao}, modelo {sv.nome_modelo}, compartilhada; {time.time() - t:.0f} s)")
-        juiz = momento.Juiz(cfg)
-        log.info(f"Juiz dos cortes: {juiz.descricao()}")
 
         # câmera: argumento > marcada/memorizada do canal > detecção automática no começo
         cam, cam_status = None, "procurar"
@@ -219,7 +225,9 @@ class Sessao:
             pedido.write_text(json.dumps({"video": str(bruto.resolve()), "inicio": ini - base, "fim": fim - base,
                                           "palavras": pal_rel, "modelo": cfg["modelo"], "legenda": cfg["legenda"],
                                           "cam": list(cam) if cam else None, "saida_dir": str(dint.resolve()),
-                                          "nome": nome}, ensure_ascii=False), encoding="utf-8")
+                                          "nome": nome, "faixa_legenda": cfg.get("faixa_legenda", "rasgada"),
+                                          "faixa_cor": cfg.get("faixa_cor", "vermelha")},
+                                         ensure_ascii=False), encoding="utf-8")
             try:
                 p = servicos.render().executar(
                     subprocess.run, [sys.executable, "-m", "cortelive.render_job", str(pedido)],
@@ -259,7 +267,7 @@ class Sessao:
                 "inicio_na_live": round(ini, 2), "fim_na_live": round(fim, 2),
                 "inicio_hms": _hms(ini), "fim_hms": _hms(fim), "duracao": round(fim - ini, 2),
                 "momento_na_live": round(job["evento"], 2), "momento_hms": _hms(job["evento"]),
-                "pontuacao": round(job["nota"], 2), "nota_juiz": job["nota_juiz"], "juiz": juiz.descricao(),
+                "pontuacao": round(job["nota"], 2), "nota_juiz": None, "juiz": "heurística",
                 "sinais": job["sinais"], "motivos": job["motivos"],
                 "titulo_sugerido": job["titulo"], "motivo": job["motivo"],
                 "modelo": cfg["modelo"], "modelo_usado": r.get("modelo"), "estilo_legenda": cfg["legenda"],
@@ -277,6 +285,12 @@ class Sessao:
                     autopost.disparar(final, cfg, canal, info, job["palavras"])
                 except Exception as e:
                     log.aviso(f"Autopost não iniciou para {final.name}: {str(e)[:200]}")
+            try:
+                copia = destino.disparar(final, cfg)
+                if copia is not None:
+                    copias_destino.append(copia)
+            except (OSError, RuntimeError):
+                log.aviso(f"Não consegui enfileirar {final.name} para o Drive. Você pode enviar pelo painel.")
             log.corte(f"CORTE {n_corte[0]}: {final.name} ({fim - ini:.0f} s, nota {job['nota']:.1f}) — "
                       f"\"{job['titulo']}\" — pronto {info['latencia_s']['momento_ate_mp4']:.0f} s após o momento")
             return info
@@ -287,15 +301,17 @@ class Sessao:
         log.info("Acompanhando a live." + (" Para parar: Ctrl+C." if self.terminal else ""))
         self._cap, self._fl, self._res, self._falhas = cap, fl, resultados, falhas
 
-        estado = {"avaliado_ate": 0.0, "ultimo_fim": -1e9}
+        sel = momento.Seletor(cfg)
         hist_notas = {}
+        quentes_titulo = list(cfg["palavras_quentes"]) + list(cfg.get("palavras_apoio", []))
 
         def avaliar(final=False):
             disponivel = fl.feito_ate
             limite = disponivel if final else disponivel - cfg["depois_do_momento"] - 2
-            if limite - estado["avaliado_ate"] < 1:
+            a0 = sel.avaliado_ate
+            if limite - a0 < 1:
                 return
-            a0 = estado["avaliado_ate"]
+            notas_ate = int(min(disponivel, limite + 10)) - 1
             notas = sin.notas(max(0, a0 - 10), min(disponivel, limite + 10), fl.palavras_entre(a0 - 12, disponivel))
             janela = [(notas[s][0], s) for s in range(int(a0), int(limite)) if s in notas]
             for v, s in janela:
@@ -305,7 +321,7 @@ class Sessao:
             # limiar adaptativo: live "calma" (ex.: narração constante) passa muito tempo sem bater o limiar fixo;
             # depois de N min sem corte, vale o topo das notas dos últimos 10 min (com piso).
             limiar = cfg["limiar_nota"]
-            sem_corte = limite - max(estado["ultimo_fim"], 0)
+            sem_corte = limite - max(sel.ultimo_fim, 0)
             if cfg["minutos_sem_corte_para_adaptar"] and sem_corte > cfg["minutos_sem_corte_para_adaptar"] * 60 \
                     and len(hist_notas) > 240:
                 import numpy as np
@@ -314,48 +330,48 @@ class Sessao:
                 mx = max(janela)
                 log.debug(f"notas {_hms(a0)}-{_hms(limite)}: máx {mx[0]:.2f} em {_hms(mx[1])} {notas[mx[1]][2]} "
                           f"limiar {limiar:.2f}")
-            for s in range(int(a0), int(limite)):
-                if s not in notas:
-                    continue
-                nota, mot, sinais = notas[s]
-                if nota < limiar or nota < max(notas[k][0] for k in range(s - 8, s + 9) if k in notas):
-                    continue
-                if s < estado["ultimo_fim"] + cfg["intervalo_min_entre_cortes"]:
-                    continue   # sem cortes duplicados/sobrepostos
-                ini, fim = momento.janela_corte(s, fl.palavras, disponivel, cfg)
-                ini = max(ini, estado["ultimo_fim"] + 0.5)
-                # não atravessar emenda de reconexão (o conteúdo da live pula ali)
-                for e in cap.emendas:
-                    if ini < e < fim:
-                        if s >= e:
-                            ini = e + 0.3
-                        else:
-                            fim = e - 0.3
-                if fim - ini < cfg["duracao_min"] * 0.8:
-                    continue
+
+            def pendente():
+                with lk:
+                    return (pendentes[-1]["nota"], pendentes[-1]["ultimo_fim_antes"]) if pendentes else None
+
+            def aceitar(dec):
+                s, nota, mot, sinais, j = dec["pico"], dec["nota"], dec["mot"], dec["sinais"], dec["janela"]
+                ini, fim = j["ini"], j["fim"]
                 aa = max(0.0, ini - 1)
                 aud = fl.audio_trecho(aa, fim + 1)
-                ini, fim = momento.ajustar_no_vale(ini, aud, aa), momento.ajustar_no_vale(fim, aud, aa)
+                # corte só em silêncio: dentro da pausa entre palavras (nunca dentro de uma palavra)
+                ini = momento.ajustar_no_vale(ini, aud, aa, limites=j["lim_ini"])
+                fim = momento.ajustar_no_vale(fim, aud, aa, limites=j["lim_fim"])
                 segs = cap.trecho(ini, fim)
                 if not segs or segs[0].ini > ini + 0.5 or segs[-1].fim < fim - 0.5:
                     log.aviso(f"Momento em {_hms(s)} caiu num buraco da captura; pulado.")
-                    continue
+                    return False
+                if dec["substitui"]:     # clímax muito mais forte que o corte ainda esperando render: troca
+                    with lk:
+                        velho = pendentes.pop() if pendentes else None
+                    if velho:
+                        cap.prender(velho["segs"], False)
+                        log.info(f"Momento forte em {_hms(s)} (nota {nota:.1f}) substitui o corte em fila de "
+                                 f"{_hms(velho['evento'])} (nota {velho['nota']:.1f}).")
                 pal = fl.palavras_entre(ini, fim)
                 motivos = [m for k in range(int(ini), int(fim)) if k in notas
                            and notas[k][0] >= cfg["limiar_nota"] * 0.6 for m in notas[k][1]] or mot
-                nota_j, titulo, motivo = juiz.julgar(" ".join(w["w"] for w in pal), motivos, pal, s,
-                                                     cfg["palavras_quentes"])
-                if nota_j is not None and nota_j < cfg["ollama_nota_minima"]:
-                    log.info(f"Momento em {_hms(s)} recusado pelo Ollama (nota {nota_j:.0f}).")
-                    continue
+                titulo = momento.titulo_heuristico(
+                    " ".join(w["w"] for w in pal), motivos, pal, s, quentes_titulo)
+                motivo = "; ".join(dict.fromkeys(motivos))
                 seg_ev = next((x for x in segs if x.ini <= s < x.fim), segs[-1])
-                estado["ultimo_fim"] = fim
+                antes_fim = sel.ultimo_fim
+                dec["fim"] = fim
                 cap.prender(segs, True)
                 log.info(f"Momento bom em {_hms(s)} ({', '.join(dict.fromkeys(mot))}). Cortando {_hms(ini)}–{_hms(fim)}…")
                 enfileirar({"ini": ini, "fim": fim, "evento": float(s), "segs": segs, "palavras": pal, "nota": nota,
-                            "nota_juiz": nota_j, "sinais": sinais, "motivos": list(dict.fromkeys(motivos)),
+                            "sinais": sinais, "motivos": list(dict.fromkeys(motivos)), "ultimo_fim_antes": antes_fim,
                             "titulo": titulo, "motivo": motivo, "chegou_evento": seg_ev.chegou, "decidido": time.time()})
-            estado["avaliado_ate"] = max(a0, limite)
+                return True
+
+            sel.passo(notas, fl.palavras, disponivel, limite, notas_ate, limiar, list(cap.emendas), aceitar,
+                      pendente, final)
 
         exe = cf.ThreadPoolExecutor(max_workers=1, initializer=log.usar, initargs=(log.atual(),))
         reinicios_fala = [0]
@@ -478,10 +494,18 @@ class Sessao:
             chat.parar.set()
         exe.shutdown(wait=False, cancel_futures=True)
         shutil.rmtree(buf, ignore_errors=True)
+        feitas, pendentes_copia = cf.wait(copias_destino, timeout=120)
+        if pendentes_copia:
+            log.aviso("Ainda há cópias em andamento. Confira o Drive e reenvie pelo painel se faltar algum corte.")
+        if any(copia.exception() for copia in feitas):
+            log.aviso("Uma cópia para o Drive foi interrompida. Você pode tentar novamente pelo painel.")
         if cfg.get("postar_sozinho") and resultados:
             from . import autopost
             if not autopost.aguardar(cfg.get("postar_espera_fim_s", 300)):
                 log.aviso("Autopost ainda enviando; o que faltou fica na fila (python -m cortelive.autopost fila).")
+
+        if cap.erro_fatal and not resultados:
+            raise RuntimeError(cap.erro_fatal)
 
         # ---------------- resumo ----------------
         rt = sum(b for _, b in fl.tempo_trans) / max(1e-6, sum(a for a, _ in fl.tempo_trans))
@@ -500,7 +524,7 @@ class Sessao:
             "latencia_momento_ate_mp4_s": {"media": round(sum(lat) / len(lat), 1) if lat else None,
                                            "min": min(lat) if lat else None, "max": max(lat) if lat else None},
             "transcricao_fator_tempo_real": round(rt, 3), "palavras": len(fl.palavras),
-            "modo": modo.resumo(), "juiz": juiz.descricao(), "cam": list(cam) if cam else None,
+            "modo": modo.resumo(), "juiz": "heurística", "cam": list(cam) if cam else None,
             "lista_cortes": [{k: r[k] for k in ("arquivo", "inicio_hms", "duracao", "pontuacao", "titulo_sugerido")}
                              for r in resultados],
         }

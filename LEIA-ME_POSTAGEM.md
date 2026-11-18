@@ -2,6 +2,8 @@
 
 Este guia explica, em português simples, como funciona a postagem oficial dos cortes no **YouTube Shorts**, **Instagram Reels** e **TikTok** — tanto no modo **Direto** (`--via direto`, padrão atual) quanto via **Postiz** (`--via postiz`).
 
+> Para usar o CorteLive por cliques, veja [Para amigos: postagem pelo painel](#para-amigos-postagem-pelo-painel) ou o [Guia rápido](GUIA_RAPIDO_AMIGOS.md).
+
 > **Divisão de responsabilidades:**
 > - Este pacote (`cortelive.postar`) cuida exclusivamente das conexões seguras, cofre DPAPI e envio dos vídeos sob comando.
 > - O subcomando `sugerir` fica disponível como reserva local gratuita, mas **não há nenhum gancho automático no fim do corte aqui**: o modo *"postar ao cortar"* e a geração principal de metadados por rede ficam com o módulo `cortelive.autopost`.
@@ -52,7 +54,18 @@ Siga o passo a passo completo em [`cortelive\postar\servidor_tokens\README.md`](
 
 ## 3. Opção B: Provedor Postiz (`--via postiz`)
 
-Com `--via postiz`, o amigo conecta YouTube, Instagram e TikTok direto pelo painel web do Postiz e cola apenas a **API Key** dele no CorteLive (que fica protegida com DPAPI em `%LOCALAPPDATA%\CorteLive\contas\postiz.bin`).
+Com o **Postiz**, o amigo conecta YouTube, Instagram e TikTok direto pelo site do Postiz e cola apenas a chave dele no painel do CorteLive (que fica protegida com criptografia DPAPI em `%LOCALAPPDATA%\CorteLive\contas\postiz.bin`).
+
+### Para amigos: postagem pelo painel
+
+Na primeira instalação, na aba **Postar**, **Postar sozinho** vem desligado e **Revisar antes** vem ligado. Você pode cortar e assistir aos vídeos com essas opções.
+
+1. Em **Cortar**, vá até **Cortes prontos** e clique em **Postar** no cartão do vídeo que escolheu.
+2. Quando a preparação de postagem estiver disponível, confira os campos **Título (YouTube Shorts)** e **Legenda / Descrição e hashtags**. O CorteLive usa a fala do corte para sugerir o texto no próprio computador. Você pode editar os campos antes de pôr o corte na fila.
+3. Clique em **Pôr na fila (revisar)**, quando a opção estiver disponível. Na aba **Postar**, use a **Fila de postagem** para abrir o vídeo, ajustar o texto e clicar em **Salvar edição**. Se a publicação pelo Postiz estiver configurada, clique em **Aprovar e agendar** quando estiver pronto. Confira a publicação no calendário do Postiz.
+4. Se preferir publicar pelo celular, siga os passos de [envio ao Drive](GUIA_RAPIDO_AMIGOS.md#4-leve-o-corte-ao-drive-e-marque-a-postagem). Depois de publicar na rede social, clique em **Marcar como postado** no cartão do corte, se o botão estiver disponível. Use o filtro **Postados** para encontrar os cortes marcados. Se o botão estiver ausente ou indisponível, acompanhe a publicação na própria rede social.
+
+Para baixar, instalar, cortar uma live e atualizar, siga o [Guia rápido](GUIA_RAPIDO_AMIGOS.md).
 
 ### 3.1. Preço real e limites depois dos 7 dias grátis (Postiz Cloud)
 
@@ -86,7 +99,7 @@ Fontes oficiais lidas em [`https://docs.postiz.com/self-host/installation/overvi
   base_url = "https://seu-postiz.seudominio.com/api/public/v1"
   ```
 
-### 3.3. Como conectar e usar o Postiz no CorteLive
+### 3.3. Como conectar e usar o Postiz pelo terminal (opcional / avançado)
 
 1. Na sua conta do Postiz, conecte seus canais de YouTube, Instagram e TikTok.
 2. Copie sua chave em **Settings → Public API** e rode:

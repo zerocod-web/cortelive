@@ -3,6 +3,8 @@
   cortelive <url_da_live>                 (Twitch, YouTube, Kick)
   cortelive --arquivo video.mp4           (simula live lendo o arquivo a 1x — para testar)
   cortelive marcar-cam <url|arquivo>      (mede onde fica a cam do streamer; opcional)
+  cortelive enviar-drive <corte.mp4>      (copia para a pasta sincronizada)
+  cortelive marcar-postado <corte.mp4>    (registra a postagem no CorteLive)
 
 Feito para rodar sozinho por horas: nada pergunta nada durante a live, toda etapa tem watchdog,
 um corte com erro não derruba o resto.
@@ -140,7 +142,42 @@ def marcar_cam(args):
     return 0
 
 
+def _operar_destino(comando, argv):
+    from . import destino
+
+    p = argparse.ArgumentParser(prog=f"cortelive {comando}")
+    p.add_argument("video", type=Path, help="caminho do corte MP4")
+    if comando == "marcar-postado":
+        p.add_argument("--rede", choices=destino.REDES)
+        p.add_argument("--desmarcar", action="store_true")
+    args = p.parse_args(argv)
+    video = args.video.resolve()
+    if video.suffix.lower() != ".mp4" or not video.is_file():
+        raise ErroAmigavel("Vídeo não encontrado. Informe o caminho de um corte MP4.")
+
+    cfg = carregar_config()
+    if comando == "enviar-drive":
+        copia = destino.copiar(video, cfg)
+        if copia["estado"] == "erro":
+            raise ErroAmigavel(copia["erro"])
+        print(destino.MENSAGEM_COPIA)
+    else:
+        try:
+            estado = destino.marcar(video, rede=args.rede, postado=not args.desmarcar, cfg=cfg)
+        except TimeoutError as e:
+            raise ErroAmigavel(str(e)) from None
+        except OSError:
+            raise ErroAmigavel("Não consegui salvar a marca. Confira a pasta do corte e tente de novo.") from None
+        print(destino.mensagem_marca(not args.desmarcar, args.rede))
+        if estado.get("aviso"):
+            print(estado["aviso"])
+    return 0
+
+
 def _main(argv):
+    if argv and argv[0] in ("enviar-drive", "marcar-postado"):
+        return _operar_destino(argv[0], argv[1:])
+
     from . import render
     if argv and argv[0] == "marcar-cam":
         p = argparse.ArgumentParser(prog="cortelive marcar-cam")
@@ -174,6 +211,14 @@ def _main(argv):
     if not a.url and not a.arquivo:
         p.print_help()
         return 2
+    if a.url and not a.arquivo:
+        # o painel e quem arrasta um vídeo mandam o caminho no lugar do link
+        limpo = a.url.strip().strip('"')
+        if Path(limpo).is_file():
+            a.url, a.arquivo = None, limpo
+        elif re.match(r"^([A-Za-z]:[\\/]|\\\\|\.{0,2}[\\/])", limpo) or \
+                re.search(r"\.(mp4|mkv|mov|ts|flv|webm|avi)$", limpo, re.I) and "://" not in limpo:
+            raise ErroAmigavel(f"Arquivo não encontrado: {limpo}")
     if a.arquivo and not Path(a.arquivo).exists():
         raise ErroAmigavel(f"Arquivo não encontrado: {a.arquivo}")
     checar_ambiente()

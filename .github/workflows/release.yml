@@ -62,7 +62,25 @@ jobs:
           }
           Write-Host "Pacote verificado: $zip (SHA-256 $hashReal)"
 
-      - name: Criar Release no GitHub com zip e sha256
+      - name: Gerar CorteLive-Setup.exe e .sha256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./instalador/build_setup.ps1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "build_setup.ps1 falhou com codigo $LASTEXITCODE."
+            exit 1
+          }
+          $setup = 'dist/CorteLive-Setup.exe'
+          if (-not (Test-Path -LiteralPath $setup)) {
+            Write-Error 'O artefato dist/CorteLive-Setup.exe nao foi gerado.'
+            exit 1
+          }
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash
+          "$hash  CorteLive-Setup.exe" | Set-Content -LiteralPath "$setup.sha256" -Encoding ASCII
+          Write-Host "Setup gerado: $setup (SHA-256 $hash)"
+
+      - name: Criar Release no GitHub com zip, setup e sha256
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,7 +88,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $tag = $env:TAG_ATUAL.Trim()
-          $arquivos = @('dist/cortelive_amigos.zip', 'dist/cortelive_amigos.zip.sha256')
+          $arquivos = @('dist/CorteLive-Setup.exe', 'dist/CorteLive-Setup.exe.sha256',
+                        'dist/cortelive_amigos.zip', 'dist/cortelive_amigos.zip.sha256')
+          foreach ($obrig in $arquivos) {
+            if (-not (Test-Path -LiteralPath $obrig)) {
+              Write-Error "Arquivo obrigatorio ausente para a Release: $obrig"
+              exit 1
+            }
+          }
           foreach ($opc in @('dist/CorteLive.exe', 'dist/CorteLive.exe.sha256')) {
             if (Test-Path -LiteralPath $opc) {
               $arquivos += $opc

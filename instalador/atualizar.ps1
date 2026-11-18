@@ -767,6 +767,11 @@ function Obter-PastaBackupAnterior([string]$versaoAtualDisco = '') {
 $qtdModos = (@($Checar, $Aplicar, $Voltar) | Where-Object { $_ }).Count
 $verInicial = Ler-Versao $RAIZ
 
+if (Test-Path -LiteralPath (Join-Path $RAIZ '.git')) {
+  Emitir-Evento -Etapa 'erro' -Pct 100 -Msg 'Atualizador bloqueado neste repositório de desenvolvimento.' -VersaoAtual $verInicial -VersaoNova $null -Erro 'Use uma instalação do CorteLive fora do repositório.'
+  exit 1
+}
+
 if ($qtdModos -gt 1) {
   Emitir-Evento -Etapa 'erro' -Pct 100 -Msg 'Modos incompatíveis.' -VersaoAtual $verInicial -VersaoNova $null -Erro 'Informe apenas um modo por vez: -Checar, -Aplicar ou -Voltar.'
   exit 1

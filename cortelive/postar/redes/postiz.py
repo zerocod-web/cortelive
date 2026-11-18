@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import json
 import re
 import time
 import urllib.parse
@@ -514,7 +515,7 @@ def excluir_post_postiz(post_id, cfg):
         raise ErroEnvio("O Postiz não confirmou o cancelamento.")
 
 
-def confirmar_post_agendado(post_id, canal, data, cfg):
+def consultar_post_agendado(post_id, canal, data, cfg):
     chave, base = obter_credencial_postiz(cfg)
     horario = timestamp_postiz(data)
     try:
@@ -523,16 +524,50 @@ def confirmar_post_agendado(post_id, canal, data, cfg):
             params={"startDate": data_utc_postiz(horario - 60), "endDate": data_utc_postiz(horario + 60)},
         )
         classificar_erro_http(resp, "Erro ao localizar agendamento no Postiz")
-        return any(post["id"] == post_id and post["state"] == "QUEUE"
-                   and post["integration"]["id"] == canal
-                   and timestamp_postiz(post["publishDate"]) == horario
-                   for post in resp.json()["posts"])
+        return next((post for post in resp.json()["posts"]
+                     if post["id"] == post_id and post["state"] == "QUEUE"
+                     and post["integration"]["id"] == canal
+                     and timestamp_postiz(post["publishDate"]) == horario), None)
     except (requests.RequestException, KeyError, TypeError, ValueError) as exc:
         raise ErroEnvio("O Postiz não confirmou a situação do agendamento.") from exc
 
 
 class ErroAgendamentoIncerto(ErroEnvio):
     """A criação pode ter sido aceita, mesmo sem confirmação utilizável."""
+
+
+def editar_post_postiz(rede, canal, dados, titulo, descricao, tags, cfg):
+    from ..fila import SessaoPostizLimitada
+
+    post_id, data, midia = dados["post_id"], dados["agendado_para"], dados["midia"]
+    remoto = consultar_post_agendado(post_id, canal, data, cfg)
+    if remoto is None or timestamp_postiz(data) <= time.time():
+        raise ErroEnvio("O horário ou o estado mudou. Confira o calendário do Postiz.")
+    ajustes = remoto.get("settings")
+    if isinstance(ajustes, str):
+        try:
+            ajustes = json.loads(ajustes)
+        except ValueError:
+            ajustes = None
+    if not isinstance(ajustes, dict):
+        raise ErroEnvio("O Postiz não confirmou as configurações atuais do post.")
+
+    integracao = {"id": canal, "identifier": remoto["integration"]["providerIdentifier"]}
+    item = montar_item_post_postiz(rede, integracao, midia, titulo or "", descricao or "", False, cfg)
+    novos_ajustes = item["settings"]
+    item["settings"] = {**ajustes, "__type": novos_ajustes["__type"]}
+    if titulo is not None and rede in ("youtube", "tiktok"):
+        item["settings"]["title"] = novos_ajustes["title"]
+    if tags is not None:
+        item["settings"]["tags"] = [{"value": tag, "label": tag} for tag in tags]
+    item["value"][0]["id"] = post_id
+    if descricao is None:
+        item["value"][0]["content"] = remoto["content"]
+    etiquetas = [{"value": tag["id"], "label": tag["name"]}
+                 for entrada in remoto.get("tags", ()) if (tag := entrada.get("tag"))]
+    chave, base = obter_credencial_postiz(cfg)
+    http = SessaoPostizLimitada(requests.Session())
+    return _salvar_post_postiz(http, chave, base, rede, item, data, True, cfg, post_id, etiquetas)
 
 
 def enviar_rede_postiz(
@@ -548,7 +583,6 @@ def enviar_rede_postiz(
     dormir: Any = time.sleep,
     cache_execucao: dict[str, Any] | None = None,
     agendar=None,
-    editar_post_id: str | None = None,
 ) -> tuple[str, str]:
     """Faz upload (reaproveitando no lote se disponivel) + POST /posts no Postiz e devolve (link, post_id)."""
     api_key, base_url = obter_credencial_postiz(cfg, diretorio_contas=diretorio_contas)
@@ -591,14 +625,18 @@ def enviar_rede_postiz(
         privado=privado,
         cfg=cfg,
     )
-    if editar_post_id:
-        post_item["value"][0]["id"] = editar_post_id
     progresso("agendando" if agendar else "publicando", 85)
+    data = agendar() if agendar else data_utc_postiz(time.time())
+    return _salvar_post_postiz(http, api_key, base_url, rede, post_item, data, bool(agendar), cfg)
+
+
+def _salvar_post_postiz(http, api_key, base_url, rede, post_item, data, agendado, cfg,
+                       editar_post_id=None, etiquetas=()):
     corpo_post = {
-        "type": "schedule" if agendar else "now",
-        "date": agendar() if agendar else data_utc_postiz(time.time()),
+        "type": "schedule" if agendado else "now",
+        "date": data,
         "shortLink": False,
-        "tags": [],
+        "tags": list(etiquetas),
         "posts": [post_item],
     }
 
@@ -611,11 +649,11 @@ def enviar_rede_postiz(
             timeout=60,
         )
     except requests.RequestException as exc:
-        if agendar and not editar_post_id:
+        if agendado and not editar_post_id:
             raise ErroAgendamentoIncerto("O Postiz pode ter recebido o agendamento. Confira o calendário.") from exc
         raise ErroTemporario(f"Falha de rede ao criar publicacao no Postiz: {exc}") from exc
 
-    if agendar and not editar_post_id and (resp.status_code >= 500 or 300 <= resp.status_code < 400):
+    if agendado and not editar_post_id and (resp.status_code >= 500 or 300 <= resp.status_code < 400):
         raise ErroAgendamentoIncerto("O Postiz pode ter recebido o agendamento. Confira o calendário.")
     detalhe = _erro_postiz(resp)
     if resp.status_code == 403:
@@ -625,7 +663,7 @@ def enviar_rede_postiz(
     try:
         dados_resp = resp.json() if resp.content else []
     except ValueError as exc:
-        if agendar and not editar_post_id:
+        if agendado and not editar_post_id:
             raise ErroAgendamentoIncerto("O Postiz respondeu sem confirmar o agendamento.") from exc
         raise
     primeiro = dados_resp[0] if isinstance(dados_resp, list) and dados_resp else (dados_resp if isinstance(dados_resp, dict) else {})
@@ -634,7 +672,7 @@ def enviar_rede_postiz(
     if editar_post_id and post_id != editar_post_id:
         raise ErroEnvio("O Postiz não confirmou a edição do mesmo post. Confira o calendário.")
     if not post_id:
-        if agendar:
+        if agendado:
             raise ErroAgendamentoIncerto("O Postiz respondeu sem confirmar o agendamento.")
         raise ErroEnvio("Postiz aceitou a requisicao, mas nao devolveu 'postId'.")
 

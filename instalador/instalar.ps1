@@ -2,7 +2,7 @@
 # Tudo fica dentro da pasta da ferramenta: python\, .venv\, ffmpeg\, ferramentas\, modelos\.
 # Opcoes: -Gpu nvidia|amd|intel|cpu   (forcar o modo; padrao = detectar)
 #         -BaixarFFmpeg                (baixar o FFmpeg proprio mesmo se o PC ja tiver um bom)
-#         -SemPerguntas                (nao perguntar nada; Ollama = nao)
+#         -SemPerguntas                (opcao mantida para chamadas anteriores)
 #         -SemModelos                  (nao baixar modelo de fala agora; baixa no primeiro uso)
 param(
   [ValidateSet('', 'nvidia', 'amd', 'intel', 'cpu')][string]$Gpu = '',
@@ -170,20 +170,8 @@ else {
   }
 }
 
-# 6) Ollama (opcional) -------------------------------------------------------
-Passo "6/6 Ollama (opcional: IA local que escolhe melhor os momentos)"
-if (Get-Command ollama -ErrorAction SilentlyContinue) { Ok "Ollama ja instalado" }
-elseif ($SemPerguntas) { Write-Host "   pulado. O cortelive funciona 100% sem ele." }
-else {
-  $r = Read-Host "   Quer instalar o Ollama? Nao e obrigatorio. (s/n)"
-  if ($r -match '^[sS]') {
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-      & winget install -e --id Ollama.Ollama --accept-source-agreements --accept-package-agreements
-      Write-Host "   Depois rode no CMD: ollama pull qwen2.5:3b   (modelo pequeno)"
-    } else { Write-Host "   Baixe no site oficial: https://ollama.com/download" }
-  } else { Write-Host "   ok, sem Ollama." }
-}
-
+# 6) Finalização ------------------------------------------------------------
+Passo "6/6 Finalizando a instalacao"
 Remove-Item -Recurse -Force $TMP -ErrorAction SilentlyContinue
 $min = ((Get-Date) - $inicio).TotalMinutes
 $tam = (Get-ChildItem $RAIZ -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1GB

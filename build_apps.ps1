@@ -1,4 +1,4 @@
-# Compila a variante Dev e gera a distribuicao estavel de arquivo unico.
+# Gera a distribuicao estavel: CorteLive.exe, cortelive_amigos.zip e CorteLive-Setup.exe.
 param(
   [switch]$SomenteEstavel,
   [string]$SaidaEstavel,
@@ -61,10 +61,7 @@ if ($SomenteEstavel) {
   if (-not $SaidaEstavel) { throw 'Informe -SaidaEstavel para a compilacao interna.' }
   Compilar-App $SaidaEstavel -pacote $PacoteEmbutido
 } else {
-  $saidaDev = Join-Path $dist 'CorteLive Dev.exe'
-  Compilar-App $saidaDev -dev
-  $dev = Start-Process -FilePath $saidaDev -ArgumentList "--self-test --raiz `"$raiz`"" -WindowStyle Hidden -PassThru -Wait
-  if ($dev.ExitCode -ne 0) { throw "Autoteste do CorteLive Dev falhou com codigo $($dev.ExitCode)." }
-  Write-Output "Autoteste do Dev OK: $saidaDev"
+  # A aba Dev foi descartada: o build padrao gera so o app estavel, o ZIP e o Setup.
   & (Join-Path $raiz 'instalador\empacotar.ps1')
+  & (Join-Path $raiz 'instalador\build_setup.ps1')
 }

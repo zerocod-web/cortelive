@@ -4,8 +4,7 @@
 <pasta_saida>/_autopost/postados.json  registro "hash do arquivo + rede" -> link (evita post duplicado)
 <pasta da sessão>/_interno/<corte>.autopost.jsonl  log de cada etapa daquele corte (ver pastas.py)
 
-Estados de um item: aguardando_aprovacao | na_fila | postando | postado | parcial | erro | rejeitado
-Estados por rede:   pendente | enviando | postado | duplicado | erro
+Estados da agenda remota: agendado | confirmacao_pendente | cancelando | cancelado.
 """
 from __future__ import annotations
 
@@ -17,7 +16,8 @@ import sqlite3
 import time
 from pathlib import Path
 
-ESTADOS = ("aguardando_aprovacao", "na_fila", "postando", "postado", "parcial", "erro", "rejeitado", "expirado")
+ESTADOS = ("aguardando_aprovacao", "na_fila", "postando", "postado", "parcial", "erro", "rejeitado",
+           "expirado", "agendado", "confirmacao_pendente", "cancelando", "cancelado")
 
 
 def hash_arquivo(caminho) -> str:
@@ -165,10 +165,13 @@ class Fila:
     def ja_postado(self, sha, rede, dry=False) -> dict | None:
         return self._ler(self.reg, {}).get(self._chave(sha, rede, dry))
 
-    def ultimo_por_canal(self, rede, canal):
-        sufixo = f":{rede}:{canal}"
-        return max((item["quando"] for chave, item in self._ler(self.reg, {}).items()
-                    if chave.endswith(sufixo)), default=0)
+    def historico_por_canal(self):
+        historico = {}
+        for chave, item in self._ler(self.reg, {}).items():
+            partes = chave.split(":", 2)
+            if len(partes) == 3 and not item.get("dry_run"):
+                historico.setdefault(tuple(partes[1:]), []).append(item["quando"])
+        return historico
 
     def registrar_postado(self, sha, rede, link, video, dry=False):
         with self._travado():

@@ -220,6 +220,10 @@ namespace CorteLivePainel
             thProgresso.IsBackground = true;
             thProgresso.Start();
 
+            Thread thAgenda = new Thread(LoopAgendaPostagem);
+            thAgenda.IsBackground = true;
+            thAgenda.Start();
+
             if (Headless)
             {
                 Console.WriteLine(String.Format("PAINEL_PRONTO http://127.0.0.1:{0}", Porta));
@@ -667,7 +671,18 @@ namespace CorteLivePainel
             return false;
         }
 
-        private static Dictionary<string, object> ConsultarMotorApiLocal(string metodo, string rota, string corpo)
+        private static void LoopAgendaPostagem()
+        {
+            while (!Encerrando)
+            {
+                Thread.Sleep(30000);
+                if (!Encerrando)
+                    ConsultarMotorApiLocal("POST", "/api/autopost/processar", "{}", 300000);
+            }
+        }
+
+        private static Dictionary<string, object> ConsultarMotorApiLocal(string metodo, string rota, string corpo,
+            int prazoMs = 30000)
         {
             string python = Path.Combine(Raiz, @".venv\Scripts\python.exe");
             string motor = Path.Combine(Raiz, @"painel\motor_painel.py");
@@ -705,7 +720,7 @@ namespace CorteLivePainel
                     var erros = p.StandardError.ReadToEndAsync();
                     using (Stream entrada = p.StandardInput.BaseStream)
                         entrada.Write(pedido, 0, pedido.Length);
-                    if (!p.WaitForExit(30000))
+                    if (!p.WaitForExit(prazoMs))
                     {
                         MatarArvoreProcesso(p.Id);
                         return null;
@@ -953,9 +968,10 @@ namespace CorteLivePainel
         }
 #endif
 
-        private static bool RepassarAoMotorApiLocal(NetworkStream ns, string metodo, string rota, string corpo)
+        private static bool RepassarAoMotorApiLocal(NetworkStream ns, string metodo, string rota, string corpo,
+            int prazoMs = 30000)
         {
-            Dictionary<string, object> resposta = ConsultarMotorApiLocal(metodo, rota, corpo);
+            Dictionary<string, object> resposta = ConsultarMotorApiLocal(metodo, rota, corpo, prazoMs);
             object valorStatus, dados;
             if (resposta == null || !resposta.TryGetValue("status", out valorStatus) || !(valorStatus is int))
                 return false;
@@ -1072,6 +1088,28 @@ namespace CorteLivePainel
                 return;
             }
 
+            if (rota == "/api/historico/apagar" && metodo == "POST")
+            {
+                if (InstRodando || SessaoRodando)
+                {
+                    EnviarJson(ns, 409, new { ok = false, erro = "Há uma live em andamento. Pare a live antes de apagar o histórico." });
+                    return;
+                }
+                if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo))
+                    EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
+                return;
+            }
+
+            if (rota == "/api/drive/detectar" || rota == "/api/drive/config" ||
+                rota == "/api/drive/enviar" || rota == "/api/cortes/postado")
+            {
+                // O envio manual aguarda a cópia integral na pasta sincronizada.
+                int prazoMs = rota == "/api/drive/enviar" && metodo == "POST" ? 15 * 60 * 1000 : 30000;
+                if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo, prazoMs))
+                    EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
+                return;
+            }
+
             // Atualização delegada a instalador\atualizar.ps1 (-Checar | -Aplicar | -Voltar)
             // CorteLive.exe (rapaziada) SEMPRE consulta apenas o canal estável (-Canal estavel).
             if (rota == "/api/atualizacao/checar")
@@ -1100,6 +1138,8 @@ namespace CorteLivePainel
             // Config de postagem automática (postar_sozinho / revisar_antes / reserva_navegador)
             if (rota == "/api/config-postagem")
             {
+                // O motor guarda tudo em painel_config.json (limites, canais, rodízio); o legado só vale sem motor.
+                if (RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo)) return;
                 if (metodo == "POST")
                 {
                     Dictionary<string, object> body = LerCorpoJson(corpo);
@@ -1132,12 +1172,9 @@ namespace CorteLivePainel
             }
             if (rota == "/api/postar/enviar" && metodo == "POST")
             {
-                Dictionary<string, object> body = LerCorpoJson(corpo);
-                EnviarJson(ns, 200, EnviarPostar(
-                    ValorStr(body, "video"),
-                    ValorStr(body, "titulo"),
-                    ValorStr(body, "descricao"),
-                    ValorStr(body, "redes")));
+                // O motor envia via Postiz e devolve erro HTTP real quando o envio falha.
+                if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo, 330000))
+                    EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
                 return;
             }
 
@@ -1164,10 +1201,11 @@ namespace CorteLivePainel
                     body.ContainsKey("instagram") ? ValorStr(body, "instagram") : null));
                 return;
             }
-            if (rota == "/api/autopost/aprovar" && metodo == "POST")
+            if (rota == "/api/autopost/aprovar" || rota == "/api/autopost/editar-agendado" ||
+                rota == "/api/autopost/cancelar")
             {
-                Dictionary<string, object> body = LerCorpoJson(corpo);
-                EnviarJson(ns, 200, AutopostAcaoSimples("aprovar", ValorStr(body, "id"), 300000));
+                if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo))
+                    EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
                 return;
             }
             if (rota == "/api/autopost/rejeitar" && metodo == "POST")

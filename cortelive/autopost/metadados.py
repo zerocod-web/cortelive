@@ -1,16 +1,17 @@
 """Título, legenda e hashtags de cada corte, por rede (YouTube Shorts, TikTok, Instagram Reels).
 
-Camadas, sem chave de API nenhuma:
-  (a) Ollama local, se estiver rodando (http://127.0.0.1:11434) — escreve o gancho e as legendas;
-  (b) senão (ou se a resposta vier ruim), heurística local: a frase mais forte da fala perto do
-      momento, o tipo do momento (risada, susto, morte, polícia, reação) e um template simples.
-O resultado sempre passa pelos mesmos limites e pelo mesmo filtro de "cara de IA".
+A geração usa a transcrição no próprio computador:
+  heurística local = a fala exata do pico (limpa, curta, sem repetição colada) como gancho, o tipo do
+  momento (risada, susto, briga, polícia, clutch, ação, reação) escolhendo um modelo de título curto e
+  variado, canal e jogo só com evidência, e nunca o mesmo título duas vezes (olha a fila já gerada).
 """
 from __future__ import annotations
 
 import json
 import re
 import unicodedata
+import zlib
+from pathlib import Path
 
 # limites das redes (deixamos folga)
 YT_TITULO_MAX = 100          # YouTube: 100 caracteres no título
@@ -21,15 +22,6 @@ TIKTOK_TEXTO_MAX = 150
 TIKTOK_HASHTAGS_MAX = 6
 IG_MAX = 2200
 IG_HASHTAGS_MAX = 5
-
-# frases de "robô de marketing" que entregam texto de IA (e quase sempre prometem demais)
-CARA_DE_IA = [
-    "você não vai acreditar", "voce nao vai acreditar", "não vai acreditar", "inacreditável", "inacreditavel",
-    "incrível", "incrivel", "épico", "epico", "prepare-se", "simplesmente", "confira", "neste vídeo",
-    "nesse vídeo", "neste video", "nesse video", "momento épico", "imperdível", "imperdivel", "surreal",
-    "insano", "chocante", "no final", "até o final", "ate o final", "espere até", "olha o que aconteceu",
-    "o que aconteceu a seguir", "jornada", "mergulhe", "descubra",
-]
 
 JOGOS = [  # (padrão no nome do canal/arquivo ou na fala, nome bonito, hashtag)
     (r"\bgta\s*rp\b|gta_rp|gtarp|\brp\b.*\bcidade\b", "GTA RP", "gtarp"),
@@ -42,18 +34,36 @@ JOGOS = [  # (padrão no nome do canal/arquivo ou na fala, nome bonito, hashtag)
     (r"\bleague of legends\b|\blolzinho\b", "LoL", "leagueoflegends"),
 ]
 
-TIPOS = {  # tipo -> (palavras na fala/motivos, hashtags do tipo, contexto curto p/ descrição)
+TIPOS = {  # tipo -> (palavras na fala/motivos, hashtags do tipo, contexto neutro p/ descrição)
     "risada": (["kkk", "haha", "hahaha", "risada", "rindo", "rachei", "morri de rir"], ["humor", "engracado"],
-               "chorou de rir"),
+               "momento de risada"),
     "susto": (["socorro", "susto", "assustei", "meu deus", "ai meu deus", "mds", "que medo", "jumpscare"],
-              ["susto"], "levou um susto"),
-    "policia": (["polícia", "policia", "viatura", "preso", "prender", "algema", "fuga", "fugir", "perseguição",
-                 "perseguicao", "dp", "tático", "tatico"], ["perseguicao"], "fuga da polícia"),
-    "acao": (["morreu", "matou", "tiro", "bala", "headshot", "explodiu", "atira", "atirou", "mata", "clutch",
-              "ace", "abateu"], [], "lance da partida"),
-    "reacao": (["não acredito", "nao acredito", "que isso", "olha isso", "caralho", "pqp", "nossa", "vish",
-                "eita", "rapaz", "misericórdia", "misericordia"], [], "reação ao vivo"),
+              ["susto"], "momento de susto"),
+    "policia": (["polícia", "viatura", "preso", "prender", "prendeu", "algema", "fuga", "fugir",
+                 "perseguição", "dp", "tático"], ["policia"], "cena com a polícia"),
+    "briga": (["filho da puta", "filha da puta", "tóxico", "merda", "vai se fuder", "cala a boca", "lixo", "burro",
+               "idiota", "otário", "briga", "treta", "soco", "porrada", "não faz nada", "arrombado",
+               "desgraçado", "ridículo"], ["treta"], "momento de treta"),
+    "clutch": (["clutch", "ace", "1v1", "1v2", "1v3", "1x1", "1x2", "1x3", "sozinho", "último vivo", "plantar",
+                "plantou", "defusar", "defusou", "bomba"], ["clutch"], "lance de clutch"),
+    "acao": (["morreu", "matou", "matei", "morri", "tiro", "bala", "headshot", "explodiu", "atira", "atirou",
+              "mata", "abateu"], ["gameplay"], "lance da partida"),
+    "reacao": (["não acredito", "que isso", "olha isso", "caralho", "pqp", "nossa", "vish",
+                "eita", "rapaz", "misericórdia", "que loucura"], [], "reação ao vivo"),
 }
+
+# modelos de título do YouTube por tipo: {g} = fala exata, {n} = canal, {o} = "Canal no Jogo".
+# Curtos, de gente que posta corte; só afirmam o que o tipo já provou (2+ evidências na fala).
+MODELOS_YT = {
+    "risada": ['"{g}" kkkk - {o}', '{n} rindo: "{g}"', '"{g}" - {o}'],
+    "susto": ['"{g}" - {n} no susto', '{n} assustou: "{g}"', '"{g}" - {o}'],
+    "policia": ['"{g}" - {n} x polícia', '{n} e a polícia: "{g}"', '"{g}" - {o}'],
+    "briga": ['{n} pistola: "{g}"', '"{g}" - {n} na treta', '"{g}" - {o}'],
+    "clutch": ['"{g}" - {n} no clutch', '{n} no clutch: "{g}"', '"{g}" - {o}'],
+    "acao": ['"{g}" - {o}', '{n} na partida: "{g}"', '{n}: "{g}"'],
+    "reacao": ['"{g}" - {o}', '{n}: "{g}"', '{n} ao vivo: "{g}"'],
+}
+MODELOS_IG = ["{o}, corte da live.", "Direto da live: {o}.", "{o} ao vivo."]
 
 
 # ------------------------------------------------------------------ util
@@ -84,11 +94,6 @@ def suavizar(t: str) -> str:
             return w
         return s.upper() if w.isupper() else (s[:1].upper() + s[1:] if w[:1].isupper() else s)
     return re.sub(r"\b[\w-]+\b", troca, t)
-
-
-def _tem_cara_de_ia(t: str) -> bool:
-    n = t.lower()
-    return any(f in n for f in CARA_DE_IA)
 
 
 def _limpa_emoji(t: str, maximo=1) -> str:
@@ -143,15 +148,19 @@ def adivinhar_jogo(canal: str, texto: str, jogo_cfg: str = "") -> tuple[str, str
 
 
 def tipo_do_momento(texto: str, motivos=()) -> str:
-    alvo = " " + sem_acento((texto or "").lower()) + " " + sem_acento(" ".join(motivos or []).lower()) + " "
+    """Tipo só com evidência: risada escrita/detectada, ou 2+ palavras DIFERENTES do tipo na fala
+    (uma palavra solta, tipo "polícia" numa conversa, não vira "fuga da polícia")."""
+    # dos motivos só entram a risada e o que foi FALADO ("falou 'meu deus'"); "chat explodiu" não é explosão
+    mot = " ".join(m for m in (motivos or []) if "risada" in str(m).lower())
+    mot += " " + " ".join(re.findall(r"'([^']+)'", " ".join(str(m) for m in (motivos or []))))
+    cru = sem_acento((texto or "").lower()) + " " + sem_acento(mot.lower())
+    alvo = " " + re.sub(r"\s+", " ", re.sub(r"[^\w ]", " ", cru)) + " "
     if "risada" in alvo or re.search(r"\b(k{3,}|(ha){2,}h?)\b", alvo):
         return "risada"
-    pontos = {}
-    for tipo, (pal, _, _) in TIPOS.items():
-        pontos[tipo] = sum(alvo.count(" " + sem_acento(p) + " ") + alvo.count(" " + sem_acento(p) + "!")
-                           for p in pal)
+    pontos = {tipo: sum(1 for p in {sem_acento(p) for p in pal} if f" {p} " in alvo)
+              for tipo, (pal, _, _) in TIPOS.items()}
     melhor = max(pontos, key=pontos.get)
-    return melhor if pontos[melhor] > 0 else "reacao"
+    return melhor if pontos[melhor] >= 2 else "reacao"
 
 
 def frase_forte(texto: str, motivos=(), palavras=None, t_evento=None, quentes=()) -> str:
@@ -170,24 +179,115 @@ def frase_forte(texto: str, motivos=(), palavras=None, t_evento=None, quentes=()
     return _arruma_frase(f)
 
 
+_NAO_FECHA = set("a o as os um uma e de do da dos das em no na nos nas pra pro para por com sem que".split())
+
+
+def _n(w: str) -> str:
+    return re.sub(r"[^\w]", "", sem_acento(w.lower()))
+
+
 def _arruma_frase(f: str) -> str:
     ws = f.split()
-    # repetição colada de 1 a 4 palavras ("vou entrar escada vou entrar escada" -> uma vez)
+    # repetição colada de 1 a 4 palavras ("vou entrar escada vou entrar escada" -> uma vez);
+    # se só a segunda cópia fecha a frase, é ela que fica ("escada, vou entrar escada." -> "escada.")
     for n in (4, 3, 2, 1):
         i = 0
         while i + 2 * n <= len(ws):
-            if [sem_acento(w.lower()).strip("!?") for w in ws[i:i + n]] == \
-                    [sem_acento(w.lower()).strip("!?") for w in ws[i + n:i + 2 * n]]:
-                del ws[i + n:i + 2 * n]
+            if [_n(w) for w in ws[i:i + n]] == [_n(w) for w in ws[i + n:i + 2 * n]]:
+                if ws[i + 2 * n - 1][-1:] in ".!?" and ws[i + n - 1][-1:] not in ".!?":
+                    del ws[i:i + n]
+                else:
+                    del ws[i + n:i + 2 * n]
             else:
                 i += 1
-    # duas frases emendadas sem ponto ("A coisa tá feíssima Seu soco"): fica a primeira, se tiver corpo
+    # duas frases emendadas sem ponto ("A coisa tá feíssima Seu soco"): fica a primeira, se tiver corpo.
+    # Nome próprio depois de preposição ou vírgula ("pro Bahia", "Caralho, O cara") não é frase nova.
     for k in range(2, len(ws)):
-        w = ws[k]
-        if w[:1].isupper() and w not in ("Eu", "Deus") and not w.isupper() and len(ws[:k]) >= 3:
+        w, ant = ws[k], ws[k - 1]
+        if ant.endswith(","):
+            continue
+        if w[:1].isupper() and w not in ("Eu", "Deus") and not w.isupper() and len(ws[:k]) >= 3 \
+                and _n(ant) not in _NAO_FECHA:
             ws = ws[:k]
             break
-    return " ".join(ws)
+    for k in range(1, len(ws)):                      # "Caralho, O cara" -> "Caralho, o cara"
+        if ws[k - 1].endswith(",") and len(_n(ws[k])) <= 2 and ws[k][:1].isupper() and _n(ws[k]) != "eu":
+            ws[k] = ws[k].lower()
+    t = " ".join(ws).strip(" ,;:.-—")
+    return (t[:1].upper() + t[1:]) if t else ""
+
+
+def _fala_exata(frase: str, texto: str, max_palavras: int = 11) -> str:
+    """Acha a frase na transcrição e devolve a fala como foi dita (com vírgula, ! e ?), completando o
+    começo/fim da frase quando falta pouco ("Pro Bahia filha da puta!" -> "E você foi pro Bahia, filha
+    da puta!"). Não achou: devolve a frase como veio."""
+    def sem_rep(seq):
+        out = []
+        for x in seq:
+            if x and (not out or out[-1] != x):
+                out.append(x)
+        return out
+    alvo = sem_rep([_n(w) for w in (frase or "").split()])
+    orig = (texto or "").split()
+    idx = []
+    for i, w in enumerate(orig):
+        n = _n(w)
+        if n and not (idx and _n(orig[idx[-1]]) == n):
+            idx.append(i)
+    seq = [_n(orig[i]) for i in idx]
+    j = next((j for j in range(len(seq) - len(alvo) + 1) if seq[j:j + len(alvo)] == alvo), None) if alvo else None
+    if j is None:
+        return frase
+    a, b = idx[j], idx[j + len(alvo) - 1]
+    fim = ".!?…"
+    if not orig[a][:1].isupper() and not (a > 0 and orig[a - 1][-1:] in fim):   # começou no meio da frase
+        k = a
+        for _ in range(4):
+            if k == 0 or orig[k - 1][-1:] in fim:
+                break
+            k -= 1
+            if orig[k][:1].isupper() or k == 0 or orig[k - 1][-1:] in fim:
+                if b - k + 1 <= max_palavras:
+                    a = k
+                break
+    e = b
+    for _ in range(2):                                    # fecha a frase se faltam 1-2 palavras
+        if orig[e][-1:] in fim or e + 1 >= len(orig):
+            break
+        e += 1
+    if orig[e][-1:] in fim and e - a + 1 <= max_palavras:
+        b = e
+    return " ".join(orig[a:b + 1])
+
+
+def _outras_frases(texto: str, fora: str) -> list[str]:
+    """Outras falas do corte que servem de gancho (para não repetir título): 3 a 9 palavras, com conteúdo."""
+    out = []
+    for f in re.split(r"(?<=[.!?…])\s+", texto or ""):
+        f = _arruma_frase(f)
+        if 3 <= len(f.split()) <= 9 and len(_palavras_conteudo(f)) >= 2 and _n(f) != _n(fora) and f not in out:
+            out.append(f)
+    return sorted(out, key=lambda f: (("!" in f) + ("?" in f), len(_palavras_conteudo(f))), reverse=True)
+
+
+def _chave(t: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", sem_acento(str(t).lower())).strip()
+
+
+def titulos_da_fila(cfg: dict) -> set[str]:
+    """Títulos do YouTube já gerados nesta pasta de cortes — para nunca repetir."""
+    pasta = cfg.get("pasta_saida")
+    if not pasta:
+        return set()
+    try:
+        d = json.loads((Path(pasta) / "_autopost" / "fila.json").read_text(encoding="utf-8"))
+        itens = d.get("itens", d) if isinstance(d, dict) else {}
+        out = set()
+        for it in (itens.values() if isinstance(itens, dict) else itens):
+            out.add(_chave(((it.get("metadados") or {}).get("youtube") or {}).get("titulo", "")))
+        return out - {""}
+    except Exception:
+        return set()
 
 
 # ------------------------------------------------------------------ montagem por rede
@@ -200,38 +300,70 @@ def _template(cfg: dict) -> dict:
     }
 
 
-def montar(gancho: str, canal: str, jogo, tipo: str, cfg: dict, textos: dict | None = None) -> dict:
-    """Aplica template, limites e hashtags. `textos` (do Ollama) pode trazer descricao/tiktok/instagram."""
-    textos = textos or {}
+def _titulo_yt(gancho, nome, jogo_nome, tipo, pre, fim, usados):
+    """Título do YouTube: modelo do tipo (variado pelo próprio gancho), dentro do limite e ainda não usado.
+    -> título, ou None se todas as variações já foram usadas."""
+    onde = (f"{nome} no {jogo_nome}" if jogo_nome else nome) if nome else jogo_nome
+    espaco = YT_TITULO_MAX - len(pre) - len(fim)
+    modelos = list(MODELOS_YT.get(tipo, MODELOS_YT["reacao"]))
+    if modelos:
+        k = zlib.crc32(_chave(gancho).encode()) % len(modelos)
+        modelos = modelos[k:] + modelos[:k]
+    modelos += ['"{g}" - {o}', '"{g}" - {n}', '"{g}"']
+    cands = []
+    for m in modelos:
+        if ("{n}" in m and not nome) or ("{o}" in m and not onde):
+            continue
+        corpo = m.format(g=gancho, n=nome, o=onde)
+        if len(corpo) <= espaco and corpo not in cands:
+            cands.append(corpo)
+    if not cands:
+        cands = [f'"{_corta(gancho, max(10, espaco - 2))}"']
+    for corpo in cands:
+        t = (pre + corpo + fim)[:YT_TITULO_MAX]
+        if _chave(t) not in usados:
+            return t
+    return None
+
+
+def montar(gancho: str, canal: str, jogo, tipo: str, cfg: dict, usados=(), alternativas=()) -> dict:
+    """Aplica o modelo de título, os limites e as hashtags de cada rede.
+
+    Usa outras falas do mesmo corte quando o título já existe em usados.
+    """
+    usados = {_chave(u) for u in (usados or ())}
     t = _template(cfg)
     nome = cfg.get("canal_nome") or nome_bonito(canal)
     jogo_nome, jogo_tag = (jogo if jogo else ("", ""))
     if nome and jogo_tag and slug_hashtag(nome) == jogo_tag:     # canal "gta_rp" + jogo GTA RP: não repete
         nome = ""
-    if cfg.get("suavizar_palavrao", True):
-        gancho = suavizar(gancho)
-        textos = {k: suavizar(v) for k, v in textos.items()}
+    suave = suavizar if cfg.get("suavizar_palavrao", True) else (lambda x: x)
     tags_tipo = TIPOS.get(tipo, TIPOS["reacao"])[1]
     contexto = TIPOS.get(tipo, TIPOS["reacao"])[2]
-    gancho = _limpa_emoji(gancho.strip().strip('"“”'), 1) or (f"{nome} ao vivo" if nome else "Corte da live")
+
+    def limpo(g):
+        return _limpa_emoji(suave(g).strip().strip('"“”'), 1)
+    gancho = limpo(gancho) or (f"{nome} ao vivo" if nome else "Corte da live")
 
     # ---- YouTube
     onde = (f"{nome} no {jogo_nome}" if jogo_nome else nome) if nome else jogo_nome
     sufixo_yt = (" " + t["sufixo"].strip()) if t["sufixo"].strip() else ""
     fim = f"{sufixo_yt} #shorts"
     pre = (t["prefixo"].strip() + " ") if t["prefixo"].strip() else ""
-    corpo = f"\"{gancho}\"" + (f" - {onde}" if onde else "")
-    espaco = YT_TITULO_MAX - len(pre) - len(fim)
-    if len(corpo) > espaco:                       # primeiro sai o "no jogo", depois encurta a frase
-        corpo = f"\"{gancho}\"" + (f" - {nome}" if nome else "")
-    if len(corpo) > espaco:
-        g = _corta(gancho, max(10, espaco - (len(nome) + 5 if nome else 2)))
-        corpo = f"\"{g}\"" + (f" - {nome}" if nome and len(g) + len(nome) + 5 <= espaco else "")
-    yt_titulo = (pre + corpo + fim)[:YT_TITULO_MAX]
+    yt_titulo = None
+    for g in [gancho] + [limpo(x) for x in alternativas]:
+        yt_titulo = _titulo_yt(g, nome, jogo_nome, tipo, pre, fim, usados)
+        if yt_titulo:
+            gancho = g
+            break
+    n = 2
+    while not yt_titulo:                             # último recurso: numera ("... (2)")
+        yt_titulo = _titulo_yt(f"{_corta(gancho, 60)} ({n})", nome, jogo_nome, tipo, pre, fim, usados)
+        n += 1
 
     base_tags = [canal, nome, jogo_tag, "cortes", f"cortes {nome}" if nome else "", "live"] + tags_tipo + t["fixas"]
-    yt_hash = _hashtags([nome or canal, jogo_tag, "cortes"] + t["fixas"], 4)
-    desc = textos.get("descricao") or (
+    yt_hash = _hashtags([nome or canal, jogo_tag, "cortes"] + t["fixas"] + tags_tipo[:1] + ["shorts"], 6)
+    desc = (
         f"{onde or 'Ao vivo'}: \"{gancho}\".\n\nCorte da live" + (f" do {nome}" if nome else "") +
         f" ({contexto}).")
     desc = desc.strip()
@@ -246,12 +378,13 @@ def montar(gancho: str, canal: str, jogo, tipo: str, cfg: dict, textos: dict | N
             soma += len(tg) + 1
 
     # ---- TikTok: legenda curta + hashtags
-    tk_texto = _corta(textos.get("tiktok") or gancho, TIKTOK_TEXTO_MAX)
+    tk_texto = _corta(gancho, TIKTOK_TEXTO_MAX)
     tk_hash = _hashtags([nome or canal, jogo_tag, "cortes"] + tags_tipo + t["fixas"] + ["fyp"], TIKTOK_HASHTAGS_MAX)
     tiktok = (tk_texto + " " + " ".join(tk_hash)).strip()[:TIKTOK_MAX]
 
     # ---- Instagram: legenda + até 5 hashtags
-    ig_texto = textos.get("instagram") or (f"{gancho}\n\n{onde}, corte da live." if onde else gancho)
+    rodape_ig = MODELOS_IG[zlib.crc32(_chave(gancho).encode()) % len(MODELOS_IG)].format(o=onde)
+    ig_texto = f"{gancho}\n\n{rodape_ig}" if onde else gancho
     ig_texto = _limpa_emoji(ig_texto, 2).strip()
     ig_hash = _hashtags([nome or canal, jogo_tag, "cortes"] + tags_tipo + t["fixas"], IG_HASHTAGS_MAX)
     instagram = (ig_texto + "\n\n" + " ".join(ig_hash)).strip()[:IG_MAX]
@@ -264,97 +397,33 @@ def montar(gancho: str, canal: str, jogo, tipo: str, cfg: dict, textos: dict | N
     }
 
 
-# ------------------------------------------------------------------ Ollama
-PROMPT_OLLAMA = """Você escreve a legenda de cortes de live (Shorts, Reels, TikTok) para um canal brasileiro de cortes.
-Streamer: {nome}. Jogo: {jogo}. Tipo do momento: {tipo}.
-Fala transcrita do corte (pode ter erro de transcrição):
-\"\"\"{texto}\"\"\"
-Frase mais forte detectada: "{frase}"
-
-Regras:
-- Português do Brasil falado, como gente que posta corte de live escreve. Nada de tom de propaganda.
-- O gancho é curto (até 60 caracteres) e usa o que o streamer DISSE ou o que de fato acontece na fala acima.
-- Não invente acontecimento que não está na fala. Não prometa final, reviravolta ou "você não vai acreditar".
-- Proibido: incrível, épico, insano, surreal, chocante, confira, neste vídeo, até o final, prepare-se.
-- No máximo 1 emoji no total. Sem hashtags (elas são adicionadas depois).
-
-Responda só JSON:
-{{"gancho": "...", "descricao": "1 ou 2 frases para o YouTube", "tiktok": "legenda de até 120 caracteres", "instagram": "legenda de 1 a 2 frases"}}"""
-
-
-def ollama_ativo(url: str, timeout=2.0) -> str | None:
-    """-> nome do modelo a usar, ou None se o Ollama não estiver rodando/sem modelo."""
-    try:
-        import requests
-        r = requests.get(url.rstrip("/") + "/api/tags", timeout=timeout)
-        nomes = [m["name"] for m in r.json().get("models", [])]
-        return nomes[0] if nomes else None
-    except Exception:
-        return None
-
-
-def _via_ollama(cfg, nome, jogo_nome, tipo, texto, frase):
-    url = str(cfg.get("ollama_url", "http://127.0.0.1:11434")).rstrip("/")
-    modelo = cfg.get("ollama_modelo") or ollama_ativo(url)
-    if not modelo:
-        return None, "Ollama não encontrado"
-    import requests
-    prompt = PROMPT_OLLAMA.format(nome=nome or "streamer", jogo=jogo_nome or "não informado", tipo=tipo,
-                                  texto=(texto or "")[:1800], frase=frase or "")
-    try:
-        r = requests.post(url + "/api/generate", timeout=float(cfg.get("autopost_ollama_timeout_s", 60)), json={
-            "model": modelo, "prompt": prompt, "format": "json", "stream": False,
-            "options": {"temperature": 0.5}})
-        d = json.loads(r.json()["response"])
-    except Exception as e:
-        return None, f"Ollama falhou ({str(e)[:120]})"
-    vocab = _palavras_conteudo(texto or "")
-    out = {}
-    for k in ("gancho", "descricao", "tiktok", "instagram"):
-        v = _limpa_emoji(re.sub(r"#\w+", "", str(d.get(k, "") or "")).strip(), 1)
-        v = re.sub(r"\s+", " ", v).strip(' "“”')
-        if not v or _tem_cara_de_ia(v):
-            continue
-        out[k] = v
-    g = out.get("gancho", "")
-    # gancho precisa ter pé na fala (senão é invenção) e caber
-    if not g or len(g) > 80 or (vocab and not (_palavras_conteudo(g) & vocab)):
-        out.pop("gancho", None)
-    if not out.get("gancho"):
-        return None, f"Ollama ({modelo}) deu gancho fora da fala ou com cara de IA; usei a heurística"
-    return {**out, "_modelo": modelo}, None
-
-
 # ------------------------------------------------------------------ entrada principal
 def gerar(transcricao: str, canal: str, cfg: dict | None = None, motivos=(), palavras=None, t_evento=None,
-          jogo: str = "", usar_ollama: bool | None = None, frase_sugerida: str = "") -> dict:
+          jogo: str = "", frase_sugerida: str = "", usados=None) -> dict:
     """-> {gancho, youtube{titulo,descricao,tags}, tiktok{titulo,legenda}, instagram{titulo,legenda},
-           fonte, tipo, jogo, obs}"""
+           fonte, tipo, jogo, obs}
+    `usados`: títulos já gerados; None = lê a fila da pasta de cortes (cfg["pasta_saida"])."""
     cfg = dict(cfg or {})
     texto = (transcricao or "").strip()
     jg = adivinhar_jogo(canal, texto, jogo or cfg.get("jogo", ""))
     tipo = tipo_do_momento(texto, motivos)
     # frase do pico: com as palavras e o tempo (sessão) acha sozinha; sem elas, usa a que o corte marcou
     if palavras or not frase_sugerida:
-        frase = frase_forte(texto, motivos, palavras, t_evento, cfg.get("palavras_quentes", ()))
+        crua = frase_forte(texto, motivos, palavras, t_evento, cfg.get("palavras_quentes", ()))
     else:
-        frase = _arruma_frase(re.sub(r"\s+", " ", frase_sugerida).strip(" -\"")) if frase_sugerida != "Momento da live" else ""
+        crua = re.sub(r"\s+", " ", frase_sugerida).strip(" -\"") if frase_sugerida != "Momento da live" else ""
+    # a fala como foi dita (pontuação e começo/fim da frase), limpa e curta
+    frase = _corta(_arruma_frase(_fala_exata(crua, texto)), 70) if crua else ""
+    while frase and _n(frase.split()[-1]) in _NAO_FECHA and len(frase.split()) > 2:
+        frase = frase.rsplit(" ", 1)[0].rstrip(" ,;:")
+    if len(frase.split()) < 2:
+        frase = _arruma_frase(crua) if crua else ""
     nome = cfg.get("canal_nome") or nome_bonito(canal)
-    if usar_ollama is None:
-        usar_ollama = bool(cfg.get("autopost_ollama", True))
-    fonte, obs, textos = "heuristica", "", {}
-    if usar_ollama:
-        d, err = _via_ollama(cfg, nome, jg[0] if jg else "", tipo, texto, frase)
-        if d:
-            fonte = f"ollama:{d.pop('_modelo')}"
-            textos = d
-        else:
-            obs = err or ""
-    gancho = textos.get("gancho") or frase or (f"{nome} reagindo ao vivo" if nome else "Corte da live")
-    if fonte == "heuristica":
-        textos = {}
-    r = montar(gancho, canal, jg, tipo, cfg, textos)
-    r.update({"fonte": fonte, "tipo": tipo, "jogo": jg[0] if jg else None, "obs": obs})
+    gancho = frase or (f"{nome} reagindo ao vivo" if nome else "Corte da live")
+    if usados is None:
+        usados = titulos_da_fila(cfg)
+    r = montar(gancho, canal, jg, tipo, cfg, usados, _outras_frases(texto, gancho))
+    r.update({"fonte": "heuristica", "tipo": tipo, "jogo": jg[0] if jg else None, "obs": ""})
     return r
 
 

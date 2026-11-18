@@ -34,6 +34,80 @@ def _bin(nome):
     return shutil.which(nome)
 
 
+# --- mensagens ao usuário (o painel e o terminal mostram estas frases) ------------------------
+MENSAGENS = {
+    "link_invalido": "Link não reconhecido: {url}. Cole o link do canal da Twitch, do YouTube ou da Kick "
+                     "(ex.: https://www.twitch.tv/nome_do_canal).",
+    "offline": "Esse canal não está ao vivo agora (ou o nome do canal está errado). "
+               "Vou conferir de novo sozinho a cada minuto e começo a cortar quando a live começar.",
+    "sem_internet": "Sem conexão com a internet (ou o site da live não respondeu). Vou tentar de novo sozinho.",
+    "video_gravado": "Esse link é de um vídeo gravado, não de uma live. Para cortar um vídeo pronto, "
+                     "baixe o vídeo e escolha o arquivo do PC.",
+}
+
+
+def mensagem(tipo: str, url: str = "") -> str:
+    return MENSAGENS[tipo].format(url=url)
+
+
+def classificar_erro(texto: str):
+    """Lê o erro do streamlink e diz o que aconteceu: link_invalido | offline | sem_internet | None."""
+    t = (texto or "").lower()
+    if "no plugin can handle url" in t:
+        return "link_invalido"
+    if any(k in t for k in ("unable to open url", "proxyerror", "failed to resolve", "getaddrinfo",
+                            "connectionerror", "connection aborted", "timed out", "max retries exceeded")):
+        return "sem_internet"
+    if "no playable streams" in t or "no streams found" in t:
+        return "offline"
+    return None
+
+
+def e_video_gravado_pelo_link(url: str) -> bool:
+    """Links que pelo formato só podem ser vídeo gravado (VOD/clipe), nunca live."""
+    u = url.lower()
+    if any(k in u for k in ("twitch.tv/videos/", "clips.twitch.tv/", "/clip/")):
+        return True
+    return "kick.com/" in u and ("/videos/" in u or "/clips" in u or "clip=" in u)
+
+
+def _streamlink_aceita(url: str) -> bool:
+    sl = _bin("streamlink")
+    if not sl:
+        return True        # sem streamlink quem tenta é o yt-dlp; não dá para pré-checar
+    try:
+        return subprocess.run([sl, "--can-handle-url", url], capture_output=True, timeout=30).returncode == 0
+    except Exception:
+        return True
+
+
+def _status_youtube(url: str):
+    """live_status do yt-dlp (is_live, is_upcoming, not_live, was_live…) ou None se não deu para saber."""
+    yd = _bin("yt-dlp")
+    if not yd:
+        return None
+    try:
+        r = subprocess.run([yd, "--no-warnings", "--skip-download", "--no-playlist", "--print", "%(live_status)s", url],
+                           capture_output=True, text=True, timeout=40)
+        linhas = (r.stdout or "").strip().splitlines()
+        return linhas[-1].strip() if r.returncode == 0 and linhas else None
+    except Exception:
+        return None
+
+
+def verificar_link(url: str):
+    """Antes de começar: devolve a mensagem de erro (link que nunca vai funcionar) ou None (pode tentar)."""
+    if not _streamlink_aceita(url):
+        return mensagem("link_invalido", url)
+    if e_video_gravado_pelo_link(url):
+        return mensagem("video_gravado", url)
+    u = url.lower()
+    if ("youtube.com/watch" in u or "youtu.be/" in u or "youtube.com/shorts/" in u) and \
+            _status_youtube(url) in ("not_live", "was_live", "post_live"):
+        return mensagem("video_gravado", url)
+    return None
+
+
 def canal_da_url(url: str) -> str:
     u = url.rstrip("/").split("?")[0]
     partes = [p for p in u.split("/") if p]
@@ -52,6 +126,8 @@ class Captura(threading.Thread):
         self.emendas = []           # tempos da live onde a captura reconectou (conteúdo pula)
         self._caiu_em = None
         self.motivo_fim = ""
+        self.erro_fatal = None      # mensagem pronta quando o link nunca vai funcionar (link inválido)
+        self.mensagem = ""          # última situação explicada ao usuário (offline, sem internet…)
         self._ff = None
         super().__init__(daemon=True)
         self._reg = log.atual()
@@ -84,8 +160,12 @@ class Captura(threading.Thread):
         sl = _bin("streamlink")
         if sl:
             return subprocess.Popen([sl, "--stdout", "--loglevel", "error", "--twitch-disable-ads",
-                                     "--hls-live-edge", "2", self.url, "720p60,720p,best"],
-                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL), "streamlink"
+                                     # best = a maior qualidade que a live oferece (1080p60 quando há);
+                                     # antes pedia 720p60 primeiro e a cam ficava ampliada ~2,7x
+                                     "--hls-live-edge", "2", self.url, "best"],
+                                    # stderr guardado: é ele que diz se o canal está offline, sem internet
+                                    # ou se o link não é de live (antes ia para o lixo e tudo virava "esperando")
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE), "streamlink"
         yd = _bin("yt-dlp")
         return subprocess.Popen([yd, "-q", "-f", "best[height<=1080]/best", "-o", "-", self.url],
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL), "yt-dlp"
@@ -126,9 +206,23 @@ class Captura(threading.Thread):
                 log.debug(f"rodada {rodada} via {nome}")
             self._ff = ff
             fim_normal = self._acompanhar(ff, lista, rodada)
+            tipo_erro = None
             if fonte:
                 fonte.kill()
+                try:
+                    err_fonte = (fonte.stderr.read() or b"").decode("utf-8", "ignore") if fonte.stderr else ""
+                except Exception:
+                    err_fonte = ""
+                if err_fonte.strip():
+                    log.debug(f"{nome}: " + err_fonte.strip()[-600:])
+                tipo_erro = classificar_erro(err_fonte)
             recebeu = self._n > n_antes
+            if tipo_erro == "link_invalido" and not recebeu:
+                self.erro_fatal = mensagem("link_invalido", self.url)
+                self.motivo_fim = self.erro_fatal
+                self.estado = "erro"
+                log.aviso(self.erro_fatal)
+                break
             self._caiu_em = time.time()
             if recebeu:
                 fora_desde = None
@@ -148,15 +242,24 @@ class Captura(threading.Thread):
                     log.aviso("A live não começou no tempo configurado (esperar_live_min). Encerrando.")
                     break
                 self.estado = "esperando live"
-                if rodada == 1 or rodada % 10 == 0:
-                    log.info("Live offline ou link sem vídeo. Esperando ela começar…")
+                if self.arquivo:
+                    msg = "Não consegui ler o vídeo. Confira se o arquivo abre no seu player."
+                elif tipo_erro == "sem_internet":
+                    msg = mensagem("sem_internet")
+                else:
+                    msg = mensagem("offline")
+                if msg != self.mensagem or rodada % 10 == 0:
+                    log.info(msg)
+                self.mensagem = msg
             else:
                 if fora_min > self.fim_offline_min:
                     self.motivo_fim = f"live encerrada (offline há {self.fim_offline_min} min)"
                     log.info(f"A live está offline há mais de {self.fim_offline_min} min: considerando encerrada.")
                     break
                 self.estado = "reconectando"
-                log.aviso(f"A live caiu ou travou. Tentando de novo em {espera} s.")
+                self.mensagem = ("Caiu a conexão com a internet. " if tipo_erro == "sem_internet" else
+                                 "A live caiu ou travou. ") + f"Tentando de novo em {espera} s."
+                log.aviso(self.mensagem)
             self.parar.wait(espera)
             espera = min(60, espera * 2)
 
@@ -187,6 +290,7 @@ class Captura(threading.Thread):
                     lidas += 1
                     ultimo = time.time()
                     self.estado = "ao vivo"
+                    self.mensagem = ""
                     if lidas == 1:
                         if self._n > 1:
                             fora = time.time() - (self._caiu_em or time.time())

@@ -1394,6 +1394,28 @@ a:focus-visible,
   flex-wrap: wrap;
 }
 
+.fila-topo strong,
+.fila-topo .selo-etapa,
+.fila-horarios,
+.fila-card .erro-campo {
+  overflow-wrap: anywhere;
+}
+
+.fila-card time {
+  font-variant-numeric: tabular-nums;
+}
+
+.fila-horarios {
+  margin: 0;
+  padding-inline-start: 20px;
+  font-size: 0.875rem;
+  color: var(--texto-secundario);
+}
+
+.fila-card .erro-campo:empty {
+  margin: 0;
+}
+
 .fila-campos {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1405,6 +1427,10 @@ a:focus-visible,
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.fila-acoes .btn {
+  min-height: 44px;
 }
 
 .detalhes-reserva {
@@ -1965,6 +1991,156 @@ a:focus-visible,
   .switch-input::before {
     content: none;
   }
+}
+
+/* Atualizações, registro de postagem e cópia para o celular */
+.acoes-versao,
+.faixa-botoes,
+.filtro-postagem,
+.corte-postagem-redes,
+.drive-pasta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.acoes-versao .btn,
+.faixa-botoes .btn,
+.filtro-postagem .btn,
+.corte-postagem .btn,
+.corte-postagem summary,
+.drive-txt,
+.form-drive .btn {
+  min-height: 44px;
+}
+
+.ponto-atualizacao {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sinal-ao-vivo);
+}
+
+#progresso-atualizacao {
+  width: min(10rem, 100%);
+  accent-color: var(--sinal-acao);
+}
+
+.filtro-postagem .btn[aria-pressed="true"] {
+  background: var(--sinal-acao-fundo-suave);
+  border-color: var(--borda-destaque);
+  color: var(--sinal-acao-texto-suave);
+}
+
+#estado-filtro-cortes {
+  margin: 0;
+  color: var(--texto-secundario);
+}
+
+.corte-card.corte-postado {
+  border-color: var(--sinal-ok);
+}
+
+.corte-postagem {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--borda-sutil);
+  padding-top: 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.corte-postagem .btn {
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.corte-postagem > .btn {
+  justify-self: start;
+}
+
+.corte-card .ajuda-campo,
+.form-drive .ajuda-campo,
+#feedback-postagem-corte {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.corte-card .ajuda-campo[data-erro],
+.form-drive .ajuda-campo[data-erro],
+#feedback-postagem-corte[data-erro] {
+  color: var(--sinal-ao-vivo-texto);
+}
+
+.form-drive {
+  display: grid;
+  gap: 8px;
+}
+
+.drive-txt input {
+  accent-color: var(--sinal-acao);
+}
+
+.corte-postagem .btn[aria-pressed="true"],
+.corte-postagem .btn[aria-pressed="mixed"],
+.corte-postagem-redes .btn[aria-pressed="true"] {
+  background: var(--sinal-ok-fundo);
+  color: var(--sinal-ok-texto);
+  border-color: var(--sinal-ok);
+}
+
+.corte-postagem summary {
+  width: fit-content;
+  padding: 10px 0;
+  cursor: pointer;
+  color: var(--texto-secundario);
+}
+
+.corte-postagem-status {
+  margin: 0;
+  color: var(--sinal-ok-texto);
+  font-size: 0.875rem;
+}
+
+.campos-drive {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.campos-drive .switch-linha {
+  min-height: 56px;
+}
+
+.drive-pasta .campo-texto {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.sugestoes-drive {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.sugestoes-drive .btn {
+  justify-self: start;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.drive-txt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.campos-drive .btn[type="submit"] {
+  justify-self: start;
 }
 
 /* Respeito total a movimento reduzido */

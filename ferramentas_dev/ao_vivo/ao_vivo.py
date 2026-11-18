@@ -470,7 +470,7 @@ class HostComplementarPainel:
         versao = self.ler_versao()
         res = {
             "ok": True,
-            "etapa": "atualizado",
+            "etapa": "em_dia",
             "pct": 100,
             "msg": "Versão local em desenvolvimento (modo Ao vivo).",
             "versao_atual": versao,
@@ -698,8 +698,9 @@ class MonitorMudancas:
                 n=3,
             )
         )
-        adicionadas = sum(1 for l in diff_gerado if l.startswith("+") and not l.startswith("+++"))
-        removidas = sum(1 for l in diff_gerado if l.startswith("-") and not l.startswith("---"))
+        linhas_diff = diff_gerado[2:]  # Os dois cabeçalhos precedem os trechos do diff.
+        adicionadas = sum(1 for linha in linhas_diff if linha.startswith("+"))
+        removidas = sum(1 for linha in linhas_diff if linha.startswith("-"))
         total = adicionadas + removidas
 
         if len(diff_gerado) > MAX_LINHAS_DIFF:
@@ -882,26 +883,40 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
       font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
       overflow: hidden;
     }
+    body { display: flex; flex-direction: column; }
+    .abas-visualizacao { display: none; }
+    .aba-visualizacao {
+      flex: 1; min-height: 44px;
+      border: 0; border-bottom: 2px solid transparent;
+      background: transparent; color: var(--texto-suave);
+      font: inherit; font-weight: 600; cursor: pointer;
+    }
+    .aba-visualizacao:hover { background: var(--bg-card-hover); }
+    .aba-visualizacao[aria-selected="true"] {
+      border-bottom-color: var(--azul); color: var(--texto);
+    }
     .layout {
-      display: flex; width: 100vw; height: 100vh;
+      display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+      flex: 1; min-height: 0;
+    }
+    .coluna-painel, .coluna-diario {
+      display: flex; flex-direction: column; min-height: 0; min-width: 0;
     }
     /* Esquerda ~70%: Painel real */
     .coluna-painel {
-      flex: 0 0 70%; width: 70%; height: 100%;
-      display: flex; flex-direction: column;
       border-right: 1px solid var(--borda);
       background: #0e1117;
-      position: relative;
     }
     .barra-topo {
-      height: 44px; min-height: 44px;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0 14px; gap: 12px;
+      min-height: 44px;
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+      padding: 0 12px; gap: 0 12px;
       background: #10141d; border-bottom: 1px solid var(--borda);
       font-size: 13px;
     }
     .grupo-status {
-      display: flex; align-items: center; gap: 10px; min-width: 0;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px;
+      padding: 8px 0; min-width: 0;
     }
     .ponto-vivo {
       width: 9px; height: 9px; border-radius: 50%;
@@ -923,13 +938,12 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
     .pilula-motor {
       padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
       background: var(--verde-bg); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.3);
-      white-space: nowrap;
     }
     .pilula-motor.erro {
       background: var(--vermelho-bg); color: #fca5a5; border-color: rgba(239, 68, 68, 0.4);
     }
     .acoes-barra {
-      display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; min-width: 0;
     }
     .info-recarregamento {
       color: var(--texto-suave); font-size: 12px; white-space: nowrap;
@@ -945,7 +959,7 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
     }
     .btn-acao:hover { background: #232c40; border-color: #3b4963; }
     .palco-iframe {
-      flex: 1; position: relative; width: 100%; height: calc(100% - 44px);
+      flex: 1; position: relative; min-height: 0;
       background: #0e1117;
     }
     #iframe-painel {
@@ -979,8 +993,6 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
 
     /* Direita ~30%: Diário de mudanças */
     .coluna-diario {
-      flex: 0 0 30%; width: 30%; min-width: 320px; height: 100%;
-      display: flex; flex-direction: column;
       background: #0e121a;
     }
     .cabecalho-diario {
@@ -1005,9 +1017,10 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
       color: #e2e8f0; font-variant-numeric: tabular-nums;
     }
     .lista-diario {
-      flex: 1; overflow-y: auto; padding: 12px;
+      flex: 1; min-height: 0; overflow-y: auto; padding: 12px;
       display: flex; flex-direction: column; gap: 8px;
     }
+    .lista-diario > * { flex: 0 0 auto; }
     .estado-aguardando {
       padding: 18px 16px; border: 1px dashed #293447; border-radius: 10px;
       background: rgba(19, 23, 32, 0.65); color: var(--texto-suave);
@@ -1021,19 +1034,19 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
     }
     .item-mudanca:hover { border-color: #334155; }
     .item-cabecalho {
-      width: 100%; text-align: left; background: transparent; border: 0;
+      width: 100%; min-height: 44px; text-align: left; background: transparent; border: 0;
       color: inherit; padding: 10px 12px; cursor: pointer;
       display: flex; flex-direction: column; gap: 5px;
     }
     .item-cabecalho:hover { background: var(--bg-card-hover); }
     .item-linha-1 {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px;
     }
     .item-hora {
       font-size: 11.5px; color: var(--texto-suave); font-variant-numeric: tabular-nums;
     }
     .item-badges {
-      display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
       font-variant-numeric: tabular-nums;
     }
     .badge-add { color: #4ade80; }
@@ -1052,7 +1065,7 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
       font-size: 12.5px; color: #f8fafc; word-break: break-all;
     }
     .item-dica {
-      font-size: 11px; color: #64748b;
+      font-size: 11px; color: var(--texto-suave);
     }
     .bloco-diff {
       border-top: 1px solid var(--borda);
@@ -1067,11 +1080,31 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
     .diff-rem { color: #fca5a5; background: rgba(239, 68, 68, 0.12); }
     .diff-hunk { color: #38bdf8; }
     .diff-hdr { color: #94a3b8; font-weight: 600; }
+    button:focus-visible {
+      outline: 2px solid var(--azul); outline-offset: -3px;
+    }
+    @media (max-width: 1066px) {
+      .abas-visualizacao {
+        display: flex; background: var(--bg-card); border-bottom: 1px solid var(--borda);
+      }
+      .layout { grid-template-columns: minmax(0, 1fr); }
+      .layout > [hidden] { display: none; }
+      .coluna-painel { border-right: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .item-mudanca, .btn-acao { transition: none; }
+    }
   </style>
 </head>
 <body>
+  <div class="abas-visualizacao" role="tablist" aria-label="Visualização ao vivo">
+    <button type="button" id="aba-painel" class="aba-visualizacao" role="tab"
+      aria-controls="vista-painel" aria-selected="true">Painel</button>
+    <button type="button" id="aba-diario" class="aba-visualizacao" role="tab"
+      aria-controls="vista-diario" aria-selected="false" tabindex="-1">Mudanças</button>
+  </div>
   <div class="layout">
-    <section class="coluna-painel" aria-label="Painel do CorteLive ao vivo">
+    <section id="vista-painel" class="coluna-painel" aria-label="Painel">
       <header class="barra-topo">
         <div class="grupo-status">
           <span id="ponto-vivo" class="ponto-vivo"></span>
@@ -1104,7 +1137,7 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
       </div>
     </section>
 
-    <aside class="coluna-diario" aria-label="Diário de mudanças">
+    <aside id="vista-diario" class="coluna-diario" aria-label="Mudanças">
       <div class="cabecalho-diario">
         <div class="linha-titulo-diario">
           <h2>Diário de mudanças</h2>
@@ -1140,18 +1173,44 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
       let assinaturaDiario = "";
       const abertos = new Set();
 
-      // Em janela --app do Edge, garante janela grande e confortável na tela
-      try {
-        if (window.outerWidth < 1280 || window.outerHeight < 780) {
-          const larg = Math.min(1660, screen.availWidth - 32);
-          const alt = Math.min(960, screen.availHeight - 32);
-          window.resizeTo(larg, alt);
-          window.moveTo(
-            Math.max(10, Math.floor((screen.availWidth - larg) / 2)),
-            Math.max(10, Math.floor((screen.availHeight - alt) / 2))
-          );
+      const janelaEstreita = window.matchMedia("(max-width: 1066px)");
+      const abas = [...document.querySelectorAll(".aba-visualizacao")];
+      let abaAtiva = abas[0];
+
+      function atualizarAbas() {
+        for (const aba of abas) {
+          const ativa = aba === abaAtiva;
+          aba.setAttribute("aria-selected", String(ativa));
+          aba.tabIndex = ativa ? 0 : -1;
+          const vista = document.getElementById(aba.getAttribute("aria-controls"));
+          vista.hidden = janelaEstreita.matches && !ativa;
+          if (janelaEstreita.matches) {
+            vista.setAttribute("role", "tabpanel");
+            vista.setAttribute("aria-labelledby", aba.id);
+          } else {
+            vista.removeAttribute("role");
+            vista.removeAttribute("aria-labelledby");
+          }
         }
-      } catch (_) {}
+      }
+
+      for (const aba of abas) {
+        aba.addEventListener("click", () => {
+          abaAtiva = aba;
+          atualizarAbas();
+        });
+        aba.addEventListener("keydown", (evento) => {
+          const indice = abas.indexOf(aba);
+          const destinos = { ArrowLeft: 1 - indice, ArrowRight: 1 - indice, Home: 0, End: 1 };
+          if (!(evento.key in destinos)) return;
+          evento.preventDefault();
+          const destino = abas[destinos[evento.key]];
+          destino.click();
+          destino.focus();
+        });
+      }
+      janelaEstreita.addEventListener("change", atualizarAbas);
+      atualizarAbas();
 
       function recarregarIframe(forcarHora) {
         iframe.src = URL_BASE_PAINEL + "/?_av=" + Date.now();
@@ -1171,10 +1230,14 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
       }
 
       function formatarDiffHtml(texto) {
+        let noTrecho = false;
         return String(texto || "").split("\n").map((linha) => {
           let cls = "diff-linha";
-          if (linha.startsWith("+++") || linha.startsWith("---")) cls += " diff-hdr";
-          else if (linha.startsWith("@@")) cls += " diff-hunk";
+          if (linha.startsWith("@@")) {
+            noTrecho = true;
+            cls += " diff-hunk";
+          }
+          else if (!noTrecho && (linha.startsWith("+++ ") || linha.startsWith("--- "))) cls += " diff-hdr";
           else if (linha.startsWith("+")) cls += " diff-add";
           else if (linha.startsWith("-")) cls += " diff-rem";
           return `<div class="${cls}">${escaparHtml(linha) || " "}</div>`;
@@ -1198,7 +1261,7 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
             <div class="estado-aguardando">
               <strong>Monitorando alterações em tempo real</strong>
               Vigiando <b>${arquivosMonitorados}</b> arquivos em <code>painel\\</code> e <code>cortelive\\</code> (iniciado às ${escaparHtml(horaUltimo)}).<br><br>
-              Assim que qualquer ajudante salvar um arquivo, o painel à esquerda recarrega sozinho em até 2 segundos e a mudança aparece aqui no topo com o trecho do diff.
+              Ao salvar um arquivo, o painel recarrega sozinho e a mudança aparece no topo da lista.
             </div>
           `;
           return;
@@ -1213,18 +1276,18 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
             : "";
           return `
             <article class="item-mudanca" data-id="${m.id}">
-              <button type="button" class="item-cabecalho" data-toggle="${m.id}" aria-expanded="${aberto ? "true" : "false"}">
-                <div class="item-linha-1">
+              <button type="button" class="item-cabecalho" data-toggle="${m.id}" aria-controls="diff-${m.id}" aria-expanded="${aberto ? "true" : "false"}">
+                <span class="item-linha-1">
                   <span class="item-hora">${escaparHtml(m.hora)}${tagTipo}</span>
                   <span class="item-badges">
                     ${badgeMotor}
                     <span class="badge-add">+${m.adicionadas}</span>
-                    <span class="badge-rem">-${m.removidas}</span>
+                    <span class="badge-rem">−${m.removidas}</span>
                     <span class="badge-total">${rotuloLinhas}</span>
                   </span>
-                </div>
-                <div class="item-arquivo">${escaparHtml(m.arquivo)}</div>
-                <div class="item-dica">${aberto ? "Clique para recolher o trecho do diff" : "Clique para ver o trecho do diff"}</div>
+                </span>
+                <span class="item-arquivo">${escaparHtml(m.arquivo)}</span>
+                <span class="item-dica">${aberto ? "Recolher diff" : "Ver diff"}</span>
               </button>
               <div class="bloco-diff" id="diff-${m.id}" ${aberto ? "" : "hidden"}>${formatarDiffHtml(m.diff)}</div>
             </article>
@@ -1240,12 +1303,12 @@ PAGINA_AO_VIVO_HTML = r"""<!DOCTYPE html>
               abertos.delete(id);
               bloco.hidden = true;
               btn.setAttribute("aria-expanded", "false");
-              if (dica) dica.textContent = "Clique para ver o trecho do diff";
+              if (dica) dica.textContent = "Ver diff";
             } else {
               abertos.add(id);
               bloco.hidden = false;
               btn.setAttribute("aria-expanded", "true");
-              if (dica) dica.textContent = "Clique para recolher o trecho do diff";
+              if (dica) dica.textContent = "Recolher diff";
             }
           });
         });

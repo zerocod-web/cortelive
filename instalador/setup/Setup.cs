@@ -31,7 +31,10 @@ namespace CorteLiveSetup
         private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\";
         private static readonly string Local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         internal static readonly string DefaultFolder = Path.Combine(Local, "CorteLive");
-        private static readonly string LogPath = Path.Combine(DefaultFolder, "setup_log.txt");
+        private const string LogName = "setup_log.txt";
+        // Pasta padrão até a instalação aceitar a pasta escolhida; daí em diante o log vai para ela.
+        private static volatile string logFolder = DefaultFolder;
+        internal static string LogPath { get { return Path.Combine(logFolder, LogName); } }
         private static readonly string AppPath = Application.ExecutablePath;
         private static readonly StringComparison IgnoreCase = StringComparison.OrdinalIgnoreCase;
 
@@ -101,10 +104,16 @@ namespace CorteLiveSetup
                 bool existing = IsPanelPackage(target) || IsLegacyInstallation(target);
                 if (Directory.Exists(target) && !existing &&
                     Directory.EnumerateFileSystemEntries(target).Any(p =>
-                        !target.Equals(DefaultFolder, IgnoreCase) || !SharedProfile.Contains(Path.GetFileName(p))))
+                    {
+                        string name = Path.GetFileName(p);
+                        // O log de uma tentativa anterior nesta pasta não impede tentar de novo.
+                        return !name.Equals(LogName, IgnoreCase) &&
+                            (!target.Equals(DefaultFolder, IgnoreCase) || !SharedProfile.Contains(name));
+                    }))
                     throw new InvalidOperationException("Escolha uma pasta vazia ou uma instalação existente do CorteLive.");
                 EnsureAppClosed(target);
 
+                logFolder = target;
                 Log("Instalação iniciada.");
                 progress(5, "Buscando a versão mais recente…");
                 string overrideUrl = Environment.GetEnvironmentVariable("CORTELIVE_RELEASE_API_URL");
@@ -531,8 +540,9 @@ namespace CorteLiveSetup
         {
             try
             {
-                Directory.CreateDirectory(DefaultFolder);
-                File.AppendAllText(LogPath, DateTime.Now.ToString("s") + " " + message + Environment.NewLine);
+                string path = LogPath;
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.AppendAllText(path, DateTime.Now.ToString("s") + " " + message + Environment.NewLine);
             }
             catch (Exception ex) { Trace.WriteLine(ex.Message); }
         }
@@ -669,8 +679,10 @@ namespace CorteLiveSetup
             install.Font = new Font("Segoe UI", 11, FontStyle.Bold);
             install.TabIndex = 2;
             install.Click += InstallClick;
+            // Enter só instala de propósito: o foco começa no campo da pasta, onde Espaço e letras
+            // viram texto. Com o foco no botão, qualquer Enter, Espaço ou "i" solto disparava a instalação.
             AcceptButton = install;
-            ActiveControl = install;
+            ActiveControl = folder;
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (busy) e.Cancel = true; };
         }
 
@@ -721,7 +733,7 @@ namespace CorteLiveSetup
                 status.ForeColor = ColorTranslator.FromHtml("#FF947E");
                 status.Text = "Instalação interrompida. Veja o motivo na mensagem.";
                 string message = ex is WebException ? "Não foi possível baixar o pacote. Confira a conexão e tente novamente." : ex.Message;
-                MessageBox.Show(this, message + "\n\nLog: %LOCALAPPDATA%\\CorteLive\\setup_log.txt",
+                MessageBox.Show(this, message + "\n\nLog: " + Setup.LogPath,
                     "Falha na instalação", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 browse.Enabled = folder.Enabled = true;
                 install.Text = "Tentar &novamente";

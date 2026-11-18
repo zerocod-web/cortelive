@@ -5,29 +5,34 @@
 # --- Corte ---------------------------------------------------------------------------------
 duracao_min = 30            # segundos, corte mais curto
 duracao_max = 60            # segundos, corte mais longo
-antes_do_momento = 22       # quantos segundos antes do momento bom o corte começa
-depois_do_momento = 14      # quantos segundos depois ele termina
+antes_do_momento = 22       # (referência) o início real é escolhido numa frase, de antes_min a antes_max s antes do pico
+depois_do_momento = 14      # alvo de segundos depois do momento bom (o fim real cai numa frase que fecha)
+antes_max = 18              # até quantos segundos antes do pico o corte pode começar (nunca antes de um buraco mudo)
+antes_min = 6               # o começo fica pelo menos tantos segundos antes do pico
+depois_min = 7              # o fim fica pelo menos tantos segundos depois do pico (reação)
+buraco_max_s = 2.8          # buraco sem fala: o início não recua além dele
+cauda_max_s = 2.0           # silêncio depois da reação: o corte termina antes dele
+duracao_piso_frac = 0.6     # corte enxuto: pode ficar até 60% de duracao_min se o resto seria silêncio
 modelo = "cam-em-cima"      # cam-em-cima | jogo-fundo-desfocado | jogo-tela-cheia-crop
 legenda = "opus"            # opus | karaoke | minimal (ou o nome de um estilo que você criou)
 pasta_saida = "cortes"
+faixa_legenda = "rasgada"   # cam-em-cima: o que fica atrás da legenda | rasgada (papel rasgado) | blur | nenhuma
+faixa_cor = "vermelha"      # cor do papel rasgado | vermelha | creme
 
 # --- Detecção do momento bom -------------------------------------------------------------------
 limiar_nota = 2.2           # mais alto = menos cortes, só os mais fortes
 intervalo_min_entre_cortes = 20   # segundos entre o fim de um corte e o próximo momento
 minutos_sem_corte_para_adaptar = 6   # live calma: depois de N min sem corte, pega o melhor momento recente (0 = nunca)
 limiar_minimo = 0.9         # nem no modo adaptativo corta abaixo disso
-palavras_quentes = ["caralho", "mano", "meu deus", "nossa", "não acredito", "que isso", "socorro",
-                    "porra", "vish", "olha isso", "pqp", "puta", "eita", "corre", "morreu", "matou",
-                    "pegou", "rapaz", "misericórdia", "ai meu deus", "não não não", "mds"]
+palavras_quentes = ["caralho", "meu deus", "não acredito", "que isso", "socorro", "olha isso", "pqp",
+                    "misericórdia", "ai meu deus", "não não não", "mds", "puta"]   # fortes: valem 1,0
+palavras_apoio = ["nossa", "eita", "vish", "porra", "morreu", "matou", "corre"]   # apoio: valem 0,3 ("mano" não conta)
+volume_piso_db = -26        # abaixo disso o volume nunca vira "grito" (fala normal depois de silêncio)
+
 
 # --- Chat da Twitch (só leitura, sem login) ------------------------------------------------------
 usar_chat = true
 chat_defasagem_s = 5        # o chat reage uns segundos depois do lance
-
-# --- Ollama (opcional: se estiver rodando no PC, dá a nota final e o título) -------------------------
-ollama_url = "http://127.0.0.1:11434"
-ollama_modelo = ""          # vazio = o primeiro modelo instalado
-ollama_nota_minima = 4      # nota do Ollama abaixo disso descarta o corte
 
 # --- Câmera do streamer ------------------------------------------------------------------------
 # Se a cam do canal não foi marcada (cortelive marcar-cam), o programa procura o rosto sozinho
@@ -74,7 +79,6 @@ postar_via = "postiz"       # postiz (conecta as redes no site do Postiz) | dire
 postar_privado = false      # true = sobe como privado/rascunho, para conferir antes de abrir
 postar_dry_run = false      # true = ensaio: faz tudo menos enviar (para testar)
 postar_espera_fim_s = 300   # no fim da live, espera até N s os envios em andamento
-autopost_ollama = true      # usa o Ollama (se estiver rodando) para escrever o gancho; senão, heurística
 # Seu modelo de texto (vale para todos os cortes):
 canal_nome = ""             # como o streamer aparece no título; vazio = nome do canal da live
 jogo = ""                   # ex.: "GTA RP"; vazio = só cita o jogo se tiver certeza (nome do canal/fala)
@@ -83,3 +87,9 @@ titulo_sufixo = ""          # vai depois (antes do #shorts)
 hashtags_fixas = []         # ex.: ["cortesdogaules"] — entram em todas as redes
 descricao_rodape = ""       # linha fixa no fim da descrição do YouTube
 suavizar_palavrao = true   # troca uma letra do palavrão por * no título/legenda
+
+# --- Pasta sincronizada do Drive ---------------------------------------------------------------
+destino_ativo = false          # copia cada corte pronto quando ligado
+destino_pasta = ""              # caminho completo da pasta sincronizada no computador
+destino_txt = false            # inclui título, legenda e hashtags num TXT
+destino_mover_postados = true  # organiza as cópias marcadas na subpasta postados

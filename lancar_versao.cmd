@@ -28,6 +28,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "if (-not $entrada) { $entrada = $sugestao }" ^
   "if ($entrada -notmatch '^\d+\.\d+\.\d+$') { Write-Host ('ERRO: Use tres numeros separados por ponto, como ' + $sugestao + '.') -ForegroundColor Red; exit 1 }" ^
   "if ($entrada -eq $verAtual) { Write-Host 'ERRO: O numero novo precisa ser diferente da versao atual.' -ForegroundColor Red; exit 1 }" ^
+  "$sujo = (& git status --porcelain | Out-String).Trim();" ^
+  "if ($sujo) { Write-Host 'ERRO: Ha mudancas nao gravadas (commit) nesta pasta. Grave o codigo novo antes de lancar, senao a versao sai sem ele:' -ForegroundColor Red; Write-Host $sujo; exit 1 }" ^
   "$tag = 'v' + $entrada;" ^
   "$tagExiste = (& git tag -l $tag | Out-String).Trim();" ^
   "if ($tagExiste) { Write-Host ('ERRO: A etiqueta ' + $tag + ' ja existe. Escolha um numero maior.') -ForegroundColor Red; exit 1 }" ^

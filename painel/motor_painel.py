@@ -24,6 +24,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 RAIZ_PAINEL = Path(__file__).resolve().parents[1]
 LIMITE_CORPO = 65536
+PARADA_APOS_S = 3600   # log sem mexer há 1 h = live terminada ou parada
 PADRAO_POSTAGEM = {
     "postar_sozinho": False, "revisar_antes": True, "reserva_navegador": False,
 }
@@ -146,7 +147,7 @@ class ApiPainel:
         return caminho
 
     def listar_cortes(self):
-        from cortelive import pastas
+        from cortelive import destino, pastas
 
         pasta = self.pasta_cortes()
         candidatos = []
@@ -172,6 +173,7 @@ class ApiPainel:
         for mtime, video in sorted(candidatos, reverse=True)[:60]:
             meta = pastas.meta_do_video(video)
             dados = ler_json(meta) if meta else {}
+            postagem = destino.estado_postado(video)
             sem_legenda = next((p for p in (
                 video.parent / pastas.SEM_LEGENDA / video.name,
                 video.with_stem(video.stem + "_sem_legenda"),
@@ -186,6 +188,7 @@ class ApiPainel:
                 "data_hora": datetime.fromtimestamp(mtime).strftime("%d/%m %H:%M"),
                 "inicio_hms": dados.get("momento_hms") or dados.get("inicio_hms"),
                 "motivo": dados.get("motivo"), "modelo": dados.get("modelo_usado") or dados.get("modelo"),
+                "postado": postagem["postado"], "postagem": postagem, "destino": destino.estado_copia(video),
             })
         return itens
 
@@ -234,6 +237,123 @@ class ApiPainel:
                     temporario.unlink(missing_ok=True)
             return config_postagem(self.raiz)
 
+    def drive(self, acao, metodo, corpo):
+        from cortelive import destino
+
+        if acao == "detectar":
+            opcoes = destino.detectar()
+            mensagem = ("Escolha uma pasta sincronizada ou informe o caminho manualmente." if opcoes else
+                        "Nenhuma pasta sincronizada foi encontrada. Abra o Google Drive no computador "
+                        "ou informe o caminho manualmente.")
+            return {"opcoes": opcoes, "mensagem": mensagem}
+
+        cfg = {**self.config_motor(), "painel_raiz": self.raiz}
+        try:
+            if acao == "config":
+                if metodo == "GET":
+                    return destino.config_atual(cfg)
+                alteracoes = {k: corpo[k] for k in destino.PADRAO if k in corpo}
+                if not alteracoes:
+                    raise ErroApi(400, "Informe pelo menos uma opção do destino.")
+                for chave, valor in alteracoes.items():
+                    if not destino.opcao_valida(chave, valor):
+                        raise ErroApi(400, f"Opção do destino inválida: {chave}.")
+                with self.trava_config:
+                    preferencias = destino.salvar_preferencias(cfg, alteracoes)
+                return {**preferencias, "mensagem": "Preferências do destino salvas."}
+
+            video = self.corte_para_destino(corpo)
+            pasta = destino.config_atual(cfg)["destino_pasta"]
+            destino.verificar_pasta(pasta, cfg["pasta_saida"])
+            copia = destino.copiar(video, cfg)
+            if copia["estado"] == "erro":
+                raise ErroApi(502, copia["erro"])
+            return {"destino": copia, "mensagem": destino.MENSAGEM_COPIA}
+        except destino.ErroDestino as erro:
+            raise ErroApi(400, str(erro)) from None
+        except TimeoutError as erro:
+            raise ErroApi(409, str(erro)) from None
+        except OSError:
+            raise ErroApi(502, "Não consegui acessar a pasta do destino. Confira e tente de novo.") from None
+
+    def corte_para_destino(self, corpo):
+        from cortelive import pastas
+
+        video = self.dentro_dos_cortes(campo(corpo, "caminho"))
+        relativos = video.relative_to(self.pasta_cortes())
+        if (video.name.lower().endswith("_sem_legenda.mp4")
+                or any(p.casefold() == pastas.SEM_LEGENDA.casefold() for p in relativos.parts[:-1])
+                or not pastas.interno_do_video(video).resolve().is_relative_to(video.parent)):
+            raise ErroApi(404, "Corte não encontrado.")
+        return video
+
+    def marcar_postado(self, corpo):
+        from cortelive import destino
+
+        video = self.corte_para_destino(corpo)
+        postado = corpo.get("postado", True)
+        if not isinstance(postado, bool):
+            raise ErroApi(400, "Informe se o corte foi postado.")
+        rede = corpo.get("rede")
+        cfg = {**self.config_motor(), "painel_raiz": self.raiz}
+        try:
+            postagem = destino.marcar(video, rede=rede, postado=postado, cfg=cfg)
+        except destino.ErroDestino as erro:
+            raise ErroApi(400, str(erro)) from None
+        except TimeoutError as erro:
+            raise ErroApi(409, str(erro)) from None
+        except OSError:
+            raise ErroApi(502, "Não consegui salvar a marca de postagem. Confira a pasta do corte.") from None
+        return {"postado": postagem["postado"], "postagem": postagem, "destino": destino.estado_copia(video),
+                "mensagem": postagem.get("aviso") or destino.mensagem_marca(postado, rede)}
+
+    def apagar_historico(self, corpo=None):
+        """Apaga só o histórico: log.txt e sessao.json de lives já terminadas e os arquivos de logs/.
+        Nunca toca em vídeos, legendas, fila de postagem nem em sessão sem sessao.json recente (pode estar rodando)."""
+        agora = time.time()
+        apagados, bytes_livres, pulados = 0, 0, 0
+
+        def remover(arq):
+            nonlocal apagados, bytes_livres
+            try:
+                tamanho = arq.stat().st_size
+                arq.unlink()
+            except OSError:
+                return False
+            apagados += 1
+            bytes_livres += tamanho
+            return True
+
+        pasta = self.pasta_cortes()
+        if pasta.is_dir():
+            for sessao in pasta.iterdir():
+                if not sessao.is_dir() or sessao.name.startswith((".", "_")):
+                    continue
+                locais = [sessao / "_interno", sessao]          # formato novo e formato antigo
+                logs = [p for d in locais for p in (d / "log.txt",) if p.is_file()]
+                registros = [p for d in locais for p in (d / "sessao.json",) if p.is_file()]
+                if not registros:
+                    # sem sessao.json: ou foi parada à força ou ainda roda; só vale se o log está parado há tempo
+                    if any(agora - p.stat().st_mtime < PARADA_APOS_S for p in logs):
+                        pulados += 1
+                        continue
+                elif any(agora - p.stat().st_mtime < 60 for p in registros + logs):
+                    pulados += 1                                  # acabou de fechar; deixa assentar
+                    continue
+                for arq in logs + registros:
+                    remover(arq)
+        logs_raiz = self.raiz / "logs"
+        if logs_raiz.is_dir():
+            for arq in logs_raiz.iterdir():
+                if arq.is_file() and arq.suffix.lower() in (".log", ".txt", ".jsonl")                         and agora - arq.stat().st_mtime >= PARADA_APOS_S:
+                    remover(arq)
+        if not apagados:
+            mensagem = "Não havia histórico para apagar. Seus cortes continuam onde estavam."
+        else:
+            mensagem = (f"Histórico apagado ({apagados} {'arquivo' if apagados == 1 else 'arquivos'}). "
+                        "Seus cortes continuam onde estavam.")
+        return {"apagados": apagados, "bytes_liberados": bytes_livres, "pulados": pulados, "mensagem": mensagem}
+
     def postar(self, acao, corpo):
         modulo = "cortelive.postar"
         if acao == "status":
@@ -281,6 +401,8 @@ class ApiPainel:
             ident = campo(corpo, "id")
             if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}", ident):
                 raise ErroApi(400, "ID da fila inválido.")
+            if acao in ("cancelar", "editar-agendado"):
+                return self.alterar_agendamento(ident, acao, corpo)
             args.append(ident)
             if acao == "editar":
                 args.extend(f"--{k}={campo(corpo, k)}" for k in
@@ -301,6 +423,39 @@ class ApiPainel:
         if not (pasta / "_autopost" / "fila.json").is_file():
             return []
         return agenda.processar_pendentes(pasta, cfg)
+
+    def alterar_agendamento(self, ident, acao, corpo):
+        from cortelive.autopost import agenda
+        from cortelive.autopost.fila import Fila
+        from cortelive.postar.redes import ErroEnvio
+
+        edicao = {}
+        if acao == "editar-agendado":
+            nomes = {"titulo", "descricao", "tiktok", "instagram", "tags"}
+            if not corpo.keys() - {"id"} or corpo.keys() - nomes - {"id"}:
+                raise ErroApi(400, "Informe os textos a editar no agendamento.")
+            edicao = {nome: campo(corpo, nome) for nome in nomes & corpo.keys()}
+            if "tags" in edicao:
+                edicao["tags"] = edicao["tags"].split(",")
+        fila = Fila(self.pasta_cortes())
+        with fila.reservar_processamento() as livre:
+            if not livre:
+                raise ErroApi(409, "Aguarde o processamento da fila para alterar o agendamento.")
+            item = fila.pegar(ident)
+            if not item:
+                raise ErroApi(404, "Corte não encontrado na fila.")
+            if acao == "cancelar" and item["estado"] == "cancelado":
+                return {"item": item}
+            alvos = agenda.agendamentos_futuros(item)
+            if (acao == "editar-agendado" and (not alvos or item["estado"] == "cancelando")
+                    or acao == "cancelar" and not alvos and item["estado"] != "cancelando"):
+                raise ErroApi(409, "O corte não tem agendamento futuro disponível para esta ação.")
+            try:
+                if acao == "cancelar":
+                    return {"item": agenda.cancelar_agendamentos(fila, item, alvos)}
+                return {"item": agenda.editar_agendamentos(fila, item, alvos, edicao)}
+            except ErroEnvio as erro:
+                raise ErroApi(502, str(erro)) from erro
 
     def editar_destinos(self, ident, corpo, args):
         from cortelive.autopost.agenda import canais_validos
@@ -371,23 +526,32 @@ class ApiPainel:
         if grupo == "dev":
             return despachar_rota_dev(self, metodo, acoes, url, corpo)
         acao = acoes[0] if len(acoes) == 1 else ""
-        consultas = {("cortes", ""), ("miniatura", ""), ("postar", "status"), ("autopost", "fila")}
-        acoes_post = {("abrir-video", ""), ("abrir-pasta", ""), ("postar", "conectar"),
+        consultas = {("cortes", ""), ("miniatura", ""), ("postar", "status"), ("autopost", "fila"),
+                     ("drive", "detectar")}
+        acoes_post = {("historico", "apagar"), ("abrir-video", ""), ("abrir-pasta", ""), ("postar", "conectar"),
                       ("postar", "conectar-postiz"), ("postar", "enviar"),
-                      *(("autopost", a) for a in ("gerar", "editar", "aprovar", "rejeitar", "processar"))}
+                      ("drive", "enviar"), ("cortes", "postado"),
+                      *(("autopost", a) for a in ("gerar", "editar", "aprovar", "rejeitar", "processar",
+                                                 "cancelar", "editar-agendado"))}
         par = grupo, acao
-        if len(acoes) > 1 or par not in consultas | acoes_post | {("config-postagem", "")}:
+        if len(acoes) > 1 or par not in consultas | acoes_post | {("config-postagem", ""), ("drive", "config")}:
             raise ErroApi(404, "Rota não encontrada.")
         if (metodo not in ("GET", "POST") or par in consultas and metodo != "GET"
                 or par in acoes_post and metodo != "POST"):
             raise ErroApi(405, "Método não permitido.")
         if grupo == "config-postagem":
             return self.postagem(metodo, corpo)
+        if grupo == "drive":
+            return self.drive(acao, metodo, corpo)
         if grupo == "cortes":
+            if acao == "postado":
+                return self.marcar_postado(corpo)
             return {"cortes": self.listar_cortes()}
         if grupo == "miniatura":
             texto = parse_qs(url.query).get("caminho", [""])[0]
             return self.miniatura(self.dentro_dos_cortes(texto))
+        if grupo == "historico":
+            return self.apagar_historico(corpo)
         if grupo == "postar":
             return self.postar(acao, corpo)
         if grupo == "autopost":

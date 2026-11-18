@@ -15,7 +15,7 @@ def main():
         from . import render
         r = render.render_corte(job["video"], job["inicio"], job["fim"], job["palavras"], job["modelo"],
                                 job["legenda"], tuple(job["cam"]) if job["cam"] else None, job["saida_dir"],
-                                job["nome"])
+                                job["nome"], faixa=job.get("faixa_legenda"), faixa_cor=job.get("faixa_cor"))
         out = {"ok": True, **r}
     except BaseException as e:
         out = {"ok": False, "erro": str(e)[-1500:], "trace": traceback.format_exc()[-3000:]}

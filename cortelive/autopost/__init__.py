@@ -2,7 +2,7 @@
 de aprovação). Liga com `postar_sozinho = true` no config.toml (padrão: desligado).
 
 Tudo roda numa thread própria (uma fila só para todas as lives do processo): o render do próximo corte
-nunca espera upload nem Ollama. `disparar()` só põe na fila e volta na hora.
+nunca espera o upload. `disparar()` só põe na fila e volta na hora.
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def nota_corte(info):
     return nota if type(nota) in (int, float) and math.isfinite(nota) else 0
 
 
-def criar_item(video, cfg, canal=None, info=None, palavras=None, usar_ollama=None,
+def criar_item(video, cfg, canal=None, info=None, palavras=None,
                canais_postiz=_CANAIS_PADRAO) -> tuple[dict, bool]:
     """Gera os metadados do corte e põe na fila em disco. -> (item, novo?)"""
     video = Path(video).resolve()
@@ -57,7 +57,7 @@ def criar_item(video, cfg, canal=None, info=None, palavras=None, usar_ollama=Non
         return existente, False
     t0 = time.time()
     meta = metadados.gerar(info.get("transcricao", ""), canal, cfg, info.get("motivos", ()), palavras,
-                           info.get("momento_na_live"), usar_ollama=usar_ollama,
+                           info.get("momento_na_live"),
                            frase_sugerida=info.get("titulo_sugerido", ""))
     op = _opcoes(cfg)
     item = {"id": sha[:12], "sha256": sha, "video": str(video), "canal": canal,

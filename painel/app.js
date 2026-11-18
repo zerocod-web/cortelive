@@ -13,10 +13,16 @@
 
   let estadoAtual = null;
   let assinaturaCortes = "";
+  let filtroPostagem = "todos";
+  let versaoEstadoCortes = 0;
+  const acoesDestinoAtivas = new Set();
+  let carregouConfigDrive = false;
   let postarStatus = { disponivel: false, autopost: false };
   let timerPoll = null;
   let abaAtiva = "cortar";
   let acompanhamentoAtualizacao = false;
+  let aplicandoAtualizacao = false;
+  let checagemAtualizacao = null;
   let canaisAtivosPostiz = [];
   let canaisSelecionados = null;
   let editandoLimites = false;
@@ -80,7 +86,12 @@
     } catch (_) {
       return { ok: false, erro: "A conexão com o CorteLive caiu. Tente novamente." };
     }
-    const txt = await resp.text();
+    let txt;
+    try {
+      txt = await resp.text();
+    } catch (_) {
+      return { ok: false, erro: "A conexão com o CorteLive caiu. Tente novamente." };
+    }
     let dados = {};
     try {
       dados = txt ? JSON.parse(txt) : {};
@@ -90,8 +101,21 @@
     if (!resp.ok && !dados.erro) {
       dados.erro = `Erro HTTP ${resp.status}`;
     }
-    if (!resp.ok) dados.ok = false;
+    if (!resp.ok) {
+      dados.ok = false;
+      dados.statusHttp = resp.status;
+    }
     return dados;
+  }
+
+  function rotaEmBreve(res) {
+    return [404, 405, 501].includes(res.statusHttp) || res.em_breve === true || res.etapa === "indisponivel";
+  }
+
+  function feedbackAcao(elemento, mensagem, erro = false) {
+    elemento.textContent = mensagem;
+    elemento.hidden = !mensagem;
+    elemento.toggleAttribute("data-erro", erro);
   }
 
   async function copiarTexto(texto, botaoSpan, rotuloOriginal) {
@@ -130,21 +154,34 @@
 
   // --- Abas ---
   function alternarAba(novaAba) {
-    abaAtiva = novaAba === "contas" ? "contas" : "cortar";
-    const btnCortar = el("aba-btn-cortar");
-    const btnContas = el("aba-btn-contas");
-    btnCortar.classList.toggle("ativa", abaAtiva === "cortar");
-    btnContas.classList.toggle("ativa", abaAtiva === "contas");
-    if (abaAtiva === "cortar") {
-      btnCortar.setAttribute("aria-current", "page");
-      btnContas.removeAttribute("aria-current");
-    } else {
-      btnContas.setAttribute("aria-current", "page");
-      btnCortar.removeAttribute("aria-current");
-      recarregarTudoPostagem();
+    abaAtiva = novaAba === "contas" || novaAba === "config" ? novaAba : "cortar";
+    for (const nome of ["cortar", "contas", "config"]) {
+      const btn = el(`aba-btn-${nome}`);
+      btn.classList.toggle("ativa", abaAtiva === nome);
+      if (abaAtiva === nome) btn.setAttribute("aria-current", "page");
+      else btn.removeAttribute("aria-current");
+      el(`aba-painel-${nome}`).hidden = abaAtiva !== nome;
     }
-    el("aba-painel-cortar").hidden = abaAtiva !== "cortar";
-    el("aba-painel-contas").hidden = abaAtiva !== "contas";
+    if (abaAtiva === "contas") {
+      recarregarTudoPostagem();
+      if (!carregouConfigDrive) carregarConfigDrive();
+    }
+  }
+
+  async function apagarHistorico() {
+    if (!window.confirm("Apagar o histórico? Os cortes não são apagados.")) return;
+    const btn = el("btn-apagar-historico");
+    const aviso = el("feedback-historico");
+    const rotulo = btn.querySelector("span");
+    btn.disabled = true;
+    rotulo.textContent = "Apagando…";
+    feedbackAcao(aviso, "");
+    const res = await api("/api/historico/apagar", "POST", {});
+    btn.disabled = false;
+    rotulo.textContent = "Apagar histórico";
+    feedbackAcao(aviso, res.ok === false
+      ? (res.erro || "Não consegui apagar o histórico. Tente de novo.")
+      : (res.mensagem || "Histórico apagado. Seus cortes continuam onde estavam."), res.ok === false);
   }
 
   // --- Tela de Instalação ---
@@ -371,44 +408,178 @@
     `;
     btnPostar.addEventListener("click", () => abrirModalPostar(c));
 
-    acoes.appendChild(btnVideo);
-    acoes.appendChild(btnPasta);
-    acoes.appendChild(btnPostar);
+    const btnDrive = document.createElement("button");
+    btnDrive.type = "button";
+    btnDrive.className = "btn btn-secundario btn-compacto";
+    btnDrive.textContent = "Enviar ao Drive";
+    btnDrive.dataset.acaoDestino = "drive";
+    const feedback = document.createElement("p");
+    feedback.className = "ajuda-campo";
+    feedback.dataset.feedbackDestino = "";
+    feedback.setAttribute("role", "status");
+    feedback.hidden = true;
+    btnDrive.addEventListener("click", () => alterarDestinoCorte(c, btnDrive, feedback, "/api/drive/enviar", {}, avisoDriveIndisponivel));
 
-    card.appendChild(topo);
-    card.appendChild(acoes);
+    const postagem = document.createElement("div");
+    postagem.className = "corte-postagem";
+    if (c.postado === true) card.classList.add("corte-postado");
+    const status = document.createElement("p");
+    status.className = "corte-postagem-status";
+    const redesMarcadas = Object.entries(redesPostagem).filter(([rede]) => c.postagem?.redes?.[rede]?.postado);
+    if (c.postado === true || redesMarcadas.length) {
+      const redes = redesMarcadas.map(([, nome]) => nome).join(", ");
+      status.textContent = redes ? `Postado em ${redes}` : "Postado";
+      postagem.append(status);
+    }
+
+    const btnMarcar = document.createElement("button");
+    btnMarcar.type = "button";
+    btnMarcar.className = "btn btn-secundario";
+    btnMarcar.textContent = c.postagem?.origem ? "Desfazer marca geral" : "Marcar como postado";
+    btnMarcar.dataset.acaoDestino = "postagem";
+    btnMarcar.addEventListener("click", () => marcarPostado(c, btnMarcar, feedback, !c.postagem?.origem));
+    postagem.append(btnMarcar);
+    if (c.postagem?.redes) {
+      const detalhes = document.createElement("details");
+      const resumo = document.createElement("summary");
+      resumo.textContent = "Marcar por rede";
+      const acoesRedes = document.createElement("div");
+      acoesRedes.className = "corte-postagem-redes";
+      for (const [rede, nome] of Object.entries(redesPostagem)) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn btn-secundario btn-compacto";
+        btn.dataset.acaoDestino = rede;
+        btn.textContent = nome;
+        btn.setAttribute("aria-pressed", String(Boolean(c.postagem.redes[rede]?.postado)));
+        btn.addEventListener("click", () => marcarPostado(c, btn, feedback, !c.postagem.redes[rede]?.postado, rede));
+        acoesRedes.append(btn);
+      }
+      detalhes.append(resumo, acoesRedes);
+      postagem.append(detalhes);
+    }
+    if (c.destino?.estado === "copiado" || c.destino?.estado === "erro") {
+      const estadoCopia = document.createElement("p");
+      const falhou = c.destino.estado === "erro";
+      estadoCopia.className = falhou ? "ajuda-campo" : "corte-postagem-status";
+      feedbackAcao(estadoCopia, falhou ? c.destino.erro || "Não foi possível copiar para o Drive." : "Copiado para a pasta do Drive", falhou);
+      postagem.append(estadoCopia);
+    }
+    postagem.append(feedback);
+
+    acoes.append(btnVideo, btnPasta, btnPostar, btnDrive);
+
+    card.append(topo, acoes, postagem);
+    if (acoesDestinoAtivas.has(c.caminho)) {
+      card.querySelectorAll("[data-acao-destino]").forEach((controle) => { controle.disabled = true; });
+    }
     return card;
+  }
+
+  const avisoDriveIndisponivel = "O envio para o Google Drive ainda não está disponível nesta versão. Você pode abrir a pasta do corte e copiá-lo manualmente.";
+  const avisoRegistroIndisponivel = "O registro de cortes postados ainda não está disponível nesta versão.";
+
+  function erroDestino(res, indisponivel) {
+    // Uma rota disponível também usa 404 para informar que o corte sumiu.
+    const corteAusente = res.statusHttp === 404 && /^(Corte|Vídeo) não encontrado/i.test(res.erro || "");
+    if (res.statusHttp === 503) return "Esta função está indisponível agora. Feche e abra o CorteLive e tente de novo.";
+    return !corteAusente && rotaEmBreve(res) ? indisponivel : res.erro || "Não foi possível concluir. Tente de novo.";
+  }
+
+  function marcarPostado(corte, botao, feedback, postado, rede) {
+    return alterarDestinoCorte(corte, botao, feedback, "/api/cortes/postado", { postado, rede }, avisoRegistroIndisponivel);
+  }
+
+  async function alterarDestinoCorte(corte, botao, feedback, rota, corpo, indisponivel) {
+    if (acoesDestinoAtivas.has(corte.caminho)) return;
+    acoesDestinoAtivas.add(corte.caminho);
+    const card = botao.closest(".corte-card");
+    const botoes = card.querySelectorAll("[data-acao-destino]");
+    const enviando = rota === "/api/drive/enviar";
+    const rotulo = botao.textContent;
+    const devolverFoco = document.activeElement === botao;
+    botoes.forEach((controle) => { controle.disabled = true; });
+    botao.textContent = enviando ? "Copiando…" : "Salvando…";
+    feedbackAcao(feedback, "");
+
+    const res = await api(rota, "POST", { caminho: corte.caminho, ...corpo });
+    acoesDestinoAtivas.delete(corte.caminho);
+    assinaturaCortes = "";
+    botao.textContent = rotulo;
+    const grade = el("lista-cortes");
+    const encontrarCard = () => Array.from(grade.children).find((item) => item.dataset.caminho === corte.caminho);
+    const cardVisivel = encontrarCard();
+    cardVisivel?.querySelectorAll("[data-acao-destino]").forEach((controle) => { controle.disabled = false; });
+    const restaurarFoco = devolverFoco && [botao, document.body].includes(document.activeElement);
+    if (res.ok !== true) {
+      feedbackAcao(cardVisivel?.querySelector("[data-feedback-destino]") || el("feedback-postagem-corte"), erroDestino(res, indisponivel), true);
+      if (restaurarFoco) botao.focus();
+      return;
+    }
+
+    const alteracoes = enviando ? { destino: res.destino } : { postado: res.postado, postagem: res.postagem, destino: res.destino };
+    versaoEstadoCortes += 1;
+    if (estadoAtual?.cortes) {
+      estadoAtual.cortes = estadoAtual.cortes.map((item) => item.caminho === corte.caminho ? { ...item, ...alteracoes } : item);
+      atualizarListaCortes(estadoAtual.cortes);
+    }
+    const atualizado = encontrarCard();
+    const mensagem = res.postagem?.aviso ?
+      "A marca foi salva, mas a cópia não pôde ser movida. Confira a pasta e use Enviar ao Drive de novo." : res.mensagem;
+    feedbackAcao(atualizado?.querySelector("[data-feedback-destino]") || el("feedback-postagem-corte"), mensagem || "Alteração salva.", Boolean(res.postagem?.aviso));
+    if (restaurarFoco) {
+      const controle = atualizado?.querySelector(`[data-acao-destino="${botao.dataset.acaoDestino}"]`) ||
+        el("filtro-postagem").querySelector('[aria-pressed="true"]');
+      controle?.focus();
+    }
+  }
+
+  function selecionarFiltroPostagem(evento) {
+    const botao = evento.target.closest("button[data-filtro]");
+    if (!botao) return;
+    feedbackAcao(el("feedback-postagem-corte"), "");
+    filtroPostagem = botao.dataset.filtro;
+    for (const opcao of el("filtro-postagem").querySelectorAll("button")) {
+      opcao.setAttribute("aria-pressed", String(opcao === botao));
+    }
+    atualizarListaCortes(estadoAtual?.cortes);
   }
 
   function atualizarListaCortes(cortes) {
     const lista = Array.isArray(cortes) ? cortes : [];
+    atualizarUltimaCopiaDrive(lista);
     const total = lista.length;
     el("contador-cortes-total").textContent = total === 1 ? "1 corte" : `${total} cortes`;
 
     const vazio = el("estado-sem-cortes");
     const grade = el("lista-cortes");
-
-    if (total === 0) {
-      vazio.hidden = false;
-      grade.hidden = true;
-      grade.innerHTML = "";
-      assinaturaCortes = "vazio";
-      return;
-    }
-
-    vazio.hidden = true;
-    grade.hidden = false;
-
-    const novaAssinatura = JSON.stringify(lista);
+    const avisoFiltro = el("estado-filtro-cortes");
+    const filtrar = filtroPostagem !== "todos";
+    const registroDisponivel = lista.some((corte) => typeof corte.postado === "boolean");
+    const listaFiltrada = filtrar ? lista.filter((corte) => corte.postado === (filtroPostagem === "postados")) : lista;
+    const novaAssinatura = JSON.stringify([filtroPostagem, total, registroDisponivel, listaFiltrada]);
     if (novaAssinatura === assinaturaCortes) return;
     assinaturaCortes = novaAssinatura;
 
+    vazio.hidden = total > 0;
+    grade.hidden = listaFiltrada.length === 0;
+    const mensagemFiltro = !filtrar || total === 0 || listaFiltrada.length ? "" :
+      !registroDisponivel ? avisoRegistroIndisponivel : filtroPostagem === "postados" ?
+        "Nenhum corte foi marcado como postado." : "Todos os cortes já foram marcados como postados.";
+    feedbackAcao(avisoFiltro, mensagemFiltro);
+    if (!listaFiltrada.length) {
+      grade.replaceChildren();
+      return;
+    }
+
     const cards = new Map(Array.from(grade.children, (card) => [card.dataset.caminho, card]));
-    const mostrados = lista.map((c) => {
+    const mostrados = listaFiltrada.map((c) => {
       const anterior = cards.get(c.caminho);
       const assinatura = JSON.stringify(c);
-      if (anterior?.dataset.assinatura === assinatura) return anterior;
+      if (anterior && (anterior.dataset.assinatura === assinatura || acoesDestinoAtivas.has(c.caminho))) return anterior;
       const card = criarCardCorte(c);
+      const detalhes = card.querySelector(".corte-postagem details");
+      if (detalhes) detalhes.open = Boolean(anterior?.querySelector(".corte-postagem details")?.open);
       card.dataset.caminho = c.caminho;
       card.dataset.assinatura = assinatura;
       return card;
@@ -421,6 +592,109 @@
       const atual = grade.children[posicao] || null;
       if (atual !== card) grade.insertBefore(card, atual);
     });
+  }
+
+  // --- Pasta sincronizada ---
+  function aplicarConfigDrive(res) {
+    el("chk-drive").checked = res.destino_ativo === true;
+    el("pasta-drive").value = res.destino_pasta || "";
+    el("chk-drive-txt").checked = res.destino_txt === true;
+    el("chk-drive-mover").checked = res.destino_mover_postados !== false;
+  }
+
+  async function carregarConfigDrive() {
+    carregouConfigDrive = true;
+    const res = await api("/api/drive/config");
+    el("campos-drive").disabled = false;
+    const feedback = el("feedback-drive");
+    if (res.ok !== true) {
+      feedbackAcao(feedback, erroDestino(res, "As preferências do Drive ainda não estão disponíveis nesta versão."), true);
+      return;
+    }
+    aplicarConfigDrive(res);
+    feedbackAcao(feedback, "");
+  }
+
+  async function detectarDrive() {
+    const botao = el("btn-detectar-drive");
+    const sugestoes = el("sugestoes-drive");
+    const feedback = el("feedback-drive");
+    const campo = el("pasta-drive");
+    const devolverFoco = document.activeElement === botao;
+    botao.disabled = true;
+    sugestoes.hidden = true;
+    sugestoes.replaceChildren();
+    feedbackAcao(feedback, "Procurando pastas sincronizadas…");
+    const res = await api("/api/drive/detectar");
+    botao.disabled = false;
+    if (devolverFoco && document.activeElement === document.body) botao.focus();
+    if (res.ok !== true) {
+      feedbackAcao(feedback, erroDestino(res, "A busca pela pasta do Drive ainda não está disponível nesta versão."), true);
+      return;
+    }
+    for (const opcao of res.opcoes || []) {
+      const escolher = document.createElement("button");
+      escolher.type = "button";
+      escolher.className = "btn btn-secundario";
+      escolher.textContent = `${opcao.nome} · ${opcao.sugestao}`;
+      escolher.addEventListener("click", () => {
+        campo.value = opcao.sugestao;
+        campo.removeAttribute("aria-invalid");
+        feedbackAcao(feedback, "Pasta escolhida. Salve as preferências para começar a enviar cortes.");
+        campo.focus();
+        sugestoes.hidden = true;
+      });
+      sugestoes.append(escolher);
+    }
+    sugestoes.hidden = !sugestoes.childElementCount;
+    feedbackAcao(feedback, res.mensagem || "Você pode informar o caminho manualmente.");
+  }
+
+  async function salvarDrive(evento) {
+    evento.preventDefault();
+    const campos = el("campos-drive");
+    if (campos.disabled) return;
+    const campo = el("pasta-drive");
+    const botao = el("btn-salvar-drive");
+    const feedback = el("feedback-drive");
+    const devolverFoco = document.activeElement === botao;
+    campos.disabled = true;
+    feedbackAcao(feedback, "Salvando preferências…");
+    campo.removeAttribute("aria-invalid");
+    const res = await api("/api/drive/config", "POST", {
+      destino_pasta: campo.value.trim(),
+      destino_ativo: el("chk-drive").checked,
+      destino_txt: el("chk-drive-txt").checked,
+      destino_mover_postados: el("chk-drive-mover").checked
+    });
+    campos.disabled = false;
+    if (devolverFoco && document.activeElement === document.body) botao.focus();
+    if (res.ok !== true) {
+      if (res.statusHttp === 400) campo.setAttribute("aria-invalid", "true");
+      feedbackAcao(feedback, erroDestino(res, "Ainda não dá para salvar as preferências do Drive nesta versão."), true);
+      return;
+    }
+    carregouConfigDrive = true;
+    aplicarConfigDrive(res);
+    el("sugestoes-drive").hidden = true;
+    feedbackAcao(feedback, "Preferências do Drive salvas.");
+  }
+
+  function atualizarUltimaCopiaDrive(cortes) {
+    const aviso = el("ultima-copia-drive");
+    const ultima = cortes.reduce((maisRecente, { destino }) => {
+      if (destino?.estado !== "copiado" || typeof destino.quando !== "string") return maisRecente;
+      return destino.quando > maisRecente ? destino.quando : maisRecente;
+    }, "");
+    if (!ultima || !Number.isFinite(Date.parse(ultima))) {
+      aviso.hidden = true;
+      return;
+    }
+    if (aviso.dataset.quando !== ultima) {
+      aviso.replaceChildren("Última cópia em ", horarioFila(ultima), ". Confira a sincronização no Google Drive para computador.");
+      aviso.dataset.quando = ultima;
+    }
+    aviso.hidden = false;
   }
 
   // --- Aba Postar e Contas (config + autopost + postar + autopost_navegador) ---
@@ -580,6 +854,16 @@
     }
   }
 
+  function horarioFila(data) {
+    const instante = new Date(data);
+    const dia = instante.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    const hora = instante.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    const horario = document.createElement("time");
+    horario.dateTime = instante.toISOString();
+    horario.textContent = `${dia} às ${hora}`;
+    return horario;
+  }
+
   function criarCardFilaAutopost(it) {
     const card = document.createElement("article");
     card.className = "fila-card";
@@ -590,27 +874,76 @@
     const ig = meta.instagram || {};
     const estado = it.estado || "aguardando_aprovacao";
     const editavel = ["aguardando_aprovacao", "erro", "parcial", "na_fila"].includes(estado);
+    const redes = Object.entries(it.redes || {});
+    const destinos = redes.flatMap(([rede, dados]) =>
+      Object.entries(dados.canais || {}).map(([id, canal]) => ({ rede, id, ...canal }))
+    );
+    const agendamentos = destinos.filter((canal) =>
+      canal.estado === "agendado" && Number.isFinite(Date.parse(canal.agendado_para))
+    );
+    const futuros = agendamentos.filter((canal) => Date.parse(canal.agendado_para) > Date.now());
+    const temAgenda = estado === "agendado" || estado === "cancelando" || agendamentos.length > 0;
+    const editaveis = new Set(futuros.map((canal) => canal.rede));
+    const podeEditarAgendado = futuros.length > 0 && estado !== "cancelando";
+    const dataAgendada = Number.isFinite(Date.parse(it.agendado_para)) ? it.agendado_para : null;
 
     const topo = document.createElement("div");
     topo.className = "fila-topo";
     const tituloTopo = document.createElement("strong");
     tituloTopo.textContent = yt.titulo || it.canal || "Corte";
+    tituloTopo.tabIndex = -1;
     const badge = document.createElement("span");
     badge.className = "selo-etapa";
     const rotulos = {
-      aguardando_aprovacao: "Para revisar",
+      aguardando_aprovacao: "Aguardando aprovação",
       na_fila: "Na fila",
       postando: "Enviando",
+      agendado: "Agendado no Postiz",
       postado: "Publicado",
       parcial: "Envio parcial",
-      erro: "Erro no envio"
+      erro: "Erro",
+      cancelando: "Cancelamento em andamento",
+      cancelado: "Agendamento cancelado",
+      confirmacao_pendente: "Aguardando confirmação do Postiz",
+      expirado: "Prazo expirado"
     };
     badge.textContent = rotulos[estado] || estado.replace(/_/g, " ");
+    if (estado === "agendado" && dataAgendada) {
+      const texto = document.createElement("span");
+      texto.append("Agendado para ", horarioFila(dataAgendada), " no Postiz");
+      badge.replaceChildren(texto);
+    }
     topo.appendChild(tituloTopo);
     topo.appendChild(badge);
+    card.appendChild(topo);
+
+    if (agendamentos.length && (estado !== "agendado" || agendamentos.length > 1 || !dataAgendada)) {
+      const horarios = document.createElement("ul");
+      horarios.className = "fila-horarios";
+      horarios.setAttribute("aria-label", "Horários locais por destino");
+      agendamentos.forEach((canal) => {
+        const linha = document.createElement("li");
+        const conta = canaisAtivosPostiz.find(({ id }) => id === canal.id);
+        const rede = redesPostagem[canal.rede] || canal.rede;
+        const destino = conta && conta.nome && conta.nome !== rede ? `${rede} · ${conta.nome}` : rede;
+        linha.append(`${destino} · `, horarioFila(canal.agendado_para));
+        horarios.appendChild(linha);
+      });
+      card.appendChild(horarios);
+    }
+
+    const erros = new Set([it.erro, ...redes.map(([, dados]) => dados.erro), ...destinos.map((canal) => canal.erro)].filter(Boolean));
+    if (estado === "erro" && erros.size === 0) erros.add("Não foi possível enviar o corte.");
+    erros.forEach((mensagem) => {
+      const erro = document.createElement("p");
+      erro.className = "erro-campo";
+      erro.textContent = mensagem;
+      card.appendChild(erro);
+    });
 
     const campos = document.createElement("div");
     campos.className = "fila-campos";
+    campos.hidden = temAgenda;
 
     const criarCampo = (rede, rotulo, nome, valor, multilinha) => {
       const lb = document.createElement("label");
@@ -623,7 +956,7 @@
       inp.defaultValue = valor || "";
       inp.value = valor || "";
       inp.setAttribute("aria-label", `${redesPostagem[rede]} · ${rotulo}`);
-      inp.readOnly = !editavel;
+      inp.readOnly = temAgenda || !editavel;
       if (nome === rede) lb.classList.add("fila-texto-unico");
       lb.appendChild(inp);
       campos.appendChild(lb);
@@ -636,61 +969,127 @@
       nomeRede.textContent = redesPostagem[rede];
       campos.appendChild(nomeRede);
     };
-    mostrarRede("youtube");
-    criarCampo("youtube", "Título", "titulo", yt.titulo, false).maxLength = 100;
-    criarCampo("youtube", "Legenda", "descricao", yt.descricao, true);
-    mostrarRede("instagram");
-    criarCampo("instagram", "Título e legenda (primeira linha vira o título)", "instagram", ig.legenda, true);
-    mostrarRede("tiktok");
-    criarCampo("tiktok", "Título e legenda", "tiktok", tk.legenda, true);
+    if (!temAgenda || editaveis.has("youtube")) {
+      mostrarRede("youtube");
+      criarCampo("youtube", "Título", "titulo", yt.titulo, false).maxLength = 100;
+      criarCampo("youtube", "Legenda", "descricao", yt.descricao, true);
+    }
+    if (!temAgenda || editaveis.has("instagram")) {
+      mostrarRede("instagram");
+      criarCampo("instagram", "Título e legenda (primeira linha vira o título)", "instagram", ig.legenda, true);
+    }
+    if (!temAgenda || editaveis.has("tiktok")) {
+      mostrarRede("tiktok");
+      criarCampo("tiktok", "Título e legenda", "tiktok", tk.legenda, true);
+    }
+    const entradas = [...campos.querySelectorAll("input, textarea")];
 
     const acoes = document.createElement("div");
     acoes.className = "fila-acoes";
+    const linksPublicados = new Set();
+    [...destinos, ...redes.map(([rede, dados]) => ({ rede, ...dados }))].forEach(({ rede, estado, link }) => {
+      if (!["postado", "publicado", "duplicado"].includes(estado) || !/^https?:\/\//i.test(link) || linksPublicados.has(link)) return;
+      linksPublicados.add(link);
+      const abrir = document.createElement("a");
+      abrir.className = "btn btn-secundario btn-compacto";
+      abrir.href = link;
+      abrir.target = "_blank";
+      abrir.rel = "noopener noreferrer";
+      abrir.textContent = `Ver publicação · ${redesPostagem[rede] || rede}`;
+      acoes.appendChild(abrir);
+    });
     const feedback = document.createElement("p");
     feedback.className = "erro-campo";
     feedback.setAttribute("role", "status");
-    feedback.hidden = true;
-    const salvar = () => {
-      const editados = Array.from(campos.querySelectorAll("input, textarea"))
+    const salvar = (rota) => {
+      const editados = entradas
         .filter((campo) => campo.value !== campo.defaultValue)
         .map((campo) => [campo.name, campo.value]);
       if (editados.length === 0) return { ok: true };
-      return api("/api/autopost/editar", "POST", { id: it.id, ...Object.fromEntries(editados) });
+      return api(rota, "POST", { id: it.id, ...Object.fromEntries(editados) });
     };
-    const acaoFila = (rotulo, ocupado, executar, primario = false) => {
+    const acaoFila = (rotulo, ocupado, executar, { primario = false, confirmar, atualizar = carregarFilaAutopost } = {}) => {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = `btn ${primario ? "btn-primario" : "btn-secundario"} btn-compacto`;
       btn.textContent = rotulo;
       btn.addEventListener("click", async () => {
-        const controles = [...acoes.querySelectorAll("button"), ...campos.querySelectorAll("input, textarea")];
+        if (confirmar && !window.confirm(confirmar)) return;
+        const controles = [...acoes.querySelectorAll("button"), ...entradas];
         controles.forEach((controle) => { controle.disabled = true; });
         btn.textContent = ocupado;
-        feedback.hidden = true;
+        feedback.textContent = "";
         try {
           const res = await executar();
           if (res.ok === false) {
             feedback.textContent = res.erro || "Não foi possível concluir esta ação.";
-            feedback.hidden = false;
             return;
           }
-          await carregarFilaAutopost();
+          await atualizar(res);
         } finally {
           controles.forEach((controle) => { controle.disabled = false; });
           btn.textContent = rotulo;
+          if (btn.isConnected && !btn.hidden && document.activeElement === document.body) btn.focus();
         }
       });
       acoes.appendChild(btn);
+      return btn;
     };
 
-    if (editavel) acaoFila("Salvar edição", "Salvando…", salvar);
+    const salvarRevisao = () => salvar("/api/autopost/editar");
+    if (editavel && !temAgenda) acaoFila("Salvar edição", "Salvando…", salvarRevisao);
     if (estado === "aguardando_aprovacao") {
-      acaoFila("Aprovar e postar", "Enviando…", async () => {
-        const res = await salvar();
+      acaoFila("Aprovar e agendar", "Aprovando…", async () => {
+        const res = await salvarRevisao();
         if (res.ok === false) return res;
         return api("/api/autopost/aprovar", "POST", { id: it.id });
-      }, true);
+      }, { primario: true });
       acaoFila("Rejeitar", "Rejeitando…", () => api("/api/autopost/rejeitar", "POST", { id: it.id }));
+    }
+
+    const atualizarAgendamento = ({ item }) => {
+      if (!item) return carregarFilaAutopost();
+      const atualizado = criarCardFilaAutopost(item);
+      card.replaceWith(atualizado);
+      atualizado.querySelector(".fila-topo strong").focus();
+    };
+    if (podeEditarAgendado) {
+      const editar = document.createElement("button");
+      editar.type = "button";
+      editar.className = "btn btn-secundario btn-compacto";
+      editar.textContent = "Editar texto";
+      acoes.appendChild(editar);
+      const salvarTexto = acaoFila("Salvar texto", "Salvando…",
+        () => salvar("/api/autopost/editar-agendado"), {
+          primario: true,
+          atualizar: (res) => res.item ? atualizarAgendamento(res) : fecharEdicao()
+        });
+      const descartar = document.createElement("button");
+      descartar.type = "button";
+      descartar.className = "btn btn-secundario btn-compacto";
+      descartar.textContent = "Descartar edição";
+      acoes.appendChild(descartar);
+      const fecharEdicao = () => {
+        entradas.forEach((entrada) => { entrada.value = entrada.defaultValue; });
+        campos.hidden = salvarTexto.hidden = descartar.hidden = true;
+        editar.hidden = false;
+        feedback.textContent = "";
+        editar.focus();
+      };
+      salvarTexto.hidden = descartar.hidden = true;
+      editar.addEventListener("click", () => {
+        campos.hidden = salvarTexto.hidden = descartar.hidden = false;
+        editar.hidden = true;
+        entradas.forEach((entrada) => { entrada.readOnly = false; });
+        entradas[0].focus();
+      });
+      descartar.addEventListener("click", fecharEdicao);
+    }
+    if (futuros.length || estado === "cancelando") {
+      acaoFila("Cancelar agendamento", "Cancelando…", () => api("/api/autopost/cancelar", "POST", { id: it.id }), {
+        confirmar: `Cancelar no Postiz os agendamentos futuros de “${tituloTopo.textContent}”?`,
+        atualizar: atualizarAgendamento
+      });
     }
 
     if (it.video) {
@@ -704,9 +1103,9 @@
       acoes.appendChild(btnVer);
     }
 
-    card.appendChild(topo);
-    card.appendChild(campos);
-    card.append(acoes, feedback);
+    const rodape = document.createElement("div");
+    rodape.append(acoes, feedback);
+    card.append(campos, rodape);
     return card;
   }
 
@@ -926,73 +1325,122 @@
   }
 
   // --- Atualizações (instalador\atualizar.ps1 -Checar / -Aplicar) ---
-  async function checarAtualizacao() {
-    if (acompanhamentoAtualizacao) return;
-    try {
-      const res = await api("/api/atualizacao/checar");
-      if (res && res.etapa === "disponivel" && res.versao_nova) {
-        el("titulo-atualizacao").textContent = `Nova versão v${res.versao_nova} disponível`;
-        el("detalhe-atualizacao").textContent =
-          res.msg || `Atualiza da v${res.versao_atual} para v${res.versao_nova} mantendo modelos e cortes.`;
-        el("faixa-atualizacao").hidden = false;
-      } else {
-        el("faixa-atualizacao").hidden = true;
-      }
-    } catch (_) {}
+  function versaoComPrefixo(versao) {
+    return `v${String(versao).replace(/^v/i, "")}`;
+  }
+
+  function exibirFaixaAtualizacao(visivel) {
+    el("faixa-atualizacao").hidden = !visivel;
+    el("btn-checar-atualizacao").setAttribute("aria-expanded", String(visivel));
+  }
+
+  function statusAtualizacao(titulo, detalhe = "", podeAtualizar = false) {
+    el("titulo-atualizacao").textContent = titulo;
+    el("detalhe-atualizacao").textContent = detalhe;
+    el("detalhe-atualizacao").hidden = !detalhe;
+    el("btn-aplicar-atualizacao").disabled = !podeAtualizar;
+    el("progresso-atualizacao").hidden = true;
+  }
+
+  async function checarAtualizacao(manual = false) {
+    if (aplicandoAtualizacao || acompanhamentoAtualizacao) {
+      if (manual) exibirFaixaAtualizacao(true);
+      return;
+    }
+    if (manual) {
+      exibirFaixaAtualizacao(true);
+      statusAtualizacao("Verificando atualizações…");
+    }
+    if (!checagemAtualizacao) checagemAtualizacao = api("/api/atualizacao/checar");
+    const consulta = checagemAtualizacao;
+    const res = await consulta;
+    if (checagemAtualizacao === consulta) checagemAtualizacao = null;
+    if (aplicandoAtualizacao || acompanhamentoAtualizacao) return;
+
+    const disponivel = res.etapa === "disponivel" && res.versao_nova && res.ok !== false;
+    const emDia = res.etapa === "em_dia" && res.ok !== false;
+    if (disponivel || emDia) el("ponto-atualizacao").hidden = !disponivel;
+    if (el("faixa-atualizacao").hidden) return;
+    if (disponivel) {
+      statusAtualizacao(
+        `Nova versão ${versaoComPrefixo(res.versao_nova)} disponível`,
+        "Seus modelos, cortes e configurações são mantidos.",
+        true
+      );
+    } else if (emDia) {
+      const versao = res.versao_atual || estadoAtual?.versao;
+      statusAtualizacao(versao ? `Você está na versão mais nova (${versaoComPrefixo(versao)})` : "Você está na versão mais nova");
+    } else if (rotaEmBreve(res)) {
+      statusAtualizacao("Atualizações indisponíveis nesta versão", "Você pode continuar usando o painel normalmente.");
+    } else {
+      statusAtualizacao("Não foi possível verificar atualizações", res.erro || res.msg || "Tente novamente em alguns minutos.");
+    }
   }
 
   function finalizarAtualizacao(res) {
     acompanhamentoAtualizacao = false;
-    const botao = el("btn-aplicar-atualizacao");
-    botao.disabled = false;
-    botao.querySelector("span").textContent = "Atualizar";
+    el("btn-fechar-atualizacao").disabled = false;
     if (res.etapa === "concluido") {
       const url = new URL(window.location.href);
-      url.searchParams.set("atualizado", res.versao_atual || "nova");
+      url.searchParams.set("atualizado", res.versao_atual || res.versao_nova || "nova");
       window.location.assign(url);
     } else if (res.etapa === "rollback" || res.exit_code === 2) {
-      el("faixa-atualizacao").hidden = true;
-      mostrarAvisoSistema("Atualização revertida", res.erro || res.msg || "A versão anterior foi restaurada.");
+      statusAtualizacao("Atualização revertida", res.erro || res.msg || "A versão anterior foi restaurada.");
     } else if (res.etapa === "em_dia") {
-      el("faixa-atualizacao").hidden = true;
-      mostrarAvisoSistema("O CorteLive está atualizado", res.msg || "Você já tem a versão mais recente.");
+      el("ponto-atualizacao").hidden = true;
+      const versao = res.versao_atual || estadoAtual?.versao;
+      statusAtualizacao(versao ? `Você está na versão mais nova (${versaoComPrefixo(versao)})` : "Você está na versão mais nova");
+    } else if (rotaEmBreve(res)) {
+      statusAtualizacao("Atualizações indisponíveis nesta versão", "Você pode continuar usando o painel normalmente.");
     } else {
-      mostrarAvisoSistema("Não foi possível atualizar agora", res.erro || res.msg || "Tente novamente em alguns minutos.");
+      statusAtualizacao("Não foi possível atualizar agora", res.erro || res.msg || "Tente novamente em alguns minutos.", true);
     }
+    if (document.activeElement === document.body) el("btn-checar-atualizacao").focus();
+  }
+
+  function mostrarProgressoAtualizacao(atualizacao) {
+    exibirFaixaAtualizacao(true);
+    const pct = Number.isFinite(atualizacao.pct) ? Math.max(0, Math.min(100, atualizacao.pct)) : null;
+    statusAtualizacao(
+      "Atualização em andamento",
+      (atualizacao.msg || "Preparando atualização…") + (pct === null ? "" : ` · ${pct}%`)
+    );
+    const progresso = el("progresso-atualizacao");
+    if (pct === null) progresso.removeAttribute("value");
+    else progresso.value = pct;
+    progresso.hidden = false;
+    el("btn-fechar-atualizacao").disabled = true;
   }
 
   function acompanharAtualizacao(atualizacao) {
     if (!atualizacao) return;
     if (atualizacao.rodando) {
       acompanhamentoAtualizacao = true;
-      el("faixa-atualizacao").hidden = false;
-      el("btn-aplicar-atualizacao").disabled = true;
-      el("btn-aplicar-atualizacao").querySelector("span").textContent = "Atualizando…";
-      el("titulo-atualizacao").textContent = "Atualização em andamento";
-      const pct = Number.isFinite(atualizacao.pct) ? ` · ${atualizacao.pct}%` : "";
-      el("detalhe-atualizacao").textContent = (atualizacao.msg || "Preparando atualização…") + pct;
-    } else if (acompanhamentoAtualizacao && atualizacao.exit_code != null) {
+      mostrarProgressoAtualizacao(atualizacao);
+    } else if (!aplicandoAtualizacao && acompanhamentoAtualizacao && atualizacao.exit_code != null) {
       finalizarAtualizacao(atualizacao);
     }
   }
 
   async function aplicarAtualizacao() {
-    const btn = el("btn-aplicar-atualizacao");
-    btn.disabled = true;
-    btn.querySelector("span").textContent = "Atualizando…";
-    el("detalhe-atualizacao").textContent = "Preparando a atualização…";
+    if (aplicandoAtualizacao || acompanhamentoAtualizacao) return;
+    aplicandoAtualizacao = true;
+    mostrarProgressoAtualizacao({});
+    el("btn-checar-atualizacao").focus();
     const res = await api("/api/atualizacao/aplicar", "POST", {});
+    aplicandoAtualizacao = false;
     if (!res.rodando) {
       finalizarAtualizacao(res);
       return;
     }
-    acompanhamentoAtualizacao = true;
-    await carregarEstado();
+    acompanharAtualizacao(res);
+    agendarProximoPoll(INTERVALO_ATIVO_MS);
   }
 
   // --- Loop Principal de Estado ---
   async function carregarEstado() {
     try {
+      const versaoCortes = versaoEstadoCortes;
       const dados = await api("/api/estado");
       if (dados.ok === false) {
         if (!estadoAtual && el("faixa-aviso-sistema").hidden) {
@@ -1001,11 +1449,13 @@
         agendarProximoPoll(INTERVALO_OCIOSO_MS);
         return;
       }
+      if (versaoCortes !== versaoEstadoCortes && estadoAtual?.cortes) dados.cortes = estadoAtual.cortes;
       estadoAtual = dados;
       acompanharAtualizacao(dados.atualizacao);
 
       if (dados.versao) {
-        el("badge-versao").textContent = `v${dados.versao}`;
+        el("badge-versao").textContent = versaoComPrefixo(dados.versao);
+        el("badge-versao").hidden = false;
       }
       if (dados.pasta_raiz) {
         el("rodape-pasta").title = dados.pasta_raiz;
@@ -1033,7 +1483,7 @@
 
       const emAtividade =
         Boolean(dados.instalacao && dados.instalacao.rodando) ||
-        Boolean(dados.sessao && dados.sessao.rodando) || acompanhamentoAtualizacao;
+        Boolean(dados.sessao && dados.sessao.rodando) || acompanhamentoAtualizacao || aplicandoAtualizacao;
       agendarProximoPoll(emAtividade ? INTERVALO_ATIVO_MS : INTERVALO_OCIOSO_MS);
     } catch (_) {
       agendarProximoPoll(INTERVALO_OCIOSO_MS);
@@ -1049,7 +1499,12 @@
   function registrarEventos() {
     el("aba-btn-cortar").addEventListener("click", () => alternarAba("cortar"));
     el("aba-btn-contas").addEventListener("click", () => alternarAba("contas"));
+    el("aba-btn-config").addEventListener("click", () => alternarAba("config"));
+    el("btn-apagar-historico").addEventListener("click", apagarHistorico);
     el("form-postiz").addEventListener("submit", conectarPostiz);
+    el("filtro-postagem").addEventListener("click", selecionarFiltroPostagem);
+    el("btn-detectar-drive").addEventListener("click", detectarDrive);
+    el("form-drive").addEventListener("submit", salvarDrive);
 
     el("btn-fechar-aviso").addEventListener("click", () => {
       el("faixa-aviso-sistema").hidden = true;
@@ -1149,6 +1604,11 @@
     });
 
     el("btn-aplicar-atualizacao").addEventListener("click", aplicarAtualizacao);
+    el("btn-checar-atualizacao").addEventListener("click", () => checarAtualizacao(true));
+    el("btn-fechar-atualizacao").addEventListener("click", () => {
+      exibirFaixaAtualizacao(false);
+      el("btn-checar-atualizacao").focus();
+    });
 
     // Switches de automação e reserva
     el("chk-postar-sozinho").addEventListener("change", salvarInterruptoresPostagem);
@@ -1294,15 +1754,18 @@
     const params = new URLSearchParams(window.location.search);
     if (params.get("atualizado")) {
       mostrarAvisoSistema(
-        `CorteLive atualizado para v${params.get("atualizado")}`,
+        `CorteLive atualizado para ${versaoComPrefixo(params.get("atualizado"))}`,
         "Seus modelos de voz, vídeos cortados e configurações foram mantidos intactos."
       );
-      window.history.replaceState({}, document.title, window.location.pathname);
+      params.delete("atualizado");
+      const url = new URL(window.location.href);
+      url.search = params.toString();
+      window.history.replaceState({}, document.title, url);
     }
 
     await carregarEstado();
-    await recarregarTudoPostagem();
-    await checarAtualizacao();
+    recarregarTudoPostagem();
+    checarAtualizacao();
     setInterval(checarAtualizacao, INTERVALO_ATUALIZACAO_MS);
   });
 })();

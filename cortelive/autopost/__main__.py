@@ -1,7 +1,7 @@
 """CLI do autopost (o painel chama esta; saída sempre em JSON, uma linha por objeto).
 
   python -m cortelive.autopost fila [--estado aguardando_aprovacao]
-  python -m cortelive.autopost gerar --video corte_001.mp4 [--enfileirar] [--sem-ollama]
+  python -m cortelive.autopost gerar --video corte_001.mp4 [--enfileirar]
   python -m cortelive.autopost editar ID [--titulo T] [--descricao D] [--tiktok L] [--instagram L] [--tags a,b]
   python -m cortelive.autopost aprovar ID [--dry-run]       (posta agora; progresso em linhas JSON)
   python -m cortelive.autopost rejeitar ID
@@ -41,7 +41,6 @@ def main(argv=None):
     g.add_argument("--video", required=True)
     g.add_argument("--canal")
     g.add_argument("--enfileirar", action="store_true", help="além de gerar, põe na fila")
-    g.add_argument("--sem-ollama", action="store_true")
     e = sub.add_parser("editar")
     e.add_argument("id")
     e.add_argument("--titulo")
@@ -69,9 +68,8 @@ def main(argv=None):
             v = Path(a.video)
             if not v.exists():
                 raise FileNotFoundError(f"vídeo não encontrado: {v}")
-            uso = False if a.sem_ollama else None
             if a.enfileirar:
-                item, novo = criar_item(v, cfg, a.canal, usar_ollama=uso)
+                item, novo = criar_item(v, cfg, a.canal)
                 _p({"ok": True, "novo": novo, "item": item})
             else:
                 js = v.with_suffix(".json")
@@ -79,7 +77,7 @@ def main(argv=None):
                 canal = a.canal or v.resolve().parent.name.split("_", 2)[-1]
                 _p({"ok": True, "video": str(v.resolve()), "canal": canal,
                     "metadados": metadados.gerar(info.get("transcricao", ""), canal, cfg, info.get("motivos", ()),
-                                                 None, info.get("momento_na_live"), usar_ollama=uso,
+                                                 None, info.get("momento_na_live"),
                                                  frase_sugerida=info.get("titulo_sugerido", ""))})
         elif a.cmd == "editar":
             it = fila.pegar(a.id)
@@ -96,6 +94,8 @@ def main(argv=None):
                 raise KeyError(f"item {a.id} não está na fila")
             if a.cmd == "aprovar" and it["estado"] != "aguardando_aprovacao":
                 raise ValueError(f"item {it['id']} está '{it['estado']}', não aguardando aprovação")
+            if a.cmd == "tentar" and it["estado"] not in ("erro", "parcial", "na_fila"):
+                raise ValueError(f"item {it['id']} está '{it['estado']}', não pode ser reenviado")
             final = fila.atualizar(it["id"], estado="na_fila", aprovado=True)
             if not a.adiar:
                 if a.dry_run or it.get("opcoes", {}).get("dry_run"):
@@ -103,14 +103,20 @@ def main(argv=None):
                 else:
                     agenda.processar_pendentes(Path(cfg["pasta_saida"]), cfg, emitir=_p)
                     final = fila.pegar(it["id"])
-            _p({"ok": final["estado"] in ("na_fila", "postado", "parcial"), "item": final})
+            _p({"ok": final["estado"] in ("na_fila", "postado", "parcial", "agendado"), "item": final})
         elif a.cmd == "rejeitar":
-            it = fila.pegar(a.id)
-            if not it:
-                raise KeyError(f"item {a.id} não está na fila")
-            if it["estado"] == "postando":
-                raise ValueError("O envio desse corte já começou.")
-            _p({"ok": True, "item": fila.atualizar(it["id"], estado="rejeitado")})
+            with fila.reservar_processamento() as livre:
+                if not livre:
+                    raise ValueError("Aguarde o processamento da fila antes de rejeitar o corte.")
+                it = fila.pegar(a.id)
+                if not it:
+                    raise KeyError(f"item {a.id} não está na fila")
+                if it["estado"] in ("postando", "cancelando", "cancelado", "confirmacao_pendente") or any(
+                    canal.get("estado") in agenda.HORARIOS_OCUPADOS
+                    for rede in it["redes"].values() for canal in rede.get("canais", {}).values()
+                ):
+                    raise ValueError("O envio já começou. Use o cancelamento de agendamento no Postiz.")
+                _p({"ok": True, "item": fila.atualizar(it["id"], estado="rejeitado")})
     except Exception as ex:
         _p({"ok": False, "erro": str(ex)})
         return 1

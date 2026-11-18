@@ -47,7 +47,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')" ^
   ");" ^
   "$edge = $candidatos | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1;" ^
-  "$argEdge = '--user-data-dir=\"' + $perfil + '\" --no-first-run --no-default-browser-check --app=' + $url + ' --window-size=1640,940';" ^
+  "$argEdge = '--user-data-dir=\"' + $perfil + '\" --no-first-run --no-default-browser-check --app=' + $url + ' --window-size=1600,1000';" ^
   "if ($edge) { Start-Process -FilePath $edge -ArgumentList $argEdge } else { Start-Process -FilePath $url }"
 if errorlevel 1 (
   pause

@@ -1,62 +1,54 @@
-CORTELIVE - cortes automáticos de live (Windows 10 e 11)
-========================================================
+CorteLive no Windows 10 e 11
 
-Baixe e abra: https://github.com/zerocod-web/cortelive/releases/latest/download/CorteLive-Setup.exe
+Instalar
 
-O que é: você cola o link de uma live (Twitch, YouTube, Kick) e o CorteLive vai
-soltando cortes verticais (1080x1920) com legenda, sozinho, enquanto a live rola.
+1. Quando receber o link de download, baixe só o CorteLive-Setup.exe e
+   dê dois cliques no arquivo.
+2. Na janela do instalador, mantenha a pasta sugerida e clique em Instalar.
+   Nessa pasta, a instalação usa a sua conta do Windows, sem senha de administrador.
+3. Quando o painel abrir, clique em INSTALAR na tela de boas-vindas.
+   Ele baixa os componentes necessários. Acompanhe a barra de progresso e
+   deixe o painel aberto até terminar. Se aparecer um erro, use Tentar novamente.
+4. Da próxima vez, abra CorteLive no Menu Iniciar ou na Área de Trabalho.
 
-================================================================================
-COMO COMEÇAR (JEITO FÁCIL PELO PAINEL — 1 ARQUIVO SÓ)
-================================================================================
+Cortar e assistir
 
-1) ABRIR O INSTALADOR
-   - Baixe o CorteLive-Setup.exe pelo link acima. Abra, escolha a pasta e
-     clique em "Instalar". O painel abre sozinho quando o pacote estiver pronto.
-   - Depois, abra o CorteLive pelo Menu Iniciar ou pela Área de Trabalho.
+1. Abra a aba Cortar e cole o endereço da transmissão no campo Link da live.
+2. Escolha o Modelo do corte e o Estilo da legenda, ou fique com as opções
+   marcadas (Câmera em cima e Opus). Clique em CORTAR.
+3. Quando um vídeo terminar, ele aparece em Cortes prontos. Use Abrir
+   para assistir e Pasta para localizar o arquivo. Abrir pasta de cortes
+   mostra a pasta geral. Para encerrar, clique em PARAR SESSÃO.
 
-2) AVISO AZUL DO WINDOWS SMARTSCREEN ("O Windows protegeu o computador")
-   - O instalador não tem assinatura digital. Se o Windows mostrar esse
-     aviso para o arquivo baixado pelo link acima, clique em
-     "Mais informações" > "Executar assim mesmo".
+Atualizar
 
-3) INSTALAR OS COMPONENTES NO PAINEL (SÓ NA PRIMEIRA VEZ)
-   - O painel abre na hora. Clique no botão grande  INSTALAR .
-   - Ele baixa tudo sozinho de fontes oficiais (Python próprio, FFmpeg,
-     bibliotecas e modelo de voz) com barra de progresso em % e por etapa.
-   - NÃO pede administrador nem instala nada espalhado pelo Windows.
-   - Demora de 5 a 20 minutos dependendo da internet (precisa de ~6 GB livres).
-   - Se a internet oscilar e der erro: clique em "Copiar log" (se quiser mandar
-     para quem te enviou) e depois em "Tentar novamente" — ele continua de onde
-     parou!
+O botão Atualizações fica no topo do painel, mesmo sem versão nova.
+Clique nele para consultar. Se o painel indicar uma nova versão, encerre
+a sessão de corte se ela estiver rodando. Clique em Atualizar e acompanhe
+o progresso. A atualização mantém os cortes, os modelos de voz baixados
+e as configurações.
 
-4) CORTAR UMA LIVE
-   - Cole o link da live (Twitch, YouTube ou Kick) no campo do painel.
-   - Escolha o Modelo do corte (Câmera em cima, Fundo desfocado ou Tela cheia)
-     e o Estilo da legenda (Opus, Karaokê ou Minimal).
-   - Clique em  CORTAR .
-   - Os vídeos prontos aparecem na hora na lista do painel com botões para
-     "Abrir vídeo" e "Abrir pasta".
+Levar um corte para o celular e registrar a postagem
 
-5) ATUALIZAÇÃO AUTOMÁTICA
-   - Sempre que sair uma versão nova no GitHub, o painel avisa no topo com o
-     botão "Atualizar".
-   - Ele atualiza só o código e NÃO apaga seus modelos já baixados nem seus
-     cortes!
+Se a sua versão mostrar o cartão Google Drive na aba Postar, clique em
+Encontrar pasta, escolha uma pasta sincronizada e clique em Salvar
+preferências do Drive. Em Cortes prontos, clique em Enviar ao Drive no
+cartão do vídeo. Se o botão estiver ausente ou a cópia falhar, clique em
+Pasta no cartão e copie o MP4 para a pasta já sincronizada pelo Google Drive
+para computador. Confira a sincronização antes de abrir a pasta no celular.
 
-6) DESINSTALAR
-   - Feche o painel. Nas Configurações do Windows, procure "CorteLive" na
-     lista de aplicativos instalados e clique em "Desinstalar".
-   - Escolha se quer apagar os cortes ou guardá-los em outra pasta.
+Depois de publicar na rede social, clique em Marcar como postado no cartão
+do corte, se o botão estiver disponível. Use o filtro Postados para ver os
+cortes marcados. Se o botão estiver ausente, confira na própria rede social.
 
---------------------------------------------------------------------------------
-MODO TERMINAL (OPCIONAL, PARA QUEM PREFERE JANELA PRETA / CMD)
---------------------------------------------------------------------------------
-Se você baixou o zip completo, também continuam funcionando os atalhos clássicos:
-- INSTALAR_E_RODAR.bat : confere o que falta, instala e abre no terminal.
-- instalar.cmd         : roda só o instalador portátil (aceita -Gpu cpu).
-- cortar.cmd           : pergunta o link, modelo e legenda pelo teclado.
-- atualizar.cmd        : roda o instalador incremental sem perguntas.
+Títulos, legendas e postagem
 
-Cuidado: só corte e publique live de quem autorizou. Música e jogo podem ter
-direitos próprios.
+Se a janela Postar estiver disponível para o corte, o CorteLive usa a fala
+do vídeo para sugerir um título e um texto. Você pode editar a sugestão
+antes de postar.
+
+Na aba Postar, em Automação de postagem, Postar sozinho vem desligado e
+Revisar antes vem ligado. Para enviar um corte para aprovação, use Postar
+no cartão e Pôr na fila (revisar), quando a fila estiver disponível.
+
+O passo a passo completo está no arquivo GUIA_RAPIDO_AMIGOS.md.

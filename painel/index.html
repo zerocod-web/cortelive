@@ -20,7 +20,14 @@
           <div class="marca-linha-titulo">
             <h1 class="marca-nome">CorteLive</h1>
             <span class="marca-autoria">by zerocod</span>
-            <span id="badge-versao" class="tag-versao" title="Versão instalada"></span>
+            <div class="acoes-versao">
+              <span id="badge-versao" class="tag-versao" title="Versão instalada" hidden></span>
+              <button type="button" id="btn-checar-atualizacao" class="btn btn-secundario btn-compacto"
+                      aria-controls="faixa-atualizacao" aria-expanded="false">
+                Atualizações
+                <span id="ponto-atualizacao" class="ponto-atualizacao" role="img" aria-label="Nova versão disponível" hidden></span>
+              </button>
+            </div>
           </div>
           <p class="marca-subtitulo">Mesa de corte</p>
         </div>
@@ -41,6 +48,12 @@
             <span>Postar</span>
             <span id="badge-fila-contagem" class="mini-pilula" hidden>0</span>
           </button>
+          <button type="button" class="aba-btn" id="aba-btn-config" data-aba="config">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="8" cy="18" r="2" fill="currentColor"/>
+            </svg>
+            <span>Configurações</span>
+          </button>
         </nav>
 
         <button type="button" id="btn-alternar-tema" class="btn-icone" aria-label="Alternar entre modo escuro e modo claro" title="Alternar tema claro/escuro">
@@ -55,20 +68,22 @@
     </header>
 
     <!-- Faixa de Atualização (instalador\atualizar.ps1 -Checar / -Aplicar) -->
-    <section id="faixa-atualizacao" class="faixa-alerta faixa-atualizacao" aria-live="polite" hidden>
+    <section id="faixa-atualizacao" class="faixa-alerta faixa-atualizacao" aria-labelledby="titulo-atualizacao" hidden>
       <div class="faixa-conteudo">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
-        <div>
-          <strong id="titulo-atualizacao">Nova versão disponível</strong>
-          <p id="detalhe-atualizacao" class="faixa-subtexto">Atualiza só o código e mantém seus modelos, vídeos e configurações.</p>
+        <div role="status">
+          <strong id="titulo-atualizacao">Verificando atualizações…</strong>
+          <p id="detalhe-atualizacao" class="faixa-subtexto"></p>
         </div>
       </div>
       <div class="faixa-botoes">
-        <button type="button" id="btn-aplicar-atualizacao" class="btn btn-primario btn-compacto">
+        <progress id="progresso-atualizacao" max="100" aria-label="Progresso da atualização" hidden></progress>
+        <button type="button" id="btn-aplicar-atualizacao" class="btn btn-primario btn-compacto" disabled>
           <span>Atualizar</span>
         </button>
+        <button type="button" id="btn-fechar-atualizacao" class="btn btn-secundario btn-compacto">Fechar</button>
       </div>
     </section>
 
@@ -422,6 +437,14 @@
               <span id="contador-cortes-total" class="contador-pilula">0 cortes</span>
             </div>
 
+            <div id="filtro-postagem" class="filtro-postagem" role="group" aria-label="Filtrar cortes por postagem">
+              <button type="button" class="btn btn-secundario btn-compacto" data-filtro="todos" aria-pressed="true">Todos</button>
+              <button type="button" class="btn btn-secundario btn-compacto" data-filtro="nao-postados" aria-pressed="false">Não postados</button>
+              <button type="button" class="btn btn-secundario btn-compacto" data-filtro="postados" aria-pressed="false">Postados</button>
+            </div>
+            <p id="estado-filtro-cortes" class="painel-card" role="status" hidden></p>
+            <p id="feedback-postagem-corte" class="ajuda-campo" role="status" hidden></p>
+
             <div id="estado-sem-cortes" class="painel-card vazio-card">
               <img class="vazio-ilustracao" src="img/estado-sem-cortes.png" width="120" height="120" alt="">
               <h3>Nenhum corte gerado ainda</h3>
@@ -432,8 +455,54 @@
           </section>
         </div>
 
+        <!-- ABA 3: CONFIGURAÇÕES -->
+        <div id="aba-painel-config" class="pilha-secoes" hidden>
+          <section class="painel-card contas-card" aria-labelledby="titulo-historico">
+            <div>
+              <h2 id="titulo-historico" class="titulo-secao">Histórico</h2>
+              <p class="texto-apoio">Apaga as mensagens antigas e os registros das lives que já terminaram. Seus vídeos e cortes não são apagados, e uma live em andamento não é afetada.</p>
+            </div>
+            <div>
+              <button type="button" id="btn-apagar-historico" class="btn btn-perigo">
+                <span>Apagar histórico</span>
+              </button>
+            </div>
+            <p id="feedback-historico" class="ajuda-campo" role="status" aria-live="polite" hidden></p>
+          </section>
+        </div>
+
         <!-- ABA 2: POSTAR E CONTAS (cortelive.postar + cortelive.autopost + autopost_navegador) -->
         <div id="aba-painel-contas" class="pilha-secoes" hidden>
+          <section class="painel-card contas-card" aria-labelledby="titulo-drive">
+            <div>
+              <h2 id="titulo-drive" class="titulo-secao">Google Drive</h2>
+              <p class="texto-apoio">Escolha uma pasta sincronizada pelo Google Drive para computador. Depois, encontre os cortes nessa mesma pasta pelo celular.</p>
+            </div>
+            <form id="form-drive" class="form-drive">
+              <fieldset id="campos-drive" class="campos-drive" disabled>
+                <label class="switch-linha" for="chk-drive">
+                  <span class="switch-textos">
+                    <strong>Copiar novos cortes automaticamente</strong>
+                    <span>Você também pode escolher quais cortes enviar pela lista de cortes prontos.</span>
+                  </span>
+                  <input type="checkbox" role="switch" id="chk-drive" class="switch-input">
+                </label>
+                <div>
+                  <label class="campo-rotulo" for="pasta-drive">Pasta do Drive</label>
+                  <div class="drive-pasta">
+                    <input type="text" class="campo-texto" id="pasta-drive" aria-describedby="feedback-drive" autocomplete="off" spellcheck="false">
+                    <button type="button" id="btn-detectar-drive" class="btn btn-secundario">Encontrar pasta</button>
+                  </div>
+                  <div id="sugestoes-drive" class="sugestoes-drive" role="group" aria-label="Pastas encontradas" hidden></div>
+                </div>
+                <label class="drive-txt"><input type="checkbox" id="chk-drive-txt"> Levar também um arquivo de texto com título e legenda</label>
+                <label class="drive-txt"><input type="checkbox" id="chk-drive-mover"> Organizar cortes marcados em uma subpasta “postados” no Drive</label>
+                <button type="submit" id="btn-salvar-drive" class="btn btn-primario">Salvar preferências do Drive</button>
+              </fieldset>
+              <p id="feedback-drive" class="ajuda-campo" role="status">Carregando preferências do Drive…</p>
+              <p id="ultima-copia-drive" class="ajuda-campo" role="status" hidden></p>
+            </form>
+          </section>
           <section class="painel-card contas-card postiz-card" aria-labelledby="titulo-postiz">
             <div class="contas-cabecalho">
               <h2 id="titulo-postiz" class="titulo-secao">Conectar Postiz</h2>
@@ -527,7 +596,7 @@
             <div class="contas-cabecalho">
               <div>
                 <h2 id="titulo-fila-autopost" class="titulo-secao">Fila de postagem</h2>
-                <p class="subtitulo-secao">Edite o título e a legenda de cada corte antes de aprovar o envio.</p>
+                <p class="subtitulo-secao">Os cortes agendados saem pelo Postiz mesmo com o PC desligado.</p>
               </div>
               <button type="button" id="btn-recarregar-fila" class="btn btn-secundario btn-compacto">
                 <span>Atualizar fila</span>
@@ -535,7 +604,7 @@
             </div>
 
             <div id="fila-vazia" class="vazio-fila">
-              Nenhum corte aguardando na fila de postagem no momento. Clique em <strong>Postar</strong> em qualquer corte pronto para preparar o envio.
+              Nenhum corte na fila de postagem. Clique em <strong>Postar</strong> em qualquer corte pronto para preparar o envio.
             </div>
             <div id="lista-fila-autopost" class="lista-fila" hidden></div>
           </section>

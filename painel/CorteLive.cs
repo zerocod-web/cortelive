@@ -1882,7 +1882,7 @@ namespace CorteLivePainel
 
             lock (LockSessao)
             {
-                if (SessaoRodando) return "Já existe uma sessão de corte em andamento.";
+                if (SessaoRodando) return AdicionarLiveNaSessao(fontes);
                 SessaoRodando = true; SessaoLives.Clear();
                 SessaoEstado = "iniciando";
                 SessaoCanal = "";
@@ -1924,6 +1924,27 @@ namespace CorteLivePainel
             Thread th = new Thread(delegate() { ExecutarSessaoThread(vpy, argsBuilder.ToString()); });
             th.IsBackground = true;
             th.Start();
+            return null;
+        }
+
+        // Sessão já em andamento: manda as novas lives ao mesmo motor (cada uma ganha seu cartão e seu Parar).
+        // Chamado com LockSessao já travado.
+        private static string AdicionarLiveNaSessao(List<string> fontes)
+        {
+            Process p = ProcSessao;
+            if (p == null) return "A sessão ainda está iniciando. Tente de novo em instantes.";
+            if (SessaoEstado == "encerrando" || SessaoEstado == "encerrada")
+                return "A sessão está finalizando. Aguarde terminar para iniciar outra live.";
+            try
+            {
+                foreach (string f in fontes)
+                {
+                    string hex = BitConverter.ToString(Encoding.UTF8.GetBytes(f)).Replace("-", "").ToLowerInvariant();
+                    p.StandardInput.WriteLine("adicionar-live " + hex);
+                }
+                p.StandardInput.Flush();
+            }
+            catch { return "Não foi possível adicionar a live agora."; }
             return null;
         }
 
@@ -1998,7 +2019,15 @@ namespace CorteLivePainel
 
         private static void ProcessarLinhaSessao(string linha)
         {
-            if (linha.StartsWith("@@STATUS@@"))
+            int marca = linha.IndexOf("@@STATUS@@", StringComparison.Ordinal);
+            if (marca > 0)
+            {
+                // Linha de log colada ao status: trata cada parte separada e nunca mostra o JSON cru.
+                ProcessarLinhaSessao(linha.Substring(0, marca));
+                ProcessarLinhaSessao(linha.Substring(marca));
+                return;
+            }
+            if (marca == 0)
             {
                 string json = linha.Substring(10);
                 try

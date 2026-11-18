@@ -1,0 +1,492 @@
+﻿"""Uma sessão de live: captura, fala, momento, cortes. Várias podem rodar ao mesmo tempo
+(ver CONTRATO_MULTI.md); transcrição e render são compartilhados via servicos.py.
+
+Gerado a partir do antigo cli.rodar(); a lógica de cada etapa é a mesma.
+"""
+import concurrent.futures as cf
+import json
+import queue
+import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+import types
+from pathlib import Path
+
+from . import __version__, hw, log
+from .cli import carregar_config, _hms, AQUI
+
+ESTADOS = ("iniciando", "esperando live", "ao vivo", "reconectando", "encerrada", "erro")
+
+
+class Sessao:
+    def __init__(self, url=None, arquivo=None, canal=None, cfg=None, cam=None, minutos=None,
+                 ao_status=None, terminal=False, detalhado=False, args=None):
+        if args is None:
+            args = types.SimpleNamespace(url=url, arquivo=arquivo, canal=canal, cam=cam, minutos=minutos,
+                                         detalhado=detalhado, duracao_min=None, duracao_max=None, modelo=None,
+                                         legenda=None, saida=None, sem_chat=False)
+        self.args = args
+        self.cfg_extra = cfg or {}
+        self.terminal = terminal
+        self.ao_status = ao_status
+        self.pasta = None
+        self.resumo = None
+        self.erro = None
+        self._parar_ev = threading.Event()
+        self._fim_ev = threading.Event()
+        self._cap = self._fl = None
+        self._res, self._falhas = [], []
+        self._ultimo_corte = None
+        self._estado_forcado = "iniciando"
+        self._th = None
+
+    # --- API -----------------------------------------------------------------------------------
+    def iniciar(self):
+        self._th = threading.Thread(target=self._rodar, daemon=True, name=f"sessao-{self.args.canal or ''}")
+        self._th.start()
+        return self
+
+    def parar(self):
+        self._parar_ev.set()
+
+    def aguardar(self, timeout=None):
+        self._fim_ev.wait(timeout)
+        return self.resumo
+
+    def status(self):
+        cap, fl = self._cap, self._fl
+        estado = self._estado_forcado
+        if estado not in ("encerrada", "erro") and cap is not None:
+            estado = cap.estado
+        return {"canal": self.args.canal, "pasta": str(self.pasta) if self.pasta else None, "estado": estado,
+                "cortes": len(self._res), "falhas": len(self._falhas),
+                "live_s": round(cap.fim_live, 1) if cap else 0.0,
+                "atraso_transcricao_s": round(max(0.0, cap.fim_live - fl.feito_ate), 1) if cap and fl else None,
+                "ultimo_corte": self._ultimo_corte,
+                "motivo_fim": (self.resumo or {}).get("motivo_fim") or (str(self.erro) if self.erro else None)}
+
+    # --- interno -------------------------------------------------------------------------------
+    def _avisar(self):
+        if self.ao_status:
+            try:
+                self.ao_status(self.status())
+            except Exception:
+                pass
+
+    def _rodar(self):
+        try:
+            self.resumo = self._executar()
+            self._estado_forcado = "encerrada"
+        except BaseException as e:
+            self.erro = e
+            self._estado_forcado = "erro"
+            try:
+                log.aviso(f"A sessão parou por erro: {e}")
+                import logging, traceback
+                log.debug(traceback.format_exc())
+            except Exception:
+                pass
+        finally:
+            self._fim_ev.set()
+            self._avisar()
+
+    def _executar(self):
+        from . import camauto, captura, fala, momento, render, trecho, servicos
+        args = self.args
+
+        cfg = carregar_config(args)
+        cfg.update(self.cfg_extra)
+        for tipo, nome in (("modelo", cfg["modelo"]), ("legenda", cfg["legenda"])):
+            if nome not in render.listar(tipo):
+                raise RuntimeError(f"{tipo} '{nome}' não existe. Opções: {', '.join(render.listar(tipo))}")
+        canal = args.canal or (Path(args.arquivo).stem if args.arquivo else captura.canal_da_url(args.url))
+        args.canal = canal
+        pasta = Path(cfg["pasta_saida"]) / f"{time.strftime('%Y-%m-%d_%H%M')}_{canal}"
+        pasta.mkdir(parents=True, exist_ok=True)
+        arq_log = log.configurar(pasta, args.detalhado, terminal=self.terminal)
+        self.pasta = pasta
+        t_sessao = time.time()
+
+        log.info(f"cortelive {__version__} — cortes em {pasta.resolve()}")
+        modo = servicos.modo()
+        log.info("Modo detectado: " + modo.resumo())
+        if modo.encoder == "libx264":
+            log.aviso("Sem encoder de placa de vídeo: usando a CPU (mais lento).")
+        log.info(f"Corte: {cfg['modelo']} | legenda: {cfg['legenda']} | {cfg['duracao_min']:.0f}-{cfg['duracao_max']:.0f} s")
+        t = time.time()
+        try:
+            sv = servicos.transcricao()
+        except Exception as e:
+            raise RuntimeError(f"Não consegui carregar a transcrição ({modo.transcricao}): {e}. "
+                               f"Tente: cortelive ... --fala faster-whisper-cpu")
+        tr = servicos.Cliente(sv, canal, timeout=None)
+        log.ok(f"Transcrição pronta ({modo.transcricao}, modelo {sv.nome_modelo}, compartilhada; {time.time() - t:.0f} s)")
+        juiz = momento.Juiz(cfg)
+        log.info(f"Juiz dos cortes: {juiz.descricao()}")
+
+        # câmera: argumento > marcada/memorizada do canal > detecção automática no começo
+        cam, cam_status = None, "procurar"
+        if args.cam:
+            cam, cam_status = (tuple(int(v) for v in args.cam.split(",")) if isinstance(args.cam, str) else tuple(args.cam)), "informada"
+        else:
+            mem = camauto.da_memoria(canal)
+            if mem:
+                cam, cam_status = (tuple(mem["cam"]) if mem["cam"] else None), f"memória ({mem['origem']})"
+            elif not cfg["detectar_cam"]:
+                cam_status = "desligada"
+        if cam_status != "procurar":
+            log.info(f"Cam do streamer: {cam if cam else 'sem cam'} ({cam_status})")
+
+        buf = (pasta / ".buffer").resolve()   # absoluto: o render roda em outro processo/pasta
+        shutil.rmtree(buf, ignore_errors=True)
+        buf.mkdir()
+        fila = queue.Queue()
+        cap = captura.Captura(buf, url=args.url, arquivo=args.arquivo, seg_s=cfg["segmento_s"],
+                              buffer_min=cfg["buffer_min"], ao_chegar=fila.put, travou_s=cfg["travou_captura_s"],
+                              esperar_live_min=cfg["esperar_live_min"], fim_apos_offline_min=cfg["fim_apos_offline_min"])
+        fl = fala.Fala(tr)
+        sin = momento.Sinais(cfg)
+        chat = None
+        if args.url and "twitch.tv" in args.url and cfg["usar_chat"]:
+            chat = momento.ChatTwitch(captura.canal_da_url(args.url), sin, lambda: cap.fim_live)
+            chat.start()
+
+        # ---------------- render em fila limitada, cada corte num processo separado ----------------
+        pendentes = []                     # jobs esperando (lista protegida por lock)
+        lk = threading.Lock()
+        tem_job = threading.Event()
+        acabar_render = threading.Event()
+        resultados, falhas, descartados = [], [], []
+        n_corte = [0]
+
+        def enfileirar(job):
+            with lk:
+                pendentes.append(job)
+                if len(pendentes) > cfg["fila_max_cortes"]:
+                    fraco = min(pendentes, key=lambda j: j["nota"])
+                    pendentes.remove(fraco)
+                    cap.prender(fraco["segs"], False)
+                    descartados.append(_hms(fraco["evento"]))
+                    log.aviso(f"Máquina atrasada: descartei o momento mais fraco ({_hms(fraco['evento'])}, "
+                              f"nota {fraco['nota']:.1f}) para a fila não crescer.")
+            tem_job.set()
+
+        def renderizador():
+            while True:
+                with lk:
+                    job = pendentes.pop(0) if pendentes else None
+                    if not job:
+                        tem_job.clear()
+                if not job:
+                    if acabar_render.is_set():
+                        return
+                    tem_job.wait(1)
+                    continue
+                try:
+                    resultados.append(fazer_corte(job))
+                except Exception as e:
+                    falhas.append({"momento": _hms(job["evento"]), "erro": str(e)[:300]})
+                    log.aviso(f"Corte do momento {_hms(job['evento'])} falhou e foi pulado: {str(e)[:200]}")
+                finally:
+                    cap.prender(job["segs"], False)
+
+        def fazer_corte(job):
+            ini, fim = job["ini"], job["fim"]
+            n_corte[0] += 1
+            nome = f"corte_{n_corte[0]:03d}_{_hms(job['evento']).replace(':', '')}"
+            t0 = time.time()
+            # legenda completa: se o corte pega um trecho que o watchdog pulou, espera ele ser retranscrito
+            while fl.buraco_em(ini, fim) and time.time() - t0 < 120:
+                time.sleep(1)
+            if fl.buraco_em(ini, fim):
+                log.aviso(f"{nome}: trecho ainda sem transcrição após 2 min; legenda pode ter falha.")
+            job["palavras"] = fl.palavras_entre(ini, fim)
+            # cam ainda sendo medida (primeiro 1,5 min): espera, para o corte não sair sem cam à toa
+            while cam_status == "procurar" and time.time() - t0 < 150 and not cap.acabou.is_set():
+                time.sleep(1)
+            bruto = buf / f"{nome}_trecho.mkv"
+            base = trecho.juntar(job["segs"], bruto)
+            pedido = buf / f"{nome}.json"
+            # legenda queimada sem vírgula/ponto (mantém ? e !); palavra que vira só pontuação sai
+            pal_rel = [{"w": t, "start": w["s"] - base, "end": w["e"] - base} for w in job["palavras"]
+                       if (t := re.sub(r"[.,;:…\"“”]+", "", w["w"]).strip())]
+            pedido.write_text(json.dumps({"video": str(bruto.resolve()), "inicio": ini - base, "fim": fim - base,
+                                          "palavras": pal_rel, "modelo": cfg["modelo"], "legenda": cfg["legenda"],
+                                          "cam": list(cam) if cam else None, "saida_dir": str(pasta.resolve()),
+                                          "nome": nome}, ensure_ascii=False), encoding="utf-8")
+            try:
+                p = servicos.render().executar(
+                    subprocess.run, [sys.executable, "-m", "cortelive.render_job", str(pedido)],
+                    timeout=cfg["travou_render_s"], capture_output=True, cwd=str(AQUI.parent))
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(f"render passou de {cfg['travou_render_s']} s (watchdog cancelou)")
+            finally:
+                bruto.unlink(missing_ok=True)
+            res_arq = pedido.with_suffix(".res")
+            if not res_arq.exists():
+                raise RuntimeError(f"render morreu sem resposta (código {p.returncode})")
+            r = json.loads(res_arq.read_text(encoding="utf-8"))
+            pedido.unlink(missing_ok=True); res_arq.unlink(missing_ok=True)
+            if not r.get("ok"):
+                log.debug(r.get("trace", ""))
+                raise RuntimeError(r.get("erro", "erro desconhecido no render"))
+            final = Path(r["mp4"])
+            pronto = time.time()
+            info = {
+                "arquivo": final.name, "sem_legenda": Path(r["mp4_sem_legenda"]).name,
+                "legenda": Path(r["ass"]).name if r.get("ass") else None,
+                "inicio_na_live": round(ini, 2), "fim_na_live": round(fim, 2),
+                "inicio_hms": _hms(ini), "fim_hms": _hms(fim), "duracao": round(fim - ini, 2),
+                "momento_na_live": round(job["evento"], 2), "momento_hms": _hms(job["evento"]),
+                "pontuacao": round(job["nota"], 2), "nota_juiz": job["nota_juiz"], "juiz": juiz.descricao(),
+                "sinais": job["sinais"], "motivos": job["motivos"],
+                "titulo_sugerido": job["titulo"], "motivo": job["motivo"],
+                "modelo": cfg["modelo"], "modelo_usado": r.get("modelo"), "estilo_legenda": cfg["legenda"],
+                "cam": list(cam) if cam else None, "encoder": r.get("encoder"),
+                "latencia_s": {"momento_ate_mp4": round(pronto - job["chegou_evento"], 1),
+                               "decisao_ate_mp4": round(pronto - job["decidido"], 1),
+                               "render": round(pronto - t0, 1)},
+                "transcricao": " ".join(w["w"] for w in job["palavras"]),
+            }
+            (pasta / f"{nome}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._ultimo_corte = final.name
+            log.corte(f"CORTE {n_corte[0]}: {final.name} ({fim - ini:.0f} s, nota {job['nota']:.1f}) — "
+                      f"\"{job['titulo']}\" — pronto {info['latencia_s']['momento_ate_mp4']:.0f} s após o momento")
+            return info
+
+        th_r = threading.Thread(target=log.herdar(renderizador), daemon=True)
+        th_r.start()
+        cap.start()
+        log.info("Acompanhando a live." + (" Para parar: Ctrl+C." if self.terminal else ""))
+        self._cap, self._fl, self._res, self._falhas = cap, fl, resultados, falhas
+
+        estado = {"avaliado_ate": 0.0, "ultimo_fim": -1e9}
+        hist_notas = {}
+
+        def avaliar(final=False):
+            disponivel = fl.feito_ate
+            limite = disponivel if final else disponivel - cfg["depois_do_momento"] - 2
+            if limite - estado["avaliado_ate"] < 1:
+                return
+            a0 = estado["avaliado_ate"]
+            notas = sin.notas(max(0, a0 - 10), min(disponivel, limite + 10), fl.palavras_entre(a0 - 12, disponivel))
+            janela = [(notas[s][0], s) for s in range(int(a0), int(limite)) if s in notas]
+            for v, s in janela:
+                hist_notas[s] = v
+            for s in [s for s in hist_notas if s < limite - 600]:
+                del hist_notas[s]
+            # limiar adaptativo: live "calma" (ex.: narração constante) passa muito tempo sem bater o limiar fixo;
+            # depois de N min sem corte, vale o topo das notas dos últimos 10 min (com piso).
+            limiar = cfg["limiar_nota"]
+            sem_corte = limite - max(estado["ultimo_fim"], 0)
+            if cfg["minutos_sem_corte_para_adaptar"] and sem_corte > cfg["minutos_sem_corte_para_adaptar"] * 60 \
+                    and len(hist_notas) > 240:
+                import numpy as np
+                limiar = max(cfg["limiar_minimo"], min(limiar, float(np.percentile(list(hist_notas.values()), 97))))
+            if janela:
+                mx = max(janela)
+                log.debug(f"notas {_hms(a0)}-{_hms(limite)}: máx {mx[0]:.2f} em {_hms(mx[1])} {notas[mx[1]][2]} "
+                          f"limiar {limiar:.2f}")
+            for s in range(int(a0), int(limite)):
+                if s not in notas:
+                    continue
+                nota, mot, sinais = notas[s]
+                if nota < limiar or nota < max(notas[k][0] for k in range(s - 8, s + 9) if k in notas):
+                    continue
+                if s < estado["ultimo_fim"] + cfg["intervalo_min_entre_cortes"]:
+                    continue   # sem cortes duplicados/sobrepostos
+                ini, fim = momento.janela_corte(s, fl.palavras, disponivel, cfg)
+                ini = max(ini, estado["ultimo_fim"] + 0.5)
+                # não atravessar emenda de reconexão (o conteúdo da live pula ali)
+                for e in cap.emendas:
+                    if ini < e < fim:
+                        if s >= e:
+                            ini = e + 0.3
+                        else:
+                            fim = e - 0.3
+                if fim - ini < cfg["duracao_min"] * 0.8:
+                    continue
+                aa = max(0.0, ini - 1)
+                aud = fl.audio_trecho(aa, fim + 1)
+                ini, fim = momento.ajustar_no_vale(ini, aud, aa), momento.ajustar_no_vale(fim, aud, aa)
+                segs = cap.trecho(ini, fim)
+                if not segs or segs[0].ini > ini + 0.5 or segs[-1].fim < fim - 0.5:
+                    log.aviso(f"Momento em {_hms(s)} caiu num buraco da captura; pulado.")
+                    continue
+                pal = fl.palavras_entre(ini, fim)
+                motivos = [m for k in range(int(ini), int(fim)) if k in notas
+                           and notas[k][0] >= cfg["limiar_nota"] * 0.6 for m in notas[k][1]] or mot
+                nota_j, titulo, motivo = juiz.julgar(" ".join(w["w"] for w in pal), motivos, pal, s,
+                                                     cfg["palavras_quentes"])
+                if nota_j is not None and nota_j < cfg["ollama_nota_minima"]:
+                    log.info(f"Momento em {_hms(s)} recusado pelo Ollama (nota {nota_j:.0f}).")
+                    continue
+                seg_ev = next((x for x in segs if x.ini <= s < x.fim), segs[-1])
+                estado["ultimo_fim"] = fim
+                cap.prender(segs, True)
+                log.info(f"Momento bom em {_hms(s)} ({', '.join(dict.fromkeys(mot))}). Cortando {_hms(ini)}–{_hms(fim)}…")
+                enfileirar({"ini": ini, "fim": fim, "evento": float(s), "segs": segs, "palavras": pal, "nota": nota,
+                            "nota_juiz": nota_j, "sinais": sinais, "motivos": list(dict.fromkeys(motivos)),
+                            "titulo": titulo, "motivo": motivo, "chegou_evento": seg_ev.chegou, "decidido": time.time()})
+            estado["avaliado_ate"] = max(a0, limite)
+
+        exe = cf.ThreadPoolExecutor(max_workers=1, initializer=log.usar, initargs=(log.atual(),))
+        reinicios_fala = [0]
+        buracos_preenchidos = []
+
+        def transcrever(fim, final=False):
+            nonlocal exe
+            gatilho = buf / "TRAVAR_TRANSCRICAO"     # só para teste de robustez: simula motor travado
+            if gatilho.exists():
+                gatilho.unlink(missing_ok=True)
+                log.debug("teste: transcrição travada de propósito")
+                fut = exe.submit(lambda: (time.sleep(cfg["travou_transcricao_s"] + 60), fl.avancar(fim, final)))
+            else:
+                fut = exe.submit(fl.avancar, fim, final)
+            try:
+                fut.result(timeout=cfg["travou_transcricao_s"])
+            except cf.TimeoutError:
+                reinicios_fala[0] += 1
+                log.aviso(f"Transcrição travou (> {cfg['travou_transcricao_s']} s). Reiniciando o motor; "
+                          f"o trecho até {_hms(fim)} fica sem legenda.")
+                fl.pular_ate(fim)
+                exe.shutdown(wait=False, cancel_futures=True)
+                exe = cf.ThreadPoolExecutor(max_workers=1, initializer=log.usar, initargs=(log.atual(),))
+            except Exception as e:
+                log.aviso(f"Erro na transcrição (trecho pulado): {e}")
+                fl.pular_ate(fim)
+
+        def preencher_buracos():
+            """Prioridade menor que o ao vivo: só roda quando não há pedaço novo esperando."""
+            nonlocal exe
+            while fl.buracos and fila.empty():
+                fut = exe.submit(fl.preencher_buraco)
+                try:
+                    r = fut.result(timeout=cfg["travou_transcricao_s"])
+                except Exception as e:
+                    log.aviso(f"Retranscrição do trecho pulado falhou ({e}); tento de novo depois.")
+                    if isinstance(e, cf.TimeoutError):
+                        exe.shutdown(wait=False, cancel_futures=True)
+                        exe = cf.ThreadPoolExecutor(max_workers=1, initializer=log.usar, initargs=(log.atual(),))
+                    return
+                if r:
+                    a, b, n = r
+                    if n < 0:
+                        log.aviso(f"Trecho {_hms(a)}–{_hms(b)} já saiu do buffer; ficou sem legenda.")
+                    elif not fl.buracos or fl.buracos[0][0] > b - 1:
+                        log.ok(f"Trecho pulado retranscrito: {_hms(a)}–{_hms(b)} (+{n} palavras).")
+                    buracos_preenchidos.append([round(a, 1), round(b, 1), n])
+
+        # câmera automática: 3 quadros espaçados no primeiro minuto
+        amostras_cam = []
+
+        def tentar_cam(seg):
+            nonlocal cam, cam_status
+            if cam_status != "procurar":
+                return
+            if not amostras_cam or seg.ini - amostras_cam[-1][0] >= 12:
+                amostras_cam.append((seg.ini, Path(seg.arquivo)))
+                cap.prender([seg], True)
+            if len(amostras_cam) == 8:
+                try:
+                    m_cam = render.carregar("modelo", cfg["modelo"])
+                    prop = m_cam.get("largura", 1080) / m_cam.get("altura_cam", 640)
+                    cam = camauto.detectar([a for _, a in amostras_cam], prop)
+                    log.debug(f"camauto: {camauto.ULTIMO}")
+                except Exception as e:
+                    log.debug(f"camauto: {e}")
+                    cam = None
+                cam_status = "detectada" if cam else "não achada"
+                camauto.salvar(canal, cam, "automática")
+                with cap.lock:
+                    cap.presos -= {i for i, s in cap.segs.items() if Path(s.arquivo) in {a for _, a in amostras_cam}}
+                log.info(f"Cam do streamer: {'achei em ' + ','.join(map(str, cam)) if cam else ('confiança baixa (' + camauto.ULTIMO.get('motivo', '?') + ') — usando layout sem cam, jogo com fundo desfocado')}"
+                         f" (guardado para o canal '{canal}')")
+
+        try:
+            while True:
+                try:
+                    seg = fila.get(timeout=1)
+                except queue.Empty:
+                    seg = None
+                if seg:
+                    try:
+                        aud = fala.audio_de(seg.arquivo)
+                    except Exception as e:
+                        log.aviso(f"Pedaço {seg.idx} ilegível ({e}); pulado.")
+                        continue
+                    fl.novo_segmento(seg, aud)
+                    self._avisar()
+                    sin.novo_audio(seg.ini, aud)
+                    tentar_cam(seg)
+                    if seg.fim - fl.feito_ate >= sv.bloco_s or (fila.empty() and seg.fim - fl.feito_ate >= sv.bloco_s / 2):
+                        transcrever(seg.fim)
+                        try:
+                            avaliar()
+                        except Exception as e:
+                            log.aviso(f"Erro avaliando momentos (seguindo): {e}")
+                        if fl.buracos and fila.empty():
+                            preencher_buracos()
+                if self._parar_ev.is_set() and not cap.parar.is_set():
+                    log.info("Parando… terminando os cortes em andamento.")
+                    cap.motivo_fim = "parado pelo usuário"
+                    cap.parar.set()
+                if args.minutos and time.time() - t_sessao > args.minutos * 60 and not cap.parar.is_set():
+                    log.info(f"Tempo pedido ({args.minutos:g} min) acabou.")
+                    cap.motivo_fim = f"tempo pedido ({args.minutos:g} min) acabou"
+                    cap.parar.set()
+                if cap.acabou.is_set() and fila.empty():
+                    transcrever(cap.fim_live, final=True)
+                    preencher_buracos()
+                    avaliar(final=True)
+                    break
+        except KeyboardInterrupt:
+            log.info("Parando (Ctrl+C)… terminando os cortes em andamento.")
+            cap.parar.set()
+            cap.motivo_fim = "parado pelo usuário"
+        acabar_render.set()
+        tem_job.set()
+        th_r.join()
+        if chat:
+            chat.parar.set()
+        exe.shutdown(wait=False, cancel_futures=True)
+        shutil.rmtree(buf, ignore_errors=True)
+
+        # ---------------- resumo ----------------
+        rt = sum(b for _, b in fl.tempo_trans) / max(1e-6, sum(a for a, _ in fl.tempo_trans))
+        lat = [r["latencia_s"]["momento_ate_mp4"] for r in resultados]
+        resumo = {
+            "canal": canal, "fonte": args.url or str(args.arquivo), "motivo_fim": cap.motivo_fim,
+            "duracao_sessao_s": round(time.time() - t_sessao, 1), "live_acompanhada_s": round(cap.fim_live, 1),
+            "cortes": len(resultados), "falhas": falhas, "descartados_por_fila": descartados,
+            "quedas_da_captura": [{"no_ponto_s": a, "fora_s": b} for a, b in cap.quedas],
+            "reinicios_transcricao": reinicios_fala[0],
+            "mensagens_chat": chat.total if chat else None,
+            "trocas_de_modelo": sv.trocas,
+            "transcricao_por_modelo": {m: {"rodadas": len(v), "fator_tempo_real": round(sum(b for _, b in v) / max(1e-6, sum(a for a, _ in v)), 3)}
+                                       for m, v in fl.por_modelo.items()},
+            "trechos_retranscritos": buracos_preenchidos, "trechos_sem_transcricao": fl.buracos or [],
+            "latencia_momento_ate_mp4_s": {"media": round(sum(lat) / len(lat), 1) if lat else None,
+                                           "min": min(lat) if lat else None, "max": max(lat) if lat else None},
+            "transcricao_fator_tempo_real": round(rt, 3), "palavras": len(fl.palavras),
+            "modo": modo.resumo(), "juiz": juiz.descricao(), "cam": list(cam) if cam else None,
+            "lista_cortes": [{k: r[k] for k in ("arquivo", "inicio_hms", "duracao", "pontuacao", "titulo_sugerido")}
+                             for r in resultados],
+        }
+        (pasta / "sessao.json").write_text(json.dumps(resumo, ensure_ascii=False, indent=2), encoding="utf-8")
+        log.info("=" * 60)
+        log.info(f"RESUMO — {resumo['motivo_fim'] or 'fim'}")
+        log.info(f"Live acompanhada: {_hms(cap.fim_live)} | sessão: {_hms(resumo['duracao_sessao_s'])}")
+        log.info(f"Cortes prontos: {len(resultados)} | falharam: {len(falhas)} | descartados (fila): {len(descartados)}")
+        if lat:
+            log.info(f"Tempo do momento até o MP4 pronto: média {resumo['latencia_momento_ate_mp4_s']['media']} s "
+                     f"(de {min(lat)} a {max(lat)} s)")
+        if cap.quedas:
+            log.info(f"A captura caiu {len(cap.quedas)}x e voltou sozinha.")
+        log.info(f"Transcrição usou {rt * 100:.0f}% do tempo real.")
+        log.info(f"Pasta: {pasta.resolve()}  |  log: {arq_log}")
+        return resumo
+

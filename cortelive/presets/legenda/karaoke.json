@@ -1,0 +1,15 @@
+{
+  "_ajuda": "Karaokê: a palavra vai enchendo de cor enquanto é falada. Fonte Anton condensada.",
+  "fonte": "Anton",
+  "tamanho": 96,
+  "maiusculas": true,
+  "cor": "#FFFFFF",
+  "cor_destaque": "#39FF88",
+  "contorno": 6,
+  "cor_contorno": "#101010",
+  "sombra": 0,
+  "efeito": "karaoke",
+  "escala_destaque": 100,
+  "palavras_por_vez": 3,
+  "alinhamento": 2
+}

@@ -1,0 +1,19 @@
+﻿[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cortelive"
+version = "0.1.0"
+description = "Acompanha uma live e solta cortes verticais legendados enquanto ela acontece."
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+[project.scripts]
+cortelive = "cortelive.cli:main"
+
+[tool.setuptools]
+packages = ["cortelive"]
+
+[tool.setuptools.package-data]
+cortelive = ["presets/*/*.json", "fontes/*", "config.toml"]

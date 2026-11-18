@@ -1,0 +1,15 @@
+{
+  "_ajuda": "Discreta: minúsculas, branco, contorno fino, sem destaque. 3 palavras por vez.",
+  "fonte": "Montserrat ExtraBold",
+  "tamanho": 90,
+  "maiusculas": false,
+  "cor": "#FFFFFF",
+  "cor_destaque": "#FFFFFF",
+  "contorno": 3,
+  "cor_contorno": "#000000",
+  "sombra": 2,
+  "efeito": "nenhum",
+  "escala_destaque": 100,
+  "palavras_por_vez": 3,
+  "alinhamento": 2
+}

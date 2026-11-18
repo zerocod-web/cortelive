@@ -1,0 +1,10 @@
+{
+  "_ajuda": "Tela inteira da live (16:9) no meio, com a mesma imagem desfocada preenchendo em cima e embaixo. Nada da live é cortado, então o HUD aparece inteiro; a legenda fica na faixa desfocada de baixo para não cobrir o HUD.",
+  "tipo": "fundo-desfocado",
+  "largura": 1080,
+  "altura": 1920,
+  "zoom": 1.0,
+  "desfoque": 30,
+  "escurecer": 0.8,
+  "legenda_margem_baixo": 520
+}

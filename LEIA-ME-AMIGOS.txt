@@ -1,0 +1,74 @@
+CORTELIVE - cortes automáticos de live
+======================================
+
+O que é: você cola o link de uma live (Twitch, YouTube, Kick) e ele vai soltando
+cortes verticais (1080x1920) com legenda, sozinho, enquanto a live acontece.
+
+>>> JEITO MAIS FÁCIL: dois cliques em  INSTALAR_E_RODAR.bat
+    Ele confere o que falta no seu PC (Python, bibliotecas, FFmpeg, modelo de
+    fala, placa de vídeo), baixa só isso e já abre o cortelive. Nas próximas
+    vezes ele vê que está tudo pronto e abre direto. Não pede administrador
+    nem senha/chave nenhuma. Deu erro? Leia a mensagem em vermelho, confira a
+    internet e dê dois cliques de novo (continua de onde parou). Detalhe do
+    erro em instalacao_log.txt. O resto deste arquivo explica cada parte.
+
+PRECISA DE: Windows 10 ou 11, internet e uns 6 GB livres. Não precisa instalar
+nada antes nem ser administrador.
+
+1) INSTALAR (uma vez só)
+   - Descompacte o zip numa pasta curta, por exemplo C:\cortelive
+     (evite a Área de Trabalho ou pastas com nome muito comprido).
+   - Dê dois cliques em  instalar.cmd
+   - Ele baixa tudo sozinho, só de fontes oficiais, e confere cada arquivo:
+     Python próprio, FFmpeg, as bibliotecas e o modelo de fala.
+     Demora de 5 a 20 minutos, depende da internet.
+   - No fim ele mostra o MODO escolhido para o seu PC:
+       NVIDIA  = mais rápido (usa a placa)
+       AMD/Intel = a transcrição (fala) roda no processador e o vídeo
+                   sai pela placa; funciona, mas é mais lento que NVIDIA
+       SEM PLACA = tudo no processador (funciona, mas pode atrasar)
+   - Ele pergunta se você quer o Ollama. É opcional; sem ele funciona igual.
+   - Se o Windows mostrar "O Windows protegeu o computador", clique em
+     "Mais informações" e "Executar assim mesmo" (os scripts são texto: dá
+     para abrir no Bloco de Notas e ler).
+
+2) USAR
+   - Dê dois cliques em  cortar.cmd
+   - Cole o link da live e aperte Enter. Pode colar VÁRIAS lives ao mesmo
+     tempo: um link por vez, Enter depois de cada um; Enter vazio = acabou.
+   - Ou digite L: abre o arquivo lives.txt (um link por linha) no Bloco de
+     Notas. Vem com exemplos comentados: linha com # é ignorada, então tire
+     o # ou cole os seus links. Salve, feche, e ele corta todas as lives da
+     lista. A lista é relida a cada 30 s (dá para pôr ou tirar live com ele
+     rodando) e fica guardada para a próxima vez.
+   - Cada live tem a sua pasta dentro de cortes\. Se uma live cair ou der
+     erro, só ela reinicia; as outras seguem.
+   - Chat: em alguns canais o chat é fechado (só inscritos/seguidores) ou
+     parado. Tudo bem: os cortes saem só pelo áudio e pela fala.
+   - Depois escolha o modelo do corte e a legenda (Enter = padrão).
+   - No CMD também dá:  cortar.cmd LINK1 LINK2   ou   cortar.cmd --lista lives.txt
+   - Várias lives ao mesmo tempo pesam mais no PC: sem placa NVIDIA, comece
+     com uma ou duas.
+   - Os cortes aparecem na pasta  cortes\  (um .mp4 com legenda e um sem).
+   - Para parar: Ctrl+C ou feche a janela.
+   - Testar com um vídeo do PC:  cortar.cmd --arquivo C:\caminho\video.mp4
+
+3) DEU ERRO?
+   - A mensagem em vermelho diz o que fazer. Quase sempre: confira a internet
+     e rode instalar.cmd de novo (ele continua de onde parou).
+   - O log da instalação fica em  instalacao_log.txt ; o de cada sessão em cortes\.
+   - Forçar o modo processador (se a placa der problema):
+       abra o CMD nesta pasta e rode:  instalar.cmd -Gpu cpu
+
+4) ATUALIZAR
+   - Copie por cima os arquivos novos que te mandarem e dê dois cliques em
+     atualizar.cmd.
+
+5) DESINSTALAR
+   - É só apagar a pasta inteira. Nada é instalado fora dela (a única
+     exceção: a posição da cam de cada canal fica em
+     %LOCALAPPDATA%\cortelive; pode apagar também). Se instalou o Ollama,
+     ele sai pelo "Adicionar ou remover programas" do Windows.
+
+Cuidado: só corte e publique live de quem autorizou. Música e jogo podem ter
+direitos próprios.

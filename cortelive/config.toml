@@ -1,0 +1,62 @@
+﻿# Configuração do cortelive.
+# Para mudar algo, copie este arquivo como "config.toml" na pasta onde você roda o cortelive
+# e altere só o que quiser (o que não estiver lá usa o valor daqui).
+
+# --- Corte ---------------------------------------------------------------------------------
+duracao_min = 30            # segundos, corte mais curto
+duracao_max = 60            # segundos, corte mais longo
+antes_do_momento = 22       # quantos segundos antes do momento bom o corte começa
+depois_do_momento = 14      # quantos segundos depois ele termina
+modelo = "cam-em-cima"      # cam-em-cima | jogo-fundo-desfocado | jogo-tela-cheia-crop
+legenda = "opus"            # opus | karaoke | minimal (ou o nome de um estilo que você criou)
+pasta_saida = "cortes"
+
+# --- Detecção do momento bom -------------------------------------------------------------------
+limiar_nota = 2.2           # mais alto = menos cortes, só os mais fortes
+intervalo_min_entre_cortes = 20   # segundos entre o fim de um corte e o próximo momento
+minutos_sem_corte_para_adaptar = 6   # live calma: depois de N min sem corte, pega o melhor momento recente (0 = nunca)
+limiar_minimo = 0.9         # nem no modo adaptativo corta abaixo disso
+palavras_quentes = ["caralho", "mano", "meu deus", "nossa", "não acredito", "que isso", "socorro",
+                    "porra", "vish", "olha isso", "pqp", "puta", "eita", "corre", "morreu", "matou",
+                    "pegou", "rapaz", "misericórdia", "ai meu deus", "não não não", "mds"]
+
+# --- Chat da Twitch (só leitura, sem login) ------------------------------------------------------
+usar_chat = true
+chat_defasagem_s = 5        # o chat reage uns segundos depois do lance
+
+# --- Ollama (opcional: se estiver rodando no PC, dá a nota final e o título) -------------------------
+ollama_url = "http://127.0.0.1:11434"
+ollama_modelo = ""          # vazio = o primeiro modelo instalado
+ollama_nota_minima = 4      # nota do Ollama abaixo disso descarta o corte
+
+# --- Câmera do streamer ------------------------------------------------------------------------
+# Se a cam do canal não foi marcada (cortelive marcar-cam), o programa procura o rosto sozinho
+# no começo da live e guarda por canal. Se não achar rosto, usa o modelo sem cam.
+detectar_cam = true
+
+# --- Live e robustez --------------------------------------------------------------------------
+segmento_s = 4              # tamanho de cada pedaço gravado
+buffer_min = 5              # minutos de live guardados para poder cortar para trás
+esperar_live_min = 0        # live offline no começo: esperar quantos minutos (0 = para sempre)
+fim_apos_offline_min = 10   # live caiu e não voltou em N minutos: encerra a sessão
+travou_captura_s = 40       # sem pedaço novo por N segundos = captura travada, reinicia
+travou_transcricao_s = 90   # transcrição demorando mais que isso = reinicia o motor
+
+# --- Placa disputada (jogar e cortar no mesmo PC) -------------------------------------------------
+# Se a transcrição ficar atrasada, troca sozinha para um modelo menor e volta quando a placa folgar.
+# degraus abaixo do modelo principal. Medido numa RTX 5070 (17/11/2026), 60 s de áudio:
+#   placa livre: large-v3-turbo 1,1 s (2,3 GB) | small 2,5 s (0,8 GB) | medium 4,1 s | base 4,6 s (0,5 GB)
+#   placa ocupada: turbo 3,5 s | small 5,1 s | base 9,8 s | medium 12,1 s
+# O turbo é o mais rápido; o small serve para liberar VRAM para o jogo. Depois dele, blocos maiores.
+modelos_reserva = ["small"]
+atraso_max_s = 20           # transcrição mais que N segundos atrás da live = "atrasada"
+fator_max = 0.5             # ou gastando mais que 50% do tempo real
+fator_folga = 0.15          # abaixo disso (e sem atraso) a placa está folgada: volta a subir
+segundos_ruim_para_descer = 20
+segundos_bom_para_subir = 120
+bloco_normal_s = 6          # transcreve a cada ~6 s de live
+bloco_lento_s = 12          # no menor modelo e ainda atrasado: blocos maiores (menos rodadas)
+travou_render_s = 300      # render de um corte passando disso = cancela só esse corte
+encodes_simultaneos = 2     # quantos cortes renderizam ao mesmo tempo (todas as lives somadas). GeForce aceita
+                            # poucas sessões de NVENC; 2 deixa folga para OBS/jogo. Placa profissional: pode subir
+fila_max_cortes = 3        # cortes esperando render; se encher, descarta o mais fraco

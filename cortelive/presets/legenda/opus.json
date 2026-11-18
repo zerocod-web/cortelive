@@ -1,0 +1,15 @@
+{
+  "_ajuda": "Estilo 'clipe viral': maiúsculas grossas, contorno preto, palavra falada em amarelo. Para criar um 4º estilo, copie este arquivo com outro nome e mude os valores. Cores em #RRGGBB.",
+  "fonte": "Montserrat ExtraBold",
+  "tamanho": 86,
+  "maiusculas": true,
+  "cor": "#FFFFFF",
+  "cor_destaque": "#FFE11A",
+  "contorno": 7,
+  "cor_contorno": "#000000",
+  "sombra": 3,
+  "efeito": "destaque",
+  "escala_destaque": 112,
+  "palavras_por_vez": 3,
+  "alinhamento": 2
+}

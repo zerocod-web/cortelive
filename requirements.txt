@@ -1,0 +1,12 @@
+# cortelive — versões testadas em 17/11/2026 (Windows 11, Python 3.12)
+faster-whisper==1.2.1
+ctranslate2==4.9.0
+numpy==2.2.6
+opencv-python==4.14.0.94
+requests==2.34.2
+streamlink==8.6.3
+yt-dlp==2026.10.26
+onnxruntime==1.32.0
+# só NVIDIA (transcrição na placa):
+nvidia-cublas-cu12==12.9.2.10; sys_platform == "win32"
+nvidia-cudnn-cu12==9.27.0.42; sys_platform == "win32"

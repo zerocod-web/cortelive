@@ -1,0 +1,8 @@
+{
+  "_ajuda": "Recorte vertical do gameplay ocupando a tela toda. 'centro_x' (0 a 1) é onde fica o meio do recorte na live. Os cantos com HUD ficam de fora do recorte; a legenda sobe para não cobrir nada que sobrar embaixo.",
+  "tipo": "crop",
+  "largura": 1080,
+  "altura": 1920,
+  "centro_x": 0.5,
+  "legenda_margem_baixo": 560
+}

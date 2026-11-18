@@ -1,0 +1,83 @@
+# Ambientes, binarios locais e modelos pesados
+.venv/
+venv/
+python/
+ffmpeg/
+modelos/
+ferramentas/
+
+# Saidas, pacotes gerados e logs
+cortes/
+dist/
+logs/
+logs
+*.log
+instalacao_log.txt
+.buffer/
+*.tar.gz
+*.zip
+
+# Cache e artefatos Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+.pytest_cache/
+
+# Testes locais, pesquisa e pastas de ferramentas locais
+teste_video/
+testes/
+qa/
+PESQUISA.md
+.agents/
+.codex/
+.gemini/
+.overclock-app/
+
+# Estado e configuracao local do usuario (nunca versionar)
+instalador/modo.txt
+lives.txt
+config.toml
+!cortelive/config.toml
+*.local.*
+config.local*
+usuario.toml
+
+# Segredos, chaves, contas, sessoes e cookies (NUNCA versionar)
+.env
+.env.*
+.env*
+*.key
+*.pem
+*.pfx
+*.p12
+*.crt
+secrets
+secrets/
+secrets*
+contas/
+tokens
+tokens/
+*token*.json
+*token*.txt
+cookies*.txt
+cookies/
+*cookie*.json
+client_secret*.json
+credentials*.json
+auth*.json
+perfil_navegador/
+sessao_login*/
+
+# Em andamento (fora da versao publicada v0.1.0 por enquanto)
+cortelive/postar/
+cortelive/autopost/
+LEIA-ME_POSTAGEM.md
+painel/
+painel.cmd
+Painel*.bat
+PAINEL*.bat
+CortarLive.bat
+VERSION
+instalador/atualizar*.ps1

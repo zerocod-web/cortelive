@@ -1,0 +1,11 @@
+{
+  "_ajuda": "Cam do streamer em cima, jogo embaixo. Coordenadas em fração da tela da live (0 a 1). Rode 'cortelive marcar-cam' para medir a cam do canal. 'jogo' é o recorte do gameplay; deixe o HUD (vida, dinheiro, minimapa) fora dele ou dentro, como preferir.",
+  "tipo": "cam-em-cima",
+  "largura": 1080,
+  "altura": 1920,
+  "cam": {"x": 0.0, "y": 0.0, "w": 0.318, "h": 0.315},
+  "altura_cam": 640,
+  "jogo": {"x": 0.32, "y": 0.0, "w": 0.60, "h": 1.0},
+  "_ajuda_jogo": "O painel do jogo mostra o retângulo 'jogo' inteiro pela largura, sobre a mesma imagem desfocada (sem faixa preta). Mantenha o retângulo fora da cam. A legenda fica na emenda cam/jogo.",
+  "legenda_margem_baixo": 560
+}

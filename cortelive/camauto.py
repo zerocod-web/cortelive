@@ -105,6 +105,27 @@ def _rosto_parado(imgs, f):
     return max(float(np.abs(a - b).mean()) for a in ps for b in ps) < 2.5
 
 
+def _pele(p):
+    """Fração do recorte com tom de pele (YCrCb). Rosto de pessoa >= 0,38 em todas as lives medidas; ícone/retrato
+    do HUD (barra de habilidades do WoW 0,03) e arma de inventário ficam perto de 0."""
+    import cv2
+    if p.size == 0:
+        return 0.0
+    y = cv2.cvtColor(p, cv2.COLOR_BGR2YCrCb)
+    m = (y[..., 1] >= 133) & (y[..., 1] <= 173) & (y[..., 2] >= 77) & (y[..., 2] <= 127)
+    return float(m.mean())
+
+
+PELE_MIN = 0.15
+
+
+def _na_borda(cam, w, h, tol=0.15):
+    """Webcam de streamer fica encostada numa borda/canto da tela (medido: <= 6% nas 14 lives). Janela solta no meio
+    do jogo (inventário, painel) não é câmera."""
+    x, y, cw, ch = cam
+    return min(x / w, (w - x - cw) / w, y / h, (h - y - ch) / h) <= tol
+
+
 def _agrupar(achados, w, h, tx, ty):
     todos = [f for lista in achados for f in lista]
     melhor, votos = None, 0
@@ -130,6 +151,10 @@ def _rosto_estavel(achados, w, h, imgs=None):
     if imgs is not None:
         fixos = {f for lista in achados for f in lista if _rosto_parado(imgs, f)}
         achados = [[f for f in lista if f not in fixos] for lista in achados]
+        # rosto de verdade tem tom de pele: tira ícone de habilidade, arma de inventário, etc.
+        achados = [[f for f, i in ((f, imgs[k]) for f in lista)
+                    if _pele(i[max(0, f[1]):f[1] + f[3], max(0, f[0]):f[0] + f[2]]) >= PELE_MIN]
+                   for k, lista in enumerate(achados)]
     return _agrupar(achados, w, h, 0.03, 0.04) or _agrupar(achados, w, h, 0.10, 0.12)
 
 
@@ -467,12 +492,12 @@ def detectar(arquivos, prop=1080 / 640):
     # bordas: cada lado tem de ter achado o fim da janela OU estar encostado na borda da tela
     encostado = [x <= 4, x + cw >= w - 4, y <= 4, y + ch >= h - 4]
     lados_ok = all(b or e for b, e in zip(bordas, [encostado[0], encostado[1], encostado[2], encostado[3]]))
-    plausivel = (cw <= 0.5 * w and ch <= 0.6 * h and cw >= fw * 2.2 and ch >= fh * 1.8
+    plausivel = (cw <= 0.5 * w and ch <= 0.6 * h and cw * ch <= 0.2 * w * h and _na_borda((x, y, cw, ch), w, h) and cw >= fw * 2.2 and ch >= fh * 1.8
                  and x + fw * 0.3 < cx - fw / 2 and cx + fw / 2 < x + cw - fw * 0.3 and y <= cy - fh / 2)
     ULTIMO.update(lados_ok=lados_ok, plausivel=plausivel, votos=votos)
     def _plaus(c):
         x_, y_, w_, h_ = c
-        return (w_ <= 0.5 * w and h_ <= 0.6 * h and w_ >= fw * 2.2 and h_ >= fh * 1.8
+        return (w_ <= 0.5 * w and h_ <= 0.6 * h and w_ * h_ <= 0.2 * w * h and _na_borda(c, w, h) and w_ >= fw * 2.2 and h_ >= fh * 1.8
                 and x_ + fw * 0.3 < cx - fw / 2 and cx + fw / 2 < x_ + w_ - fw * 0.3 and y_ <= cy - fh / 2)
     if not (lados_ok and plausivel):
         # 1ª reserva: quando o lado direito/esquerdo encosta num painel parado do jogo (HUD), o contraste some;
@@ -499,7 +524,7 @@ def detectar(arquivos, prop=1080 / 640):
         ULTIMO["overlay_2"] = cam
         if cam:
             x, y, cw, ch = cam
-            plausivel = (cw <= 0.5 * w and ch <= 0.6 * h and cw >= fw * 2.2 and ch >= fh * 1.8
+            plausivel = (cw <= 0.5 * w and ch <= 0.6 * h and cw * ch <= 0.2 * w * h and _na_borda(cam, w, h) and cw >= fw * 2.2 and ch >= fh * 1.8
                          and x + fw * 0.3 < cx - fw / 2 and cx + fw / 2 < x + cw - fw * 0.3 and y <= cy - fh / 2)
         if not cam or not plausivel:
             ULTIMO["motivo"] = "overlay incerto"

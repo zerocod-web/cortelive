@@ -379,6 +379,11 @@ def ajustar_proporcao(cam, rosto, w, h, prop, bordas=None, topo_px=None):
     y_orig, ch_orig = y, ch
     mx, my = cw * 0.025, ch * 0.025
     topo = topo_px if topo_px else ch * 0.14   # faixa de nome/relógio que algumas lives põem colada em cima da cam
+    if not topo_px:
+        # v1.0.7: sem faixa medida, o corte de 14% às cegas comia o cabelo (stepbr12). Só corta o que sobra acima da
+        # cabeça (topo do cabelo ~0,75 rosto acima do centro) deixando meio rosto de folga.
+        cabeca = rosto[1] - rosto[3] * 0.75
+        topo = min(topo, max(ch * 0.02, cabeca - y - rosto[3] * 0.5))
     x, y, cw, ch = x + mx, y + topo, cw - 2 * mx, ch - topo - my
     cx, cy, fw, fh = rosto[:4]
     if cw / ch > prop:            # largo demais: corta nas laterais, centrado no rosto

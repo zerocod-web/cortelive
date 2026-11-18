@@ -17,6 +17,7 @@
   let timerPoll = null;
   let abaAtiva = "cortar";
   let acompanhamentoAtualizacao = false;
+  let checagemAtualizacao = null;
   let canaisAtivosPostiz = [];
   let canaisSelecionados = null;
   let editandoLimites = false;
@@ -926,19 +927,44 @@
   }
 
   // --- Atualizações (instalador\atualizar.ps1 -Checar / -Aplicar) ---
-  async function checarAtualizacao() {
-    if (acompanhamentoAtualizacao) return;
+  async function checarAtualizacao(manual = false) {
+    const botao = el("btn-checar-atualizacao");
+    if (el("btn-aplicar-atualizacao").disabled) return;
+
+    if (manual) {
+      botao.disabled = true;
+      botao.textContent = "Verificando…";
+    }
+
     try {
-      const res = await api("/api/atualizacao/checar");
-      if (res && res.etapa === "disponivel" && res.versao_nova) {
+      if (!checagemAtualizacao) {
+        checagemAtualizacao = api("/api/atualizacao/checar").finally(() => {
+          checagemAtualizacao = null;
+        });
+      }
+      const res = await checagemAtualizacao;
+      if (el("btn-aplicar-atualizacao").disabled) return;
+      if (res?.ok !== false && res?.etapa === "disponivel" && res.versao_nova) {
         el("titulo-atualizacao").textContent = `Nova versão v${res.versao_nova} disponível`;
         el("detalhe-atualizacao").textContent =
           res.msg || `Atualiza da v${res.versao_atual} para v${res.versao_nova} mantendo modelos e cortes.`;
         el("faixa-atualizacao").hidden = false;
       } else {
         el("faixa-atualizacao").hidden = true;
+        if (manual && res?.ok !== false && res?.etapa === "em_dia") {
+          mostrarAvisoSistema("O CorteLive está atualizado", res.msg || "Você já tem a versão mais recente.");
+        } else if (manual) {
+          mostrarAvisoSistema("Não foi possível verificar atualizações", res?.erro || res?.msg || "Tente novamente em alguns minutos.");
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (manual) mostrarAvisoSistema("Não foi possível verificar atualizações", "Tente novamente em alguns minutos.");
+    } finally {
+      if (manual) {
+        botao.disabled = false;
+        botao.textContent = "Atualizações";
+      }
+    }
   }
 
   function finalizarAtualizacao(res) {
@@ -1148,6 +1174,7 @@
       if (res.ok === false) mostrarAvisoSistema("Não foi possível abrir a pasta de cortes", res.erro);
     });
 
+    el("btn-checar-atualizacao").addEventListener("click", () => checarAtualizacao(true));
     el("btn-aplicar-atualizacao").addEventListener("click", aplicarAtualizacao);
 
     // Switches de automação e reserva

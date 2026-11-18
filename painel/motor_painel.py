@@ -961,6 +961,89 @@ def _aviso_descarte(qtd: int) -> str | None:
     return f"{qtd} cortes em andamento foram descartados ao parar."
 
 
+def _tempo_atras(seg: float) -> str:
+    if seg < 45:
+        return "agora mesmo"
+    if seg < 3600:
+        return f"há {max(1, round(seg / 60))} min"
+    horas = int(seg // 3600)
+    mins = int((seg % 3600) // 60)
+    return f"há {horas} h" if mins == 0 else f"há {horas}h{mins:02d}"
+
+
+def _atraso_voz_sessao(ativas: list[dict]) -> tuple[float | None, str | None]:
+    ao_vivo = [st for st in ativas if st.get("estado") in ("ao vivo", "gravando")]
+    com_atraso = [
+        (float(st["atraso_transcricao_s"]), str(st.get("canal") or ""))
+        for st in ao_vivo
+        if st.get("atraso_transcricao_s") is not None
+    ]
+    if not com_atraso:
+        return None, None
+    maior_s, maior_canal = max(com_atraso, key=lambda item: item[0])
+    menor_s = min(item[0] for item in com_atraso)
+    mostrar_canal = (
+        len(ao_vivo) >= 2
+        and bool(maior_canal)
+        and round(maior_s) > 0
+        and (len(com_atraso) < len(ao_vivo) or round(maior_s) != round(menor_s))
+    )
+    return round(maior_s, 1), (maior_canal if mostrar_canal else None)
+
+
+def _resumo_barra_sessao(dados: list[dict], estado: str, ultimo_corte_ha_s: float | None) -> str:
+    ativas = [st for st in dados if st.get("pode_parar")]
+    ao_vivo = [st for st in ativas if st.get("estado") in ("ao vivo", "gravando")]
+    total_cortes = sum(int(st.get("cortes") or 0) for st in dados)
+
+    def _detalhe_multi() -> str:
+        if ultimo_corte_ha_s is not None:
+            return f"último corte {_tempo_atras(ultimo_corte_ha_s)}"
+        em_corte = next(
+            (st for st in ao_vivo if any(k in str(st.get("atividade") or "").lower()
+                                         for k in ("cortando", "fazendo o corte", "começando a cortar"))),
+            None,
+        )
+        if em_corte and total_cortes > 0:
+            plural = "corte pronto" if total_cortes == 1 else "cortes prontos"
+            return f"{total_cortes} {plural} · cortando em {em_corte.get('canal') or 'live'}"
+        if em_corte:
+            return f"cortando em {em_corte.get('canal') or 'live'}"
+        if total_cortes > 0:
+            return f"{total_cortes} {'corte pronto' if total_cortes == 1 else 'cortes prontos'}"
+        return "ouvindo em tempo real"
+
+    if len(ao_vivo) >= 2:
+        esperando = max(0, len(ativas) - len(ao_vivo))
+        prefixo = f"Acompanhando {len(ao_vivo)} lives" + (f" ({esperando} aguardando)" if esperando > 0 else "")
+        return f"{prefixo} · {_detalhe_multi()}"
+    if len(ao_vivo) == 1:
+        unica_lv = ao_vivo[0]
+        canal = unica_lv.get("canal") or "live"
+        esperando = max(0, len(ativas) - 1)
+        prefixo = f"Acompanhando {canal}" + (f" ({esperando} aguardando)" if esperando > 0 else "")
+        if ultimo_corte_ha_s is not None:
+            detalhe = f"último corte {_tempo_atras(ultimo_corte_ha_s)}"
+        elif unica_lv.get("atividade"):
+            detalhe = str(unica_lv["atividade"])
+        else:
+            detalhe = _detalhe_multi()
+        return f"{prefixo} · {detalhe}"
+    if estado in ("encerrando", "encerrada"):
+        return "Parando as lives e finalizando cortes em andamento…"
+    if ativas and all(st.get("estado") == "esperando live" for st in ativas):
+        if len(ativas) >= 2:
+            return f"Aguardando {len(ativas)} lives entrarem ao vivo…"
+        return str(ativas[0].get("mensagem") or f"Aguardando {ativas[0].get('canal') or 'a live'} entrar ao vivo…")
+    if ativas and any(st.get("estado") == "reconectando" for st in ativas):
+        if len(ativas) >= 2:
+            return "Reconectando às lives…"
+        return str(ativas[0].get("mensagem") or "A live caiu — tentando voltar sozinho…")
+    if len(ativas) >= 2:
+        return f"Preparando {len(ativas)} lives e modelo de voz…"
+    return "Iniciando captura e modelo de voz…"
+
+
 def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
                          acordar_ev: threading.Event | None = None,
                          fechar_ev: threading.Event | None = None,
@@ -970,6 +1053,8 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
         (ids_por_fonte or {}).get(fonte) or uuid.uuid4().hex: lv
         for fonte, lv in sup.lives.items()
     }
+    ultimo_corte_em = 0.0
+    cortes_por_id: dict[str, int] = {}
 
     def adicionar_live(fonte):
         """Entra mais uma live na sessão em andamento (mesmo caminho da largada)."""
@@ -1030,14 +1115,37 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
                     lv.parar(descartar_cortes=True)
             sup.vigiar()
             dados = estados()
+            agora = time.time()
+            for lv in lives.values():
+                pronto_s = getattr(getattr(lv, "s", None), "_pronto_em", None)
+                if isinstance(pronto_s, tuple) and pronto_s and pronto_s[0] > ultimo_corte_em:
+                    ultimo_corte_em = float(pronto_s[0])
+            for st in dados:
+                ident = st["id"]
+                c_atual = int(st.get("cortes") or 0)
+                c_ant = cortes_por_id.get(ident)
+                if c_ant is not None and c_atual > c_ant and ultimo_corte_em < agora - 1.0:
+                    ultimo_corte_em = agora
+                cortes_por_id[ident] = c_atual
+
             ativas = [st for st in dados if st["pode_parar"]]
             pendentes = [lv for lv in lives.values() if not lv.terminou]
-            estado = ("ao vivo" if any(st.get("estado") == "ao vivo" for st in ativas)
+            estado = ("ao vivo" if any(st.get("estado") in ("ao vivo", "gravando") for st in ativas)
                       else ativas[0].get("estado") if ativas
                       else "encerrando" if pendentes else "encerrada")
+            ultimo_corte_ha_s = round(max(0.0, agora - ultimo_corte_em), 1) if ultimo_corte_em > 0 else None
+            atraso_s, atraso_canal = _atraso_voz_sessao(ativas)
             avisos_disco = [st["aviso_disco"] for st in dados if st.get("aviso_disco")]
-            extra_disco = {"mensagem": avisos_disco[0]} if avisos_disco else {}
-            emitir({"estado": estado, "lives": dados, **status_servicos(modo_resumo), **extra_disco})
+            mensagem = avisos_disco[0] if avisos_disco else _resumo_barra_sessao(dados, estado, ultimo_corte_ha_s)
+            emitir({
+                "estado": estado,
+                "mensagem": mensagem,
+                "atraso_s": atraso_s,
+                "atraso_canal": atraso_canal,
+                "ultimo_corte_ha_s": ultimo_corte_ha_s,
+                "lives": dados,
+                **status_servicos(modo_resumo),
+            })
             if not pendentes:
                 break
             if acordar_ev is not None:

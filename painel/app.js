@@ -27,6 +27,9 @@
   let canaisSelecionados = null;
   let editandoLimites = false;
   let salvandoPreferencias = false;
+  let ultimoTotalCortesSessao = 0;
+  let ultimoCorteDetectadoMs = 0;
+  let ultimaAssinaturaLives = "";
   const redesPostagem = {
     youtube: "YouTube Shorts",
     instagram: "Instagram Reels",
@@ -312,6 +315,127 @@
     });
   }
 
+  function ehMensagemLargada(msg) {
+    if (!msg) return false;
+    const t = String(msg).trim();
+    return (
+      /^Detectando placa de vídeo/i.test(t) ||
+      /^Preparando motor de corte/i.test(t) ||
+      /^Iniciando captura e modelo de voz/i.test(t) ||
+      /^\d{2}:\d{2}:\d{2}\s+[+~=!-]\s+/i.test(t)
+    );
+  }
+
+  function ehAvisoDisco(msg) {
+    if (!msg) return false;
+    return /pouco espaço|disco quase lotado|libere espaço/i.test(String(msg));
+  }
+
+  function formatarTempoAtras(seg) {
+    const s = Math.max(0, Number(seg) || 0);
+    if (s < 45) return "agora mesmo";
+    if (s < 3600) return `há ${Math.max(1, Math.round(s / 60))} min`;
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return m === 0 ? `há ${h} h` : `há ${h}h${String(m).padStart(2, "0")}`;
+  }
+
+  function extrairAtrasoLive(lv) {
+    if (!lv || typeof lv !== "object") return null;
+    for (const chave of ["atraso_transcricao_s", "atraso_s"]) {
+      const val = lv[chave];
+      if (val !== null && val !== undefined && val !== "" && Number.isFinite(Number(val))) {
+        return Math.max(0, Number(val));
+      }
+    }
+    const m = String(lv.atividade || "").match(/atraso\s+(\d+(?:[.,]\d+)?)\s*s/i);
+    return m ? Math.max(0, Number(m[1].replace(",", "."))) : null;
+  }
+
+  function formatarAtrasoVoz(sessao, aoVivoLives) {
+    const comAtraso = aoVivoLives
+      .map((lv) => ({ canal: String(lv.canal || "").trim(), atraso: extrairAtrasoLive(lv) }))
+      .filter((x) => x.atraso !== null);
+
+    if (comAtraso.length > 0) {
+      const maior = comAtraso.reduce((a, b) => (b.atraso > a.atraso ? b : a));
+      const menor = comAtraso.reduce((a, b) => (b.atraso < a.atraso ? b : a));
+      const seg = Math.round(maior.atraso);
+      const mostrarNome =
+        aoVivoLives.length >= 2 &&
+        Boolean(maior.canal) &&
+        seg > 0 &&
+        (comAtraso.length < aoVivoLives.length || Math.round(menor.atraso) !== seg);
+      if (mostrarNome) {
+        const curto = maior.canal.length > 18 ? `${maior.canal.slice(0, 17)}…` : maior.canal;
+        return `${seg} s (${curto})`;
+      }
+      return `${seg} s`;
+    }
+
+    const atr = sessao.atraso_s;
+    if (atr !== null && atr !== undefined && atr !== "" && Number.isFinite(Number(atr))) {
+      const seg = Math.round(Math.max(0, Number(atr)));
+      const canalTopo = sessao.atraso_canal && aoVivoLives.length >= 2 && seg > 0 ? String(sessao.atraso_canal).trim() : "";
+      if (canalTopo) {
+        const curto = canalTopo.length > 18 ? `${canalTopo.slice(0, 17)}…` : canalTopo;
+        return `${seg} s (${curto})`;
+      }
+      return `${seg} s`;
+    }
+    return "—";
+  }
+
+  function detalheAtividadeLives(aoVivoLives, cortesSessao, ultimoCorteHaS) {
+    if (ultimoCorteHaS !== null) {
+      return `último corte ${formatarTempoAtras(ultimoCorteHaS)}`;
+    }
+    const emCorte = aoVivoLives.find((lv) =>
+      /cortando|fazendo o corte|começando a cortar|legenda\s+\d+%/i.test(String(lv.atividade || ""))
+    );
+    if (emCorte && cortesSessao > 0) {
+      const plural = cortesSessao === 1 ? "corte pronto" : "cortes prontos";
+      return `${cortesSessao} ${plural} · cortando em ${emCorte.canal || "live"}`;
+    }
+    if (emCorte) {
+      return `cortando em ${emCorte.canal || "live"}`;
+    }
+    if (cortesSessao > 0) {
+      return `${cortesSessao} ${cortesSessao === 1 ? "corte pronto" : "cortes prontos"}`;
+    }
+    return "ouvindo em tempo real";
+  }
+
+  function montarResumoAoVivo(sessao, lives, ativas, aoVivoLives, cortesSessao, ultimoCorteHaS) {
+    const avisoDisco = sessao.aviso_disco || (ehAvisoDisco(sessao.ultima_mensagem) ? String(sessao.ultima_mensagem).trim() : "");
+    if (lives.length === 0) {
+      const canal = sessao.canal ? `Acompanhando ${sessao.canal}` : "Acompanhando transmissão em tempo real";
+      const msg = sessao.ultima_mensagem && !ehMensagemLargada(sessao.ultima_mensagem) ? String(sessao.ultima_mensagem).trim() : "";
+      if (msg.startsWith("Acompanhando ")) return msg;
+      return msg ? `${canal} · ${msg}` : canal;
+    }
+
+    if (aoVivoLives.length >= 2) {
+      const esperando = Math.max(0, ativas.length - aoVivoLives.length);
+      const prefixo = `Acompanhando ${aoVivoLives.length} lives${esperando > 0 ? ` (${esperando} aguardando)` : ""}`;
+      const detalhe = avisoDisco || detalheAtividadeLives(aoVivoLives, cortesSessao, ultimoCorteHaS);
+      return `${prefixo} · ${detalhe}`;
+    }
+
+    const unica = aoVivoLives[0] || ativas[0] || lives[0];
+    const canal = (unica && unica.canal) || sessao.canal || "transmissão em tempo real";
+    const esperando = Math.max(0, ativas.length - 1);
+    const prefixo = `Acompanhando ${canal}${esperando > 0 ? ` (${esperando} aguardando)` : ""}`;
+    if (avisoDisco) return `${prefixo} · ${avisoDisco}`;
+    if (ultimoCorteHaS !== null) return `${prefixo} · último corte ${formatarTempoAtras(ultimoCorteHaS)}`;
+    if (unica && unica.atividade) return `${prefixo} · ${unica.atividade}`;
+    const msgLimpa =
+      sessao.ultima_mensagem && !ehMensagemLargada(sessao.ultima_mensagem) && !String(sessao.ultima_mensagem).startsWith("Acompanhando ")
+        ? String(sessao.ultima_mensagem).trim()
+        : "";
+    return `${prefixo} · ${msgLimpa || detalheAtividadeLives(aoVivoLives, cortesSessao, null)}`;
+  }
+
   // --- Mesa de Corte + Status ao Vivo ---
   function atualizarMesaCorte(dados) {
     el("info-hardware-modo").textContent = dados.modo_descricao || "Hardware detectado automaticamente";
@@ -319,12 +443,48 @@
     const sessao = dados.sessao || {};
     const rodando = Boolean(sessao.rodando);
     const estado = (sessao.estado || "parado").toLowerCase();
+    const lives = Array.isArray(sessao.lives) ? sessao.lives : [];
+    const ativas = lives.filter(
+      (lv) => lv && lv.pode_parar !== false && !["parada", "encerrada", "erro"].includes(String(lv.estado || "").toLowerCase())
+    );
+    const aoVivoLives = ativas.filter((lv) => ["ao vivo", "gravando"].includes(String(lv.estado || "").toLowerCase()));
+    const cortesSessao =
+      sessao.cortes_sessao !== null && sessao.cortes_sessao !== undefined
+        ? Number(sessao.cortes_sessao) || 0
+        : lives.reduce((acc, lv) => acc + (Number(lv && lv.cortes) || 0), 0);
+    const maiorLiveS = Math.max(
+      Number(sessao.live_s) || 0,
+      ...lives.map((lv) => Number(lv && lv.live_s) || 0)
+    );
+
+    const assinaturaLives = lives.map((lv) => (lv && (lv.id || lv.canal)) || "").join("|");
+    if (!rodando || assinaturaLives !== ultimaAssinaturaLives || cortesSessao < ultimoTotalCortesSessao) {
+      ultimaAssinaturaLives = rodando ? assinaturaLives : "";
+      ultimoTotalCortesSessao = rodando ? cortesSessao : 0;
+      ultimoCorteDetectadoMs = 0;
+    } else if (cortesSessao > ultimoTotalCortesSessao) {
+      ultimoTotalCortesSessao = cortesSessao;
+      ultimoCorteDetectadoMs = Date.now();
+    }
+
+    let ultimoCorteHaS = null;
+    if (
+      sessao.ultimo_corte_ha_s !== null &&
+      sessao.ultimo_corte_ha_s !== undefined &&
+      sessao.ultimo_corte_ha_s !== "" &&
+      Number.isFinite(Number(sessao.ultimo_corte_ha_s))
+    ) {
+      ultimoCorteHaS = Math.max(0, Number(sessao.ultimo_corte_ha_s));
+    } else if (ultimoCorteDetectadoMs > 0) {
+      ultimoCorteHaS = Math.max(0, (Date.now() - ultimoCorteDetectadoMs) / 1000);
+    }
 
     const btnCortar = el("btn-cortar");
     const btnParar = el("btn-parar");
     const campoLink = el("campo-link");
 
     const encerrandoSessao = estado === "encerrando" || estado === "encerrada";
+    const emTransmissao = !encerrandoSessao && (estado === "ao vivo" || estado === "gravando" || aoVivoLives.length > 0);
     // Com live rodando o Cortar continua disponível: cola outro link e entra mais uma live na mesma sessão.
     btnCortar.hidden = false;
     btnParar.hidden = !rodando;
@@ -351,11 +511,10 @@
       txtTally.textContent = sessao.erro ? "ERRO" : "PRONTO";
       resumo.textContent = sessao.ultima_mensagem || "Cole o link da live abaixo e clique em Cortar.";
       metricas.hidden = true;
-    } else if (estado === "ao vivo") {
+    } else if (emTransmissao) {
       pilula.classList.add("tally-ao-vivo");
       txtTally.textContent = "AO VIVO";
-      const canal = sessao.canal ? `Acompanhando ${sessao.canal}` : "Acompanhando transmissão em tempo real";
-      resumo.textContent = sessao.ultima_mensagem ? `${canal} · ${sessao.ultima_mensagem}` : canal;
+      resumo.textContent = montarResumoAoVivo(sessao, lives, ativas, aoVivoLives, cortesSessao, ultimoCorteHaS);
       metricas.hidden = false;
     } else {
       pilula.classList.add("tally-preparando");
@@ -367,15 +526,20 @@
         "encerrada": "FINALIZANDO"
       };
       txtTally.textContent = mapaRotulo[estado] || estado.toUpperCase();
-      resumo.textContent = sessao.ultima_mensagem || "Iniciando captura e modelo de voz…";
+      if (ativas.length >= 2 && ativas.every((lv) => String(lv.estado || "").toLowerCase() === "esperando live")) {
+        resumo.textContent = `Aguardando ${ativas.length} lives entrarem ao vivo…`;
+      } else if (ativas.length >= 2 && estado === "iniciando") {
+        resumo.textContent = `Preparando ${ativas.length} lives e modelo de voz…`;
+      } else {
+        resumo.textContent = sessao.ultima_mensagem || "Iniciando captura e modelo de voz…";
+      }
       metricas.hidden = false;
     }
 
     if (rodando) {
-      el("metrica-tempo-live").textContent = formatarHms(sessao.live_s || 0);
-      el("metrica-cortes-sessao").textContent = String(sessao.cortes_sessao || 0);
-      const atr = sessao.atraso_s;
-      el("metrica-atraso-voz").textContent = atr !== null && atr !== undefined ? `${Math.round(atr)} s` : "—";
+      el("metrica-tempo-live").textContent = formatarHms(maiorLiveS);
+      el("metrica-cortes-sessao").textContent = String(cortesSessao);
+      el("metrica-atraso-voz").textContent = formatarAtrasoVoz(sessao, aoVivoLives);
     }
 
     const blocoErroSessao = el("bloco-erro-sessao");

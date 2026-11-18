@@ -93,6 +93,8 @@ namespace CorteLivePainel
         private static string SessaoCanal = "";
         private static double SessaoLiveS = 0.0;
         private static double? SessaoAtrasoS = null;
+        private static string SessaoAtrasoCanal = null;
+        private static double? SessaoUltimoCorteHaS = null;
         private static int SessaoCortes = 0;
         private static string SessaoUltimaMsg = "";
         private static string SessaoDetalheServicos = "";
@@ -1669,6 +1671,8 @@ namespace CorteLivePainel
                     canal = SessaoCanal,
                     live_s = SessaoLiveS,
                     atraso_s = SessaoAtrasoS,
+                    atraso_canal = SessaoAtrasoCanal,
+                    ultimo_corte_ha_s = SessaoUltimoCorteHaS,
                     cortes_sessao = SessaoCortes,
                     ultima_mensagem = SessaoUltimaMsg,
                     detalhe_servicos = SessaoDetalheServicos,
@@ -1975,6 +1979,8 @@ namespace CorteLivePainel
                 SessaoCanal = "";
                 SessaoLiveS = 0.0;
                 SessaoAtrasoS = null;
+                SessaoAtrasoCanal = null;
+                SessaoUltimoCorteHaS = null;
                 SessaoCortes = 0;
                 SessaoUltimaMsg = "Preparando motor de corte e modelo de voz…";
                 SessaoDetalheServicos = "";
@@ -2132,6 +2138,10 @@ namespace CorteLivePainel
                             SessaoErro = Convert.ToString(st["erro"]);
                         if (st.ContainsKey("modo") && st["modo"] != null)
                             SessaoDetalheServicos = Convert.ToString(st["modo"]);
+                        if (st.ContainsKey("atraso_canal"))
+                            SessaoAtrasoCanal = st["atraso_canal"] != null ? Convert.ToString(st["atraso_canal"]) : null;
+                        if (st.ContainsKey("ultimo_corte_ha_s"))
+                            SessaoUltimoCorteHaS = st["ultimo_corte_ha_s"] != null ? (double?)Convert.ToDouble(st["ultimo_corte_ha_s"]) : null;
 
                         if (st.ContainsKey("lives") && st["lives"] is System.Collections.ArrayList)
                         {
@@ -2153,10 +2163,18 @@ namespace CorteLivePainel
                                     double ls = Convert.ToDouble(lv["live_s"]);
                                     if (ls > maiorLiveS) maiorLiveS = ls;
                                 }
-                                if (lv.ContainsKey("atraso_transcricao_s") && lv["atraso_transcricao_s"] != null)
+                                string estLv = lv.ContainsKey("estado") && lv["estado"] != null ? Convert.ToString(lv["estado"]) : "";
+                                bool ativaLv = (estLv == "ao vivo" || estLv == "gravando") &&
+                                               (!lv.ContainsKey("pode_parar") || !(lv["pode_parar"] is bool) || (bool)lv["pode_parar"]);
+                                if (ativaLv && lv.ContainsKey("atraso_transcricao_s") && lv["atraso_transcricao_s"] != null)
                                 {
-                                    atraso = Convert.ToDouble(lv["atraso_transcricao_s"]);
+                                    double atrLv = Convert.ToDouble(lv["atraso_transcricao_s"]);
+                                    if (!atraso.HasValue || atrLv > atraso.Value) atraso = atrLv;
                                 }
+                            }
+                            if (st.ContainsKey("atraso_s") && st["atraso_s"] != null)
+                            {
+                                atraso = Convert.ToDouble(st["atraso_s"]);
                             }
                             SessaoLives.Clear();
                             foreach (object o2 in arr)
@@ -2169,6 +2187,11 @@ namespace CorteLivePainel
                                 item["estado"] = lv2.ContainsKey("estado") && lv2["estado"] != null ? Convert.ToString(lv2["estado"]) : "";
                                 item["cortes"] = lv2.ContainsKey("cortes") && lv2["cortes"] != null ? Convert.ToInt32(lv2["cortes"]) : 0;
                                 item["pode_parar"] = lv2.ContainsKey("pode_parar") && lv2["pode_parar"] is bool && (bool)lv2["pode_parar"];
+                                item["live_s"] = lv2.ContainsKey("live_s") && lv2["live_s"] != null ? Convert.ToDouble(lv2["live_s"]) : 0.0;
+                                item["atraso_transcricao_s"] = lv2.ContainsKey("atraso_transcricao_s") && lv2["atraso_transcricao_s"] != null
+                                    ? (object)Convert.ToDouble(lv2["atraso_transcricao_s"]) : null;
+                                item["atividade"] = lv2.ContainsKey("atividade") && lv2["atividade"] != null ? Convert.ToString(lv2["atividade"]) : "";
+                                item["aviso"] = lv2.ContainsKey("aviso") && lv2["aviso"] != null ? Convert.ToString(lv2["aviso"]) : null;
                                 SessaoLives.Add(item);
                             }
                             SessaoCortes = somaCortes;

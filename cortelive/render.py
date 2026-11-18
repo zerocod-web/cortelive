@@ -68,6 +68,29 @@ def _jogo_janela(m, sw, sh):
     return nw, nh, jx, jy, hg
 
 
+def _corrida_jogo(ok):
+    """ok[i] = coluna i tem imagem. A maior corrida contínua de colunas com imagem é o jogo -> (a, b) ou None.
+    v1.0.13: faixa preta de jogo 4:3 é SIMÉTRICA (gaules: 160 e 166 px de 1280). Cena escura num lado da tela não é
+    faixa (ovotz à noite deu 4 px à esquerda e 220 à direita: o jogo 16:9 virou 'estreito', pegou um pedaço da cam e
+    a faixa da legenda esticou até um terço da tela; o inventário escuro do stepbr12 também)."""
+    melhor, ini = (0, 0), None
+    for i, v in enumerate(list(ok) + [False]):
+        if v and ini is None:
+            ini = i
+        elif not v and ini is not None:
+            if i - ini > melhor[1] - melhor[0]:
+                melhor = (ini, i)
+            ini = None
+    a, b = melhor
+    W = len(ok)
+    if b - a < W * 0.35 or (b - a) >= W * 0.92:
+        return None
+    esq, dir_ = a, W - b
+    if min(esq, dir_) < 0.04 * W or abs(esq - dir_) > 0.04 * W:
+        return None
+    return a, b
+
+
 def janela_do_jogo(video, inicio, fim, sw, sh, cam=None):
     """Onde está a imagem do jogo quando a live tem faixas pretas nas laterais (jogo 4:3 em tela 16:9, CS 1.6).
     Mede, em 6 quadros do trecho, quanto de cada coluna tem imagem (fora da cam); a maior corrida contínua de
@@ -101,19 +124,10 @@ def janela_do_jogo(video, inicio, fim, sw, sh, cam=None):
         warnings.simplefilter("ignore", RuntimeWarning)
         col = np.nanmean(np.stack(acc), (0, 1)) if False else np.nanmean(np.nanmean(np.stack(acc), 0), 0)
     col = np.nan_to_num(col)
-    ok = col > 0.30
-    melhor, ini = (0, 0), None
-    for i, v in enumerate(list(ok) + [False]):
-        if v and ini is None:
-            ini = i
-        elif not v and ini is not None:
-            if i - ini > melhor[1] - melhor[0]:
-                melhor = (ini, i)
-            ini = None
-    a, b = melhor
-    W = len(col)
-    if b - a < W * 0.35 or (b - a) >= W * 0.92:
+    ab = _corrida_jogo(col > 0.30)
+    if not ab:
         return None
+    a, b = ab
     a, b = a + 1, b - 1                      # 1 px de folga para dentro: tira o fio da borda
     x0, x1 = int(a / esc) // 2 * 2, int(b / esc) // 2 * 2
     return (x0, 0, x1 - x0, sh)

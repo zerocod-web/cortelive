@@ -205,10 +205,7 @@
         sessao: Object.assign({}, s, { log_completo: undefined, log_recente: undefined })
       } : null,
       log_painel: [s.log_completo, estadoAtual && estadoAtual.instalacao && estadoAtual.instalacao.log_recente]
-        .filter(Boolean).map((t) => Array.isArray(t) ? t.join("
-") : String(t)).join("
----
-")
+        .filter(Boolean).map((t) => Array.isArray(t) ? t.join("\n") : String(t)).join("\n---\n")
     };
     const res = await api("/api/enviar-erro", "POST", corpo);
     botoes.forEach((b, i) => { b.disabled = false; if (rotulos[i]) rotulos[i].textContent = "Enviar erro para o Gabriel"; });

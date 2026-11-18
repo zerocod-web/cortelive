@@ -65,6 +65,15 @@ $pp = Get-Content -LiteralPath (Join-Path $raiz 'pyproject.toml') -Raw -Encoding
 if ($pp -notmatch 'version\s*=\s*\{\s*file\s*=\s*"VERSION"\s*\}') { Falhou 'pyproject.toml nao le a versao do arquivo VERSION.' }
 Ok "VERSION, cortelive.__version__ e pyproject (dynamic -> VERSION) = $Versao"
 
+# Sintaxe dos scripts da tela: um erro aqui deixa o painel em branco (aconteceu na v1.0.7 antes do conserto).
+$node = Get-Command node -ErrorAction SilentlyContinue
+if (-not $node) { Falhou 'node nao encontrado: nao da para conferir a sintaxe do painel.' }
+foreach ($js in (Get-ChildItem -LiteralPath (Join-Path $repo 'painel') -Filter *.js -Recurse | Where-Object { $_.FullName -notmatch 'node_modules' })) {
+  $ErrorActionPreference = 'Continue'; $o = & node --check $js.FullName 2>&1 | Out-String; $c = $LASTEXITCODE; $ErrorActionPreference = 'Stop'
+  if ($c -ne 0) { Falhou "erro de sintaxe em $($js.Name): $o" }
+}
+Ok 'sintaxe de todos os .js do painel (node --check)'
+
 # --- 3) Testes --------------------------------------------------------------------------------
 Etapa '3) pytest inteiro (com limite de tempo por teste)'
 if ($PularTestes) { $resumo.Add('PULOU pytest (-PularTestes)'); Write-Host 'pulado' -ForegroundColor Yellow }

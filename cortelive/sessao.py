@@ -244,6 +244,8 @@ class Sessao:
                                    tambem=(dsl, dint))
             final = pasta / f"{legivel}.mp4"
             os.replace(r["mp4"], final)
+            if r.get("aviso"):
+                log.aviso(f"Atenção: {r['aviso']} Arquivo: {final.name}")
             sem_leg = None
             if r.get("mp4_sem_legenda") and Path(r["mp4_sem_legenda"]).exists() and r["mp4_sem_legenda"] != r["mp4"]:
                 dsl.mkdir(exist_ok=True)
@@ -256,7 +258,7 @@ class Sessao:
             info = {
                 "arquivo": final.name, "nome_interno": nome,
                 "sem_legenda": f"{pastas.SEM_LEGENDA}/{sem_leg.name}" if sem_leg else None,
-                "legenda": ass.name if ass else None,
+                "legenda": ass.name if ass else None, "aviso": r.get("aviso"),
                 "inicio_na_live": round(ini, 2), "fim_na_live": round(fim, 2),
                 "inicio_hms": _hms(ini), "fim_hms": _hms(fim), "duracao": round(fim - ini, 2),
                 "momento_na_live": round(job["evento"], 2), "momento_hms": _hms(job["evento"]),

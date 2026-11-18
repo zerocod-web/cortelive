@@ -470,31 +470,52 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     est = carregar("legenda", legenda)
     ass = out / f"{nome}.ass"
     pal = [{"w": p["w"], "s": float(p["start"]), "e": float(p["end"])} for p in palavras]
-    gerar_ass(pal, inicio, fim, est, m, ass)
-    mp4, cru = out / f"{nome}.mp4", out / f"{nome}_sem_legenda.mp4"
+    mp4 = out / f"{nome}.mp4"
+    aviso = None
+    try:
+        gerar_ass(pal, inicio, fim, est, m, ass)
+    except Exception as e:
+        aviso = f"A legenda deste corte não pôde ser gerada ({e}); o vídeo foi salvo sem legenda."
     enc = encoder_corte(encoder)
-    fc = (filtro_modelo(m, sw, sh)[:-3] + f",fps={fps}[v];[v]split=2[v1][v2];"
-          f"[v2]subtitles=filename='{_esc(ass)}':fontsdir='{_esc(FONTES)}'[vl]")
+    base_fc = filtro_modelo(m, sw, sh)[:-3] + f",fps={fps}"
     aud = ["-map", "0:a:0", *AUDIO_CORTE] if tem_audio else []
-    cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-           "-ss", f"{inicio:.3f}", "-t", f"{fim - inicio:.3f}", "-i", str(video),
-           *(["-i", str(arq_faixa)] if arq_faixa else []), "-filter_complex", fc]
-    base = cmd
+
+    def _ffmpeg(fc, e_):
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+               "-ss", f"{inicio:.3f}", "-t", f"{fim - inicio:.3f}", "-i", str(video),
+               *(["-i", str(arq_faixa)] if arq_faixa else []), "-filter_complex", fc,
+               "-map", "[v]", *ENC_CORTE[e_], "-pix_fmt", "yuv420p", *aud, "-movflags", "+faststart", str(mp4)]
+        return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+
     t0 = time.time()
     # A GPU é dividida com outros processos (transcrição etc.): o NVENC às vezes sai sem mensagem.
     # Tenta de novo uma vez e, se falhar, faz o corte no CPU em vez de perder o corte.
+    # Sai UM arquivo por corte, já com a legenda. Se a legenda falhar, o mesmo arquivo sai sem
+    # legenda (e o aviso explica), para não perder o corte.
     tentativas = [enc, enc] + (["libx264"] if enc != "libx264" else [])
-    for i, e_ in enumerate(tentativas):
-        cmd = list(base)
-        for rot, arq in (("[vl]", mp4), ("[v1]", cru)):
-            cmd += ["-map", rot, *ENC_CORTE[e_], "-pix_fmt", "yuv420p", *aud, "-movflags", "+faststart", str(arq)]
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
-        if r.returncode == 0:
-            enc = e_
-            break
-        if i == len(tentativas) - 1:
-            raise RuntimeError(f"ffmpeg (render_corte, {e_}, código {r.returncode}): " + r.stderr[-800:])
-    return {"mp4": str(mp4), "mp4_sem_legenda": str(cru), "ass": str(ass), "encoder": enc,
+    etapas = []
+    if aviso is None:
+        etapas.append((base_fc + f",subtitles=filename='{_esc(ass)}':fontsdir='{_esc(FONTES)}'[v]", True))
+    etapas.append((base_fc + "[v]", False))
+    erro = ""
+    for fc, com_legenda in etapas:
+        for e_ in tentativas:
+            r = _ffmpeg(fc, e_)
+            if r.returncode == 0:
+                enc = e_
+                break
+            erro = f"ffmpeg (render_corte, {e_}, código {r.returncode}): " + r.stderr[-800:]
+        else:
+            if com_legenda:
+                aviso = "A legenda não pôde ser aplicada neste corte; o vídeo foi salvo sem legenda."
+            continue
+        break
+    else:
+        raise RuntimeError(erro)
+    if aviso:
+        ass.unlink(missing_ok=True)
+    return {"mp4": str(mp4), "mp4_sem_legenda": None, "ass": None if aviso else str(ass), "encoder": enc,
+            "legenda_ok": aviso is None, "aviso": aviso,
             "modelo": m["tipo"], "caiu_sem_cam": caiu,
             "faixa": (m.get("_faixa") or {}).get("modo", "blur" if m["tipo"] == "cam-em-cima" else None),
             "faixa_arquivo": arq_faixa.name if arq_faixa else None, "segundos": round(time.time() - t0, 1)}

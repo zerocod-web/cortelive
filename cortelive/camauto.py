@@ -245,8 +245,12 @@ def _filtrar(achados, imgs, tx=0.03, ty=0.04, minimo=0.2):
                 grupos.append([cx, cy, [(k, f)]])
     ruins = set()
     for _, _, ms in (grupos if minimo > 0 else []):
-        ok = sum(1 for k, f in ms if _parece_rosto(imgs[k][max(0, f[1]):f[1] + f[3], max(0, f[0]):f[0] + f[2]]))
-        if ok < minimo * len(ms):
+        crops = [imgs[k][max(0, f[1]):f[1] + f[3], max(0, f[0]):f[0] + f[2]] for k, f in ms]
+        ok_pele = sum(1 for c in crops if _pele(c) >= PELE_MIN)
+        # v1.0.12: só 'olhos' (sem pele) tem de aparecer na maioria dos quadros: as letras O de um logo/texto
+        # ('ONESTATE') enganam o detector de olhos de vez em quando, mas não em metade dos quadros
+        ok_olho = sum(1 for c in crops if _olhos(c)) if ok_pele < minimo * len(ms) else 0
+        if ok_pele < minimo * len(ms) and ok_olho < max(minimo * len(ms), 0.5 * len(ms)):
             ruins |= {(k, f) for k, f in ms}
     return [[f for f in lista if (k, f) not in ruins] for k, lista in enumerate(achados)]
 

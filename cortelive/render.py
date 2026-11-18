@@ -121,7 +121,7 @@ def faixa_arquivo(cor="vermelha", variacao=0):
     return arqs[int(variacao or 0) % len(arqs)]
 
 
-def geometria_faixa(m, sw, sh):
+def geometria_faixa(m, sw, sh, compacta=False):
     """Onde a faixa fica no quadro final: cobre o blur entre a cam e o jogo (com folga), nunca
     menor que o PNG original. Devolve {y, h, centro, blur} (centro = onde a legenda fica)."""
     hc = m.get("altura_cam", 640)
@@ -130,6 +130,12 @@ def geometria_faixa(m, sw, sh):
     blur = max(0, (hj - hg) // 2)
     centro = hc + blur / 2
     a, b = FAIXA_OPACO
+    if compacta and blur >= 120:
+        # v1.0.7: jogo 4:3 (faixas pretas) deixa um vão grande preto. A faixa ESTICADA para cobrir o vão comia
+        # o fundo da cam (o rosto, que costuma ficar colado embaixo, ficava sob o vermelho). Aqui ela fica no
+        # tamanho original, colada logo abaixo da cam, e o resto do vão fica preto liso.
+        y = hc - 4
+        return {"y": y, "h": FAIXA_ALT, "centro": int(round(y + (a + b) / 2)), "blur": blur}
     h = max(FAIXA_ALT, -(-(blur + 2 * FAIXA_FOLGA) * FAIXA_ALT // (b - a)))
     h += h % 2
     y = max(0, int(round(centro - h * (a + b) / 2 / FAIXA_ALT)) - (10 if blur >= 60 else 0))  # rasgo não come o topo do jogo
@@ -150,15 +156,14 @@ def _tapa_cam(m, bx, by, bw, bh, nw, nh, jx, jy):
     x1, y1 = min(bx + bw + mx, jx + nw), min(by + bh + mb, jy + nh)
     if x1 - x0 < 4 or y1 - y0 < 4:
         return ""
-    # o delogo precisa de 1 px de imagem em volta do pedaço: moldura de 2 px, apaga, tira a moldura.
-    # Pedaço encostado na borda do recorte do jogo vai até a moldura (a borda dele fica fora do quadro do jogo).
-    p = 2
-    ax, ay = x0 - jx + p, y0 - jy + p
-    bx2, by2 = x1 - jx + p, y1 - jy + p
-    ax, ay = (1 if ax <= p else ax), (1 if ay <= p else ay)
-    bx2, by2 = (nw + 2 * p - 1 if bx2 >= nw + p else bx2), (nh + 2 * p - 1 if by2 >= nh + p else by2)
-    return (f",pad=iw+{2 * p}:ih+{2 * p}:{p}:{p},delogo=x={ax}:y={ay}:w={bx2 - ax}:h={by2 - ay},"
-            f"crop={nw}:{nh}:{p}:{p}")
+    # v1.0.7: o delogo deixava uma mancha escura. Cobre o pedaço com a faixa de jogo logo ao lado (mesma altura),
+    # desfocada de leve na emenda; se não houver espaço à direita, usa o lado esquerdo.
+    pw, ph = x1 - x0, y1 - y0
+    sx = x1 if x1 + pw <= jx + nw else max(jx, x0 - pw)
+    if sx + pw > jx + nw or sx < jx:
+        return ""
+    return (f",split=2[g1][g2];[g2]crop={pw}:{ph}:{sx - jx}:{y0 - jy},boxblur=3:1[rem];"
+            f"[g1][rem]overlay={x0 - jx}:{y0 - jy}")
 
 
 def filtro_modelo(m, sw, sh):
@@ -504,8 +509,8 @@ def enquadrar_cam(video, inicio, fim, m, sw, sh, visivel=None):
     # maior zoom (menor h) que ainda deixa a folga com y0 >= 0: y0 = topo - folga*h
     # queixo: a caixa do Haar acaba na boca/queixo; +10% de folga. Tem de ficar acima de 'visivel' (fração do
     # painel da cam que a faixa da legenda não cobre). Cam com o rosto colado embaixo (Gaules) caía sob a faixa.
-    queixo = med([b[1] + b[3] * 1.1 for b in caras])
-    vis = visivel if visivel else 1.0
+    queixo = med([b[1] + b[3] * 1.05 for b in caras])
+    vis = (visivel + 0.04) if visivel else 1.0   # o rasgo da faixa é meio transparente: tolera 4%
     y0_de = lambda hh: min(max(0.0, topo - folga * hh), ch - hh)
     h = h_max
     for z in (m.get("cam_zoom_max", 1.3), 1.2, 1.1, 1.0):
@@ -555,6 +560,12 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
             except Exception:
                 visivel = None
         q = enquadrar_cam(video, inicio, fim, m, sw, sh, visivel)
+        if q and len(q) > 4 and q[4] < 0 and visivel is not None and geometria_faixa(m, sw, sh)["blur"] >= 120:
+            # rosto colado embaixo da cam ficaria sob a faixa esticada: tenta com a faixa compacta (cam na largura toda)
+            vis2 = min(1.0, (geometria_faixa(m, sw, sh, True)["y"] - 6) / m.get("altura_cam", 640))
+            q2 = enquadrar_cam(video, inicio, fim, m, sw, sh, vis2)
+            if q2 and (len(q2) < 5 or q2[4] >= 0 or abs(q2[4]) < abs(q[4])):
+                q, m = q2, dict(m, _faixa_compacta=True)
         if q:
             m = dict(m, cam_quadro=q)
     faixa = (faixa or "rasgada").lower()
@@ -568,7 +579,7 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
             faixa_variacao = int(n.group()) - 1 if n else 0
         arq_faixa = faixa_arquivo(cor, faixa_variacao) if faixa == "rasgada" else None
         m = dict(m, _faixa={"modo": faixa, "cor": cor, "arquivo": str(arq_faixa) if arq_faixa else None,
-                            **geometria_faixa(m, sw, sh)})
+                            **geometria_faixa(m, sw, sh, bool(m.get("_faixa_compacta")))})
     est = carregar("legenda", legenda)
     ass = out / f"{nome}.ass"
     pal = [{"w": p["w"], "s": float(p["start"]), "e": float(p["end"])} for p in palavras]

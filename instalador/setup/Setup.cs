@@ -85,6 +85,13 @@ namespace CorteLiveSetup
                     }
                     finally { RemoveTemporaryUninstaller(); }
                 }
+                // Modo de teste automatizado: só vale com a API de teste local (CORTELIVE_RELEASE_API_URL).
+                if (args.Length == 3 && args[0] == "--silencioso" && args[1] == "--pasta"
+                    && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("CORTELIVE_RELEASE_API_URL")))
+                {
+                    Install(args[2], delegate(int pct, string msg) { Console.Error.WriteLine(pct + "% " + msg); });
+                    return 0;
+                }
                 Application.Run(new SetupWindow());
                 return 0;
             }
@@ -176,7 +183,7 @@ namespace CorteLiveSetup
 
                     progress(96, "Criando os atalhos e abrindo o painel…");
                     RegisterInstallation(target, version);
-                    using (Process app = Process.Start(new ProcessStartInfo(Path.Combine(target, AppName)) {
+                    using (Process app = Process.Start(new ProcessStartInfo(Path.Combine(target, AppName), test ? "--headless" : "") {
                         WorkingDirectory = target, UseShellExecute = false
                     }))
                         if (app == null) throw new InvalidOperationException("O Windows não conseguiu abrir o CorteLive.");
@@ -414,21 +421,90 @@ namespace CorteLiveSetup
             catch (Exception ex) { Log(ex.Message); }
         }
 
+        private static List<Process> AppsAbertos(string target)
+        {
+            var abertos = new List<Process>();
+            string exe = Path.Combine(target, AppName);
+            foreach (Process process in Process.GetProcessesByName("CorteLive"))
+            {
+                string location = null;
+                try { location = process.MainModule.FileName; }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
+                if (location != null && location.Equals(exe, IgnoreCase)) abertos.Add(process);
+                else process.Dispose();
+            }
+            return abertos;
+        }
+
+        // O painel aberto trava o próprio .exe e o perfil do Edge (webview_*). Em vez de pedir
+        // para o amigo achar o ícone ao lado do relógio, o instalador pede para o painel sair
+        // e, se ele não sair, encerra o painel e a janela dele.
         private static void EnsureAppClosed(string target)
         {
             if (!File.Exists(Path.Combine(target, AppName))) return;
-            foreach (Process process in Process.GetProcessesByName("CorteLive"))
+            var abertos = AppsAbertos(target);
+            if (abertos.Count == 0) { FecharJanelaDoPainel(target); return; }
+            Log("CorteLive aberto em " + target + ": fechando antes de atualizar.");
+            try
+            {
+                int porta = 0;
+                string instancia = Path.Combine(target, "painel_instancia.json");
+                if (File.Exists(instancia))
+                {
+                    var dados = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(instancia, Encoding.UTF8).TrimStart('\uFEFF'));
+                    if (dados != null && dados.ContainsKey("porta")) porta = Convert.ToInt32(dados["porta"]);
+                }
+                if (porta > 0)
+                {
+                    var req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:" + porta + "/api/encerrar");
+                    req.Method = "POST"; req.ContentType = "application/json"; req.Timeout = 3000; req.ContentLength = 2;
+                    using (Stream body = req.GetRequestStream()) body.Write(new byte[] { 123, 125 }, 0, 2);
+                    using (req.GetResponse()) { }
+                }
+            }
+            catch (Exception ex) { Log("Pedido de saída ao painel falhou: " + ex.Message); }
+            foreach (Process process in abertos)
             {
                 using (process)
                 {
-                    string location;
-                    try { location = process.MainModule.FileName; }
-                    catch (InvalidOperationException) { continue; }
-                    catch (System.ComponentModel.Win32Exception) { continue; }
-                    if (location.Equals(Path.Combine(target, AppName), IgnoreCase))
-                        throw new InvalidOperationException("Feche o CorteLive antes de continuar. Se ele estiver ao lado do relógio, clique com o botão direito no ícone e escolha sair.");
+                    try
+                    {
+                        if (!process.WaitForExit(15000))
+                        {
+                            Log("O painel não saiu sozinho; encerrando o processo " + process.Id + ".");
+                            using (Process tk = Process.Start(new ProcessStartInfo("taskkill.exe", "/PID " + process.Id + " /T /F") {
+                                UseShellExecute = false, CreateNoWindow = true }))
+                                tk.WaitForExit(10000);
+                            process.WaitForExit(10000);
+                        }
+                    }
+                    catch (InvalidOperationException) { }
                 }
             }
+            FecharJanelaDoPainel(target);
+            var restantes = AppsAbertos(target);
+            bool sobrou = restantes.Count > 0;
+            foreach (Process process in restantes) process.Dispose();
+            if (sobrou)
+                throw new InvalidOperationException("Não consegui fechar o CorteLive. Feche o painel (botão direito no ícone ao lado do relógio, Sair) e tente de novo.");
+        }
+
+        // Fecha só o Edge do painel desta pasta (perfil <pasta>\webview_*); o Edge normal do amigo não é tocado.
+        private static void FecharJanelaDoPainel(string target)
+        {
+            string ps = "$ErrorActionPreference='SilentlyContinue'; $pref = '" + target.Replace("'", "''") + "\\webview_'; " +
+                "foreach ($p in (Get-CimInstance Win32_Process -Filter \"Name='msedge.exe' or Name='chrome.exe'\")) { " +
+                "if (([string]$p.CommandLine).IndexOf($pref, [StringComparison]::OrdinalIgnoreCase) -ge 0) { Stop-Process -Id $p.ProcessId -Force } }";
+            try
+            {
+                string powershell = Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
+                using (Process p = Process.Start(new ProcessStartInfo(powershell,
+                    "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(ps))) {
+                    UseShellExecute = false, CreateNoWindow = true }))
+                    p.WaitForExit(20000);
+            }
+            catch (Exception ex) { Log("Não foi possível fechar a janela do painel: " + ex.Message); }
         }
 
         private static string ValidatePath(string input)

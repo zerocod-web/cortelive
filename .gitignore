@@ -30,7 +30,8 @@ build/
 
 # Testes locais, pesquisa e pastas de ferramentas locais
 teste_video/
-testes/
+testes/*
+!testes/test_atualizar.py
 qa/
 scratch/
 PESQUISA.md

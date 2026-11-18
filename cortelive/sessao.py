@@ -326,7 +326,8 @@ class Sessao:
                                           "palavras": pal_rel, "modelo": cfg["modelo"], "legenda": cfg["legenda"],
                                           "cam": list(cam) if cam else None, "saida_dir": str(dint.resolve()),
                                           "nome": nome, "faixa_legenda": cfg.get("faixa_legenda", "rasgada"),
-                                          "faixa_cor": cfg.get("faixa_cor", "vermelha")},
+                                          "faixa_cor": cfg.get("faixa_cor", "vermelha"),
+                                          "recuo_sem_cam": cfg.get("recuo_sem_cam")},
                                          ensure_ascii=False), encoding="utf-8")
             try:
                 rc = servicos.render().executar(_rodar_render_proc, pedido)
@@ -435,6 +436,8 @@ class Sessao:
             sem_corte = limite - max(sel.ultimo_fim, 0)
             if cfg["minutos_sem_corte_para_adaptar"] and sem_corte > cfg["minutos_sem_corte_para_adaptar"] * 60 \
                     and len(hist_notas) > 240:
+            if r.get("caiu_sem_cam"):
+                log.info(f"Modo do corte: {r.get('modelo')} — {r['caiu_sem_cam']}")
                 import numpy as np
                 limiar = max(cfg["limiar_minimo"], min(limiar, float(np.percentile(list(hist_notas.values()), 97))))
             if janela:

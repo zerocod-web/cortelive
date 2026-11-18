@@ -462,13 +462,26 @@ def _probe(video):
     return int(out[0]), int(out[1]), fps_s, tem_audio
 
 
-def _modelo_efetivo(nome, cam, sw, sh):
-    """Mantém o layout escolhido e usa a janela do preset se faltar uma detecção."""
+RECUO_PADRAO = ["jogo-fundo-desfocado", "jogo-tela-cheia-crop"]   # Fundo desfocado, depois Tela cheia
+
+
+def _modelo_efetivo(nome, cam, sw, sh, recuo=None):
+    """Cam-em-cima sem cam achada NUNCA sai: troca para o 1º modelo da lista `recuo` (config.toml `recuo_sem_cam`;
+    padrão desfocado, depois tela cheia). Devolve (modelo, motivo_do_recuo ou False)."""
     m = carregar("modelo", nome)
     if m["tipo"] == "cam-em-cima":
         if cam is not None:
             x, y, w, h = cam
             m = dict(m, cam={"x": x / sw, "y": y / sh, "w": w / sw, "h": h / sh})
+        else:
+            for alt in (recuo or RECUO_PADRAO):
+                try:
+                    ma = carregar("modelo", alt)
+                except Exception:
+                    continue
+                if ma.get("tipo") != "cam-em-cima":
+                    return ma, f"sem câmera identificada: '{nome}' trocado por '{alt}'"
+            raise RuntimeError("cam-em-cima sem câmera e nenhum modelo de recuo válido em recuo_sem_cam")
     return m, False
 
 
@@ -536,14 +549,14 @@ def enquadrar_cam(video, inicio, fim, m, sw, sh, visivel=None):
 
 def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: str, legenda: str,
                  cam: tuple | None, saida_dir: str, nome: str, encoder: str | None = None,
-                 faixa: str | None = None, faixa_cor: str | None = None, faixa_variacao: int | None = None) -> dict:
+                 faixa: str | None = None, faixa_cor: str | None = None, faixa_variacao: int | None = None, recuo_sem_cam: list | None = None) -> dict:
     """Corte preciso [inicio, fim] do vídeo -> vertical 1080x1920 com e sem legenda, num passe só.
     palavras: [{w, start, end}] em tempo absoluto do vídeo. cam: (x, y, w, h) em px do vídeo fonte.
     faixa: 'rasgada' (padrão) | 'blur' | 'nenhuma' — o que fica atrás da legenda no cam-em-cima.
     faixa_variacao: qual rasgo usar; sem valor, alterna pelo número do corte no nome (corte_003 -> 3)."""
     out = Path(saida_dir); out.mkdir(parents=True, exist_ok=True)
     sw, sh, fps, tem_audio = _probe(video)
-    m, caiu = _modelo_efetivo(modelo, cam, sw, sh)
+    m, caiu = _modelo_efetivo(modelo, cam, sw, sh, recuo_sem_cam)
     if m["tipo"] == "cam-em-cima" and m.get("jogo_auto", True):
         try:
             jw_ = janela_do_jogo(video, inicio, fim, sw, sh, cam)

@@ -78,23 +78,44 @@ def caixa_da_cam(face, w, h):
     return (x // 2 * 2, y // 2 * 2, min(cw, w - x) // 2 * 2, min(ch, h - y) // 2 * 2)
 
 
-def _rosto_estavel(achados, w, h):
-    """O rosto que aparece no mesmo ponto em >= metade dos quadros. -> (cx, cy, fw, fh, votos) ou None."""
+def _rosto_parado(imgs, f):
+    """True se o 'rosto' f=(x,y,w,h) é um desenho fixo do jogo (ícone, retrato do HUD): a imagem ali fica idêntica em
+    todos os quadros (diferença média < 2,5 de 255). Rosto de pessoa em câmera tem ruído e movimento (>= 10 medido
+    no liviomateus; o ícone falso deu 1,3)."""
+    x, y, fw, fh = [int(v) for v in f]
+    ps = [i[max(0, y):y + fh, max(0, x):x + fw].astype(np.float32) for i in imgs]
+    ps = [p for p in ps if p.size and p.shape == ps[0].shape]
+    if len(ps) < 3:
+        return False
+    return max(float(np.abs(a - b).mean()) for a in ps for b in ps) < 2.5
+
+
+def _agrupar(achados, w, h, tx, ty):
     todos = [f for lista in achados for f in lista]
     melhor, votos = None, 0
     for f in todos:
         cx, cy = f[0] + f[2] / 2, f[1] + f[3] / 2
-        v = sum(1 for lista in achados if any(abs(g[0] + g[2] / 2 - cx) < 0.03 * w and
-                                               abs(g[1] + g[3] / 2 - cy) < 0.04 * h for g in lista))
+        v = sum(1 for lista in achados if any(abs(g[0] + g[2] / 2 - cx) < tx * w and
+                                               abs(g[1] + g[3] / 2 - cy) < ty * h for g in lista))
         if v > votos:
             melhor, votos = f, v
     if not melhor or votos < max(2, len(achados) // 2):
         return None
     cx, cy = melhor[0] + melhor[2] / 2, melhor[1] + melhor[3] / 2
     mesmos = [g for lista in achados for g in lista
-              if abs(g[0] + g[2] / 2 - cx) < 0.03 * w and abs(g[1] + g[3] / 2 - cy) < 0.04 * h]
+              if abs(g[0] + g[2] / 2 - cx) < tx * w and abs(g[1] + g[3] / 2 - cy) < ty * h]
     return (float(np.median([g[0] + g[2] / 2 for g in mesmos])), float(np.median([g[1] + g[3] / 2 for g in mesmos])),
             float(np.median([g[2] for g in mesmos])), float(np.median([g[3] for g in mesmos])), votos)
+
+
+def _rosto_estavel(achados, w, h, imgs=None):
+    """O rosto que aparece no mesmo ponto em >= metade dos quadros. -> (cx, cy, fw, fh, votos) ou None.
+    Com imgs: descarta 'rostos' desenhados no jogo (idênticos em todos os quadros) antes de votar, e tenta de novo
+    com tolerância maior (pessoa se mexe na cam; liviomateus 18/11/2026: o ícone parado ganhou da pessoa)."""
+    if imgs is not None:
+        fixos = {f for lista in achados for f in lista if _rosto_parado(imgs, f)}
+        achados = [[f for f in lista if f not in fixos] for lista in achados]
+    return _agrupar(achados, w, h, 0.03, 0.04) or _agrupar(achados, w, h, 0.10, 0.12)
 
 
 LARG_ANALISE = 640   # largura da análise de movimento (3 px de erro na borda numa live 1920)
@@ -413,7 +434,7 @@ def detectar(arquivos, prop=1080 / 640):
         return None
     h, w = imgs[0].shape[:2]
     achados = [[tuple(int(v) for v in f) for f in rostos(i)] for i in imgs]
-    rosto = _rosto_estavel(achados, w, h)
+    rosto = _rosto_estavel(achados, w, h, imgs)
     if not rosto:
         ULTIMO["motivo"] = "nenhum rosto fixo"
         return None

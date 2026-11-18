@@ -40,7 +40,7 @@ NITIDEZ_CAM = "unsharp=5:5:0.5:5:5:0.0"
 # PNG RGBA 1080x220 em presets\faixas; o papel é opaco das linhas ~36 a ~178 (medido nos 4 arquivos),
 # o resto é a borda rasgada e transparência. Sem o PNG, cai numa faixa lisa da mesma cor.
 FAIXAS = PRESETS / "faixas"
-MAX_AMPLIA_JOGO = 1.4   # v1.0.13: ampliação máxima do jogo no painel (acima disso a imagem borra)
+MAX_AMPLIA_JOGO = 1.3   # v1.0.13: ampliação máxima do jogo no painel (acima disso a imagem borra)
 FAIXA_ESCALA = 0.6    # v1.0.11: a faixa ocupa 60% da altura anterior (o PNG é esticado para essa altura)
 FAIXA_ALT, FAIXA_OPACO = round(220 * FAIXA_ESCALA), (round(36 * FAIXA_ESCALA), round(178 * FAIXA_ESCALA))
 FAIXA_COR_LISA = {"vermelha": "0xBA0000", "creme": "0xEFE6D2"}
@@ -119,13 +119,13 @@ def janela_do_jogo(video, inicio, fim, sw, sh, cam=None):
     return (x0, 0, x1 - x0, sh)
 
 
-def _jogo_cheia_larg(sw, sh, ww, cam):
+def _jogo_cheia_larg(sw, sh, ww, cam, mgf=0.11):
     """Posição (x, cobrir) de uma janela de largura ww, na altura inteira, fora da caixa da cam."""
     pref = (sw - ww) // 2
     if not cam:
         return pref // 2 * 2, False
     cx, cy, cw, ch = cam
-    mg = max(32, int(0.11 * sw))     # a caixa medida é menor que a moldura real da cam (máscara/borda): margem larga
+    mg = max(32, int(mgf * sw))      # a caixa medida é menor que a moldura real da cam (máscara/borda): margem larga
     c0, c1 = cx - mg, cx + cw + mg
     if pref + ww <= c0 or pref >= c1:             # já não toca a cam
         return pref // 2 * 2, False
@@ -152,9 +152,21 @@ def janela_jogo_cheia(sw, sh, W, hj, cam=None):
     ww = min(sw, int(sh * W / hj) // 2 * 2)       # arredonda para baixo: o jogo escalado nunca fica mais baixo que o painel
     larga = min(sw, max(ww, int(W / MAX_AMPLIA_JOGO) // 2 * 2))
     if larga > ww:
-        x, cobrir = _jogo_cheia_larg(sw, sh, larga, cam)
-        if not cobrir:
-            return (x, 0, larga, sh, False)
+        # margem larga (0,11); sem espaço, margem menor (0,05) só para ampliar menos o jogo de 720p.
+        # Vale a janela mais larga que cabe sem cobrir a cam (empate: a de margem maior).
+        ok = []
+        for mgf in (0.11, 0.05):
+            cands = [larga]
+            if cam:
+                mg = max(32, int(mgf * sw))
+                cands += [v // 2 * 2 for v in (cam[0] - mg, sw - (cam[0] + cam[2] + mg)) if ww < v < larga]
+            for lw in set(cands):
+                x, cobrir = _jogo_cheia_larg(sw, sh, lw, cam, mgf)
+                if not cobrir:
+                    ok.append((lw, mgf, x))
+        if ok:
+            lw, _, x = max(ok, key=lambda o: (o[0], o[1]))
+            return (x, 0, lw, sh, False)
     x, cobrir = _jogo_cheia_larg(sw, sh, ww, cam)
     return (x, 0, ww, sh, cobrir)
 
@@ -254,7 +266,7 @@ def filtro_modelo(m, sw, sh):
         nw, nh, jx, jy, _hg = _jogo_janela(m, sw, sh)
         # jogo 4:3 (faixas pretas achadas) não enche o painel: o resto vira o fundo desfocado do próprio jogo
         # desfoque em 1/4 da resolução (o resultado é igual de borrado e muito mais rápido)
-        fundo = ("drawbox=c=black:t=fill" if (preto and not m.get("_jogo_auto"))
+        fundo = ("drawbox=c=black:t=fill" if (preto and not (m.get("_jogo_auto") or m.get("_jogo_cheio")))
                  else f"scale={W // 8 * 2}:{hj // 8 * 2},boxblur=6:2,scale={W}:{hj},eq=brightness=-0.12")
         base = (f"[0:v]split=3[a][b][c];"
                 f"[a]{cam_f}[cam];"

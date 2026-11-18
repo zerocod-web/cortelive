@@ -11,6 +11,14 @@ import time
 from pathlib import Path
 
 _local = threading.local()
+# Uma escrita por linha: o painel lê o stdout linha a linha e não pode ver duas mensagens coladas.
+ESCRITA = threading.Lock()
+
+
+def escrever_linha(texto: str):
+    with ESCRITA:
+        sys.stdout.write(texto + "\n")
+        sys.stdout.flush()
 
 
 class Registro:
@@ -38,7 +46,7 @@ class Registro:
 
     def info(self, msg):
         if self.terminal:
-            print(f"[{self._rel()}] {msg}", flush=True)
+            escrever_linha(f"[{self._rel()}] {msg}")
         self.lg.info(msg)
         self.ultimas = (self.ultimas + [msg])[-5:]
 

@@ -57,7 +57,10 @@ def conter_processos():
 
 if __name__ == "__main__":
     conter_processos()
+    # stdin/stdout/stderr precisam ir explícitos: com CREATE_NO_WINDOW o filho ganharia um console novo
+    # e o vídeo da live nunca chegaria ao pipe do ffmpeg (captura ficava em "sem vídeo novo").
     sys.exit(subprocess.call(
         sys.argv[1:],
+        stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     ))

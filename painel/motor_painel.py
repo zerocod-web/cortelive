@@ -678,7 +678,8 @@ def iniciar_api(argv):
 
 
 def emitir(dados: dict):
-    print("@@STATUS@@" + json.dumps(dados, ensure_ascii=False), flush=True)
+    from cortelive import log as _log
+    _log.escrever_linha("@@STATUS@@" + json.dumps(dados, ensure_ascii=False))
 
 
 def _iter_linhas_stdin(entrada):
@@ -707,6 +708,17 @@ def escutar_stdin(parar_ev: threading.Event, entrada, comandos,
                     fechar_ev.set()
                 return
             acao, _, ident = cmd.partition(" ")
+            if acao == "adicionar-live":
+                try:
+                    bruto = linha.strip().partition(" ")[2].strip()
+                    fonte = bytes.fromhex(bruto).decode("utf-8").strip()
+                except (ValueError, UnicodeDecodeError):
+                    fonte = ""
+                if fonte and len(fonte) <= 4096 and not any(c in fonte for c in "\r\n"):
+                    comandos.put(("adicionar", fonte))
+                    if acordar_ev is not None:
+                        acordar_ev.set()
+                continue
             if acao == "parar-live" and len(ident) == 32 and all(c in "0123456789abcdef" for c in ident):
                 comandos.put(ident)
                 if acordar_ev is not None:
@@ -876,8 +888,13 @@ def main(argv=None):
     servicos.configurar(cfg, modo)
 
     paradas_antes = set()
+    adicoes_antes = []
     while not comandos.empty():
-        paradas_antes.add(comandos.get_nowait())
+        c = comandos.get_nowait()
+        if isinstance(c, tuple):
+            adicoes_antes.append(c)
+        else:
+            paradas_antes.add(c)
 
     if parar_ev.is_set() or len(paradas_antes) >= len(entradas_iniciais):
         for item in lives_largada:
@@ -888,7 +905,8 @@ def main(argv=None):
 
     arquivos_ativos = [f for ident, f, eh_arq, _ in entradas_iniciais if eh_arq and ident not in paradas_antes]
     urls_ativas = [f for ident, f, eh_arq, _ in entradas_iniciais if not eh_arq and ident not in paradas_antes]
-    unica = len(entradas_iniciais) == 1
+    unica_cel = [len(entradas_iniciais) == 1]
+    unica = unica_cel[0]
     ns = types.SimpleNamespace(
         minutos=a.minutos, detalhado=a.detalhado,
         duracao_min=a.duracao_min, duracao_max=a.duracao_max,
@@ -898,7 +916,7 @@ def main(argv=None):
     def criar_sessao_painel(*args):
         sessao = multi.criar_sessao(*args)
         sessao.cfg_extra.update(postagem)
-        sessao.terminal = unica
+        sessao.terminal = unica_cel[0]
         return sessao
 
     sup = multi.Supervisor(urls_ativas, arquivos_ativos, None, ns, painel=False,
@@ -913,6 +931,7 @@ def main(argv=None):
     return acompanhar_multiplas(
         sup, parar_ev, modo_resumo, comandos, unica=unica,
         acordar_ev=acordar_ev, fechar_ev=fechar_ev, ids_por_fonte=ids_por_fonte,
+        adicoes_iniciais=adicoes_antes, unica_cel=unica_cel,
     )
 
 
@@ -927,11 +946,35 @@ def _aviso_descarte(qtd: int) -> str | None:
 def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
                          acordar_ev: threading.Event | None = None,
                          fechar_ev: threading.Event | None = None,
-                         ids_por_fonte: dict | None = None):
+                         ids_por_fonte: dict | None = None,
+                         adicoes_iniciais=None, unica_cel=None):
     lives = {
         (ids_por_fonte or {}).get(fonte) or uuid.uuid4().hex: lv
         for fonte, lv in sup.lives.items()
     }
+
+    def adicionar_live(fonte):
+        """Entra mais uma live na sessão em andamento (mesmo caminho da largada)."""
+        existente = sup.lives.get(fonte)
+        if existente is not None and not existente.encerrar:
+            return
+        eh_arq = Path(fonte).exists()
+        unica_ao_largar = unica_cel is not None and unica_cel[0]
+        if unica_cel is not None:
+            unica_cel[0] = False
+        sup.repetir = True
+        if unica_ao_largar:
+            for lv0 in lives.values():       # a 1ª live deixa de ser "única": passa a repetir se cair
+                if lv0.s is not None:
+                    lv0.s.terminal = False
+        sup.adicionar(str(Path(fonte).resolve()) if eh_arq else fonte, arquivo=eh_arq)
+        chave = str(Path(fonte).resolve()) if eh_arq else fonte
+        lv = sup.lives.get(chave)
+        if lv is not None and all(lv is not x for x in lives.values()):
+            lives[uuid.uuid4().hex] = lv
+
+    for _c in (adicoes_iniciais or []):
+        adicionar_live(_c[1])
 
     def estados():
         dados = []
@@ -960,7 +1003,11 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
             if acordar_ev is not None:
                 acordar_ev.clear()
             while not comandos.empty():
-                lv = lives.get(comandos.get_nowait())
+                cmd = comandos.get_nowait()
+                if isinstance(cmd, tuple):
+                    adicionar_live(cmd[1])
+                    continue
+                lv = lives.get(cmd)
                 if lv and not lv.terminou and not lv.encerrar:
                     lv.parar(descartar_cortes=True)
             sup.vigiar()
@@ -991,6 +1038,7 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
         sup.fechar(descartar_cortes=descartar_tudo, silencioso=True)
 
     dados = estados()
+    unica = unica and (unica_cel is None or unica_cel[0])
     erro = dados[0].get("motivo_fim") if unica and dados[0].get("estado") == "erro" else None
     emitir({"estado": "erro" if erro else "encerrada", "erro": erro, "lives": dados, "modo": modo_resumo})
     return int(bool(erro))

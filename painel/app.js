@@ -283,14 +283,18 @@
     const btnParar = el("btn-parar");
     const campoLink = el("campo-link");
 
-    btnCortar.hidden = rodando;
+    const encerrandoSessao = estado === "encerrando" || estado === "encerrada";
+    // Com live rodando o Cortar continua disponível: cola outro link e entra mais uma live na mesma sessão.
+    btnCortar.hidden = false;
     btnParar.hidden = !rodando;
     renderizarListaLives(sessao, rodando);
     const finalizando = estado === "encerrando" || estado === "encerrada";
     btnParar.disabled = finalizando;
     el("texto-btn-parar").textContent = finalizando ? "FINALIZANDO CORTES…" : "PARAR SESSÃO";
-    campoLink.disabled = rodando;
-    el("btn-escolher-video").disabled = rodando;
+    campoLink.disabled = encerrandoSessao;
+    btnCortar.disabled = encerrandoSessao;
+    el("texto-btn-cortar").textContent = rodando ? "ADICIONAR LIVE" : "CORTAR";
+    el("btn-escolher-video").disabled = encerrandoSessao;
     document.querySelectorAll('#form-cortar input[type="radio"]').forEach((r) => {
       r.disabled = rodando;
     });
@@ -1629,6 +1633,8 @@
         if (res && res.erro) {
           erroEl.textContent = res.erro;
           erroEl.hidden = false;
+        } else if (res && res.ok) {
+          el("campo-link").value = "";
         }
       } finally {
         el("btn-cortar").disabled = false;

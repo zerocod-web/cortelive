@@ -1,4 +1,4 @@
-﻿"""Captura: live (streamlink, yt-dlp de reserva) ou arquivo lido a 1x -> FFmpeg em segmentos .ts.
+"""Captura: live (streamlink, yt-dlp de reserva) ou arquivo lido a 1x -> FFmpeg em segmentos .ts.
 
 Cada segmento pronto vira um Segmento(idx, ini, fim) no tempo da live (segundos desde o começo da captura).
 O tempo é contado somando as durações reais, então uma reconexão não bagunça a linha do tempo
@@ -43,7 +43,7 @@ MENSAGENS = {
     "link_invalido": "Link não reconhecido: {url}. Cole o link do canal da Twitch, do YouTube ou da Kick "
                      "(ex.: https://www.twitch.tv/nome_do_canal).",
     "offline": "Esse canal não está ao vivo agora (ou o nome do canal está errado). "
-               "Vou conferir de novo sozinho a cada minuto e começo a cortar quando a live começar.",
+               "Vou conferir de novo sozinho a cada 30 segundos e começo a cortar quando a live começar.",
     "sem_internet": "Sem conexão com a internet (ou o site da live não respondeu). Vou tentar de novo sozinho.",
     "video_gravado": "Esse link é de um vídeo gravado, não de uma live. Para cortar um vídeo pronto, "
                      "baixe o vídeo e escolha o arquivo do PC.",
@@ -57,7 +57,7 @@ def mensagem(tipo: str, url: str = "") -> str:
 def classificar_erro(texto: str):
     """Lê o erro do streamlink e diz o que aconteceu: link_invalido | offline | sem_internet | None."""
     t = (texto or "").lower()
-    if "no plugin can handle url" in t:
+    if "no plugin can handle url" in t or "unsupported url" in t:
         return "link_invalido"
     if any(k in t for k in ("unable to open url", "proxyerror", "failed to resolve", "getaddrinfo",
                             "connectionerror", "connection aborted", "timed out", "max retries exceeded")):
@@ -112,6 +112,59 @@ def verificar_link(url: str):
     return None
 
 
+_PADROES_ERRO = (
+    (("403", "forbidden"), "O site recusou o acesso à live (erro 403). Pode ser bloqueio por região, live restrita ou limite de acessos."),
+    (("429", "too many requests"), "O site pediu para esperar (muitas tentativas seguidas). O CorteLive tenta de novo sozinho."),
+    (("sign in", "login", "cookies", "members-only", "members only", "age-restricted", "confirm your age", "private video"),
+     "A live exige login, é só para membros ou tem restrição de idade. O CorteLive não consegue abrir esse tipo de live sem conta."),
+    (("unplayable", "not available", "unavailable"), "O site diz que esse vídeo não está disponível para reprodução (live restrita, bloqueada ou gravação indisponível)."),
+    (("no plugin can handle", "unsupported url", "is not a valid url", "invalid url"),
+     "Link não reconhecido. Use o endereço do canal ou da live (Twitch, YouTube ou Kick)."),
+    (("unable to open url", "unable to connect", "connection", "timed out", "timeout", "getaddrinfo", "name resolution", "ssl"),
+     "Não foi possível conectar ao site da live. Confira a internet; o CorteLive tenta de novo sozinho."),
+    (("javascript runtime", "signature", "nsig", "unable to extract", "extractor error", "http error 4", "http error 5"),
+     "O site mudou algo e o leitor de lives não conseguiu abrir o link. Atualize o CorteLive para a versão mais recente."),
+)
+_PADROES_OFFLINE = ("no playable streams found", "offline", "not currently live", "is not live", "isn't live",
+                    "this live event will begin", "premieres in", "no streams found")
+
+
+def explicar_erro_fonte(texto: str):
+    """Lê o que o streamlink/yt-dlp escreveu e separa 'live offline de verdade' de erro real.
+
+    Devolve (offline, mensagem_em_portugues_ou_None, trecho_original)."""
+    bruto = (texto or "").strip()
+    if not bruto:
+        return True, None, ""
+    baixo = bruto.lower()
+    trecho = " | ".join(l.strip() for l in bruto.splitlines() if l.strip())[-300:]
+    for chaves, msg in _PADROES_ERRO:
+        if any(c in baixo for c in chaves):
+            return False, msg, trecho
+    if any(c in baixo for c in _PADROES_OFFLINE):
+        return True, None, trecho
+    return False, "Não deu para abrir a live e o motivo não é só 'offline'.", trecho
+
+
+def normalizar_url(url: str) -> str:
+    """Endereço de canal do YouTube (@nome, /channel/ID, /c/nome, /user/nome) -> .../live, que aponta
+    para a transmissão em andamento. Sem isso o streamlink devolve 'sem vídeo' mesmo com o canal ao vivo."""
+    if not url:
+        return url
+    base = url.strip().split("?")[0].split("#")[0].rstrip("/")
+    baixo = base.lower()
+    if "youtube.com/" in baixo:
+        resto = base.split("youtube.com/", 1)[1].split("/")
+        if resto and resto[0]:
+            canal_so = (resto[0].startswith("@") and len(resto) == 1) or                        (resto[0] in ("channel", "c", "user") and len(resto) == 2)
+            streams = (resto[0].startswith("@") and len(resto) == 2 and resto[1] in ("streams", "featured", "videos")) or                       (resto[0] in ("channel", "c", "user") and len(resto) == 3 and resto[2] in ("streams", "featured", "videos"))
+            if canal_so:
+                return base + "/live"
+            if streams:
+                return base.rsplit("/", 1)[0] + "/live"
+    return url.strip()
+
+
 def canal_da_url(url: str) -> str:
     u = url.rstrip("/").split("?")[0]
     partes = [p for p in u.split("/") if p]
@@ -135,12 +188,14 @@ class Captura(threading.Thread):
         self._ff = None
         self._fonte_proc = None
         self._tipo_erro = None
+        self._nome_fonte = ""
         self._proc_lock = threading.Lock()
         super().__init__(daemon=True)
         self._reg = log.atual()
         self.estado = "iniciando"
         self.pasta = pasta
-        self.url, self.arquivo = url, arquivo
+        self.url, self.arquivo = normalizar_url(url) if url else url, arquivo
+        self._esperou_live = False      # ficou aguardando a live abrir (mostra "Live iniciada" quando chegar)
         self.seg_s, self.buffer_s = seg_s, buffer_min * 60
         self.ao_chegar = ao_chegar
         self.segs: dict[int, Segmento] = {}
@@ -150,6 +205,9 @@ class Captura(threading.Thread):
         self.acabou = threading.Event()
         self.presos: set[int] = set()   # segmentos em uso por um corte (não apagar)
         self._n = 0
+        self._usar_ytdlp = False        # alterna para o yt-dlp quando o streamlink falha de verdade
+        self._erro_fonte = None         # (offline, mensagem, trecho) da última rodada sem vídeo
+        self._ultimo_aviso_fonte = None
 
     # --- comandos ---------------------------------------------------------------------------
     def _ffmpeg_seg(self, rodada, entrada, extra_in=()):
@@ -164,24 +222,25 @@ class Captura(threading.Thread):
 
     def _fonte(self):
         """Processo que escreve o vídeo da live no stdout (ou None para arquivo)."""
+        # stderr do leitor vai para um arquivo temporário (não um pipe, que enche e trava o leitor):
+        # é ele que diz se o canal está offline, sem internet ou se o link não é de live
+        erros_fonte = getattr(self, "_erros_fonte", None)
         sl = _bin("streamlink")
-        if sl:
+        if sl and not self._usar_ytdlp:
             # best = a maior qualidade que a live oferece (1080p60 quando há);
             # antes pedia 720p60 primeiro e a cam ficava ampliada ~2,7x
             cmd = [sl, "--stdout", "--loglevel", "error", "--twitch-disable-ads",
                    "--hls-live-edge", "2", self.url, "best"]
             nome = "streamlink"
         else:
-            cmd = [_bin("yt-dlp"), "-q", "-f", "best[height<=1080]/best", "-o", "-", self.url]
+            cmd = [_bin("yt-dlp"), "--no-warnings", "-f", "best[height<=1080]/best", "-o", "-", self.url]
             nome = "yt-dlp"
         if os.name == "nt":
             # O intermediário entra no próprio Job antes de iniciar o downloader.
             cmd = [sys.executable, "-m", "cortelive.processos", *cmd]
-        # stderr do streamlink guardado: é ele que diz se o canal está offline, sem internet
-        # ou se o link não é de live (antes ia para o lixo e tudo virava "esperando")
-        err = subprocess.PIPE if nome == "streamlink" else subprocess.DEVNULL
         return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=err, creationflags=_NO_WIN), nome
+                                stderr=erros_fonte if erros_fonte is not None else subprocess.DEVNULL,
+                                creationflags=_NO_WIN), nome
 
     def solicitar_parada(self, motivo="parado pelo usuário"):
         if not self.acabou.is_set() and not self.motivo_fim:
@@ -217,7 +276,9 @@ class Captura(threading.Thread):
             fim_normal = self._rodada(rodada)
             tipo_erro = self._tipo_erro
             recebeu = self._n > n_antes
-            if tipo_erro == "link_invalido" and not recebeu:
+            # link que nenhum leitor aceita: para com a mensagem (o streamlink recusar ainda deixa o yt-dlp tentar)
+            sem_reserva = self._nome_fonte == "yt-dlp" or not (_bin("yt-dlp") and _bin("streamlink"))
+            if tipo_erro == "link_invalido" and not recebeu and sem_reserva:
                 self.erro_fatal = mensagem("link_invalido", self.url)
                 self.motivo_fim = self.erro_fatal
                 self.estado = "erro"
@@ -242,15 +303,29 @@ class Captura(threading.Thread):
                     log.aviso("A live não começou no tempo configurado (esperar_live_min). Encerrando.")
                     break
                 self.estado = "esperando live"
+                self._esperou_live = True
+                erro = self._erro_fonte
                 if self.arquivo:
                     msg = "Não consegui ler o vídeo. Confira se o arquivo abre no seu player."
-                elif tipo_erro == "sem_internet":
-                    msg = mensagem("sem_internet")
+                    if msg != self.mensagem or rodada % 10 == 0:
+                        log.info(msg)
+                    self.mensagem = msg
+                elif erro and not erro[0] and tipo_erro != "sem_internet":
+                    _, msg, trecho, nome_fonte = erro
+                    chave = (msg, trecho)
+                    if chave != self._ultimo_aviso_fonte or rodada % 10 == 0:
+                        self._ultimo_aviso_fonte = chave
+                        log.aviso(f"{msg} (detalhe: {nome_fonte or 'leitor'}: {trecho})")
+                    self.mensagem = msg
+                    # streamlink falhou de verdade: tenta o yt-dlp na próxima rodada (e volta ao streamlink depois)
+                    if _bin("yt-dlp") and _bin("streamlink"):
+                        self._usar_ytdlp = not self._usar_ytdlp
                 else:
-                    msg = mensagem("offline")
-                if msg != self.mensagem or rodada % 10 == 0:
-                    log.info(msg)
-                self.mensagem = msg
+                    msg = mensagem("sem_internet") if tipo_erro == "sem_internet" else mensagem("offline")
+                    if msg != self.mensagem or rodada == 1 or rodada % 10 == 0:
+                        self._ultimo_aviso_fonte = None
+                        log.info(msg)
+                    self.mensagem = msg
             else:
                 if fora_min > self.fim_offline_min:
                     self.motivo_fim = f"live encerrada (offline há {self.fim_offline_min} min)"
@@ -261,12 +336,15 @@ class Captura(threading.Thread):
                                  "A live caiu ou travou. ") + f"Tentando de novo em {espera} s."
                 log.aviso(self.mensagem)
             self.parar.wait(espera)
-            espera = min(60, espera * 2)
+            espera = min(30 if self._n == 0 else 60, espera * 2)
 
     def _rodada(self, rodada):
         fonte = ff = None
+        nome = ""
+        self._erro_fonte = None
         self._tipo_erro = None
-        with tempfile.TemporaryFile() as erros:
+        self._nome_fonte = ""
+        with tempfile.TemporaryFile() as erros, tempfile.TemporaryFile() as erros_fonte:
             try:
                 if self.arquivo:
                     extra = ("-re", "-ss", f"{self.fim_live:.3f}") if self.fim_live > 0 else ("-re",)
@@ -281,6 +359,7 @@ class Captura(threading.Thread):
                     else:
                         log.info(f"Captura reiniciada, continuando do ponto {self.fim_live:.0f} s.")
                 else:
+                    self._erros_fonte = erros_fonte
                     fonte, nome = self._fonte()
                     with self._proc_lock:
                         self._fonte_proc = fonte
@@ -309,15 +388,17 @@ class Captura(threading.Thread):
                         p.wait()
                 if fonte and fonte.stdout:
                     fonte.stdout.close()
-                if fonte is not None and fonte.stderr:
+                if not self.arquivo:
                     try:
-                        err_fonte = (fonte.stderr.read() or b"").decode("utf-8", "ignore")
-                    except Exception:
-                        err_fonte = ""
-                    fonte.stderr.close()
-                    if err_fonte.strip():
-                        log.debug(f"{nome}: " + err_fonte.strip()[-600:])
-                    self._tipo_erro = classificar_erro(err_fonte)
+                        erros_fonte.seek(max(0, erros_fonte.tell() - 1500))
+                        texto_fonte = erros_fonte.read().decode("utf-8", "ignore")
+                        self._erro_fonte = explicar_erro_fonte(texto_fonte) + (nome if fonte is not None else "",)
+                        self._tipo_erro = classificar_erro(texto_fonte)
+                        self._nome_fonte = nome if fonte is not None else ""
+                        if texto_fonte.strip():
+                            log.debug(f"{nome}: " + texto_fonte.strip()[-600:])
+                    except (OSError, UnboundLocalError):
+                        self._erro_fonte = None
                 erros.seek(max(0, erros.tell() - 800))
                 erro = erros.read().decode("utf-8", "ignore").strip()
                 if erro:
@@ -356,7 +437,7 @@ class Captura(threading.Thread):
                             self.emendas.append(seg.ini)     # conteúdo da live pula aqui
                             log.ok(f"Captura voltou sozinha ({fora:.0f} s fora).")
                         elif not self.arquivo:
-                            log.ok("Live online: recebendo vídeo.")
+                            log.ok("Live iniciada — comecei a ver." if self._esperou_live else "Live online: recebendo vídeo.")
                         else:
                             pass
                     if self.ao_chegar:

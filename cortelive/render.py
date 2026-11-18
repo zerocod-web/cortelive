@@ -57,7 +57,7 @@ def _jogo_janela(m, sw, sh):
     nh = jh
     if nw / nh < W / hj:  # janela já mais estreita que o painel: crop puro
         nw = _px(nh * W / hj / sw, sw)
-    elif m.get("_jogo_auto"):
+    elif m.get("_jogo_auto") and 1.2 <= nw / nh <= 1.5:   # só jogo 4:3; 16:9 normal não perde lateral
         # v1.0.12: jogo 4:3 (faixas pretas) encolheria no meio do painel: corta até 22% das laterais (zoom) e o resto
         # fica no fundo desfocado do jogo, em vez de uma barra preta grande
         nw = min(nw, max(int(nw * 0.78), _px(nh * W / hj / sw, sw)) // 2 * 2)
@@ -115,27 +115,7 @@ def janela_do_jogo(video, inicio, fim, sw, sh, cam=None):
         return None
     a, b = a + 1, b - 1                      # 1 px de folga para dentro: tira o fio da borda
     x0, x1 = int(a / esc) // 2 * 2, int(b / esc) // 2 * 2
-    # v1.0.12: faixas pretas também em cima/embaixo (CS 4:3 dentro de 16:9): corta para as linhas com imagem,
-    # senão o painel ganha barra preta onde o jogo não existe
-    y0, y1 = 0, sh
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            lin = np.nan_to_num(np.nanmean(np.nanmean(np.stack(acc)[:, :, a:b], 0), 1))
-        okl = lin > 0.12
-        mel, ini = (0, 0), None
-        for i, v in enumerate(list(okl) + [False]):
-            if v and ini is None:
-                ini = i
-            elif not v and ini is not None:
-                if i - ini > mel[1] - mel[0]:
-                    mel = (ini, i)
-                ini = None
-        if (mel[1] - mel[0]) >= len(lin) * 0.5 and (mel[1] - mel[0]) < len(lin) * 0.97:
-            y0, y1 = int((mel[0] + 1) / esc) // 2 * 2, int((mel[1] - 1) / esc) // 2 * 2
-    except Exception:
-        y0, y1 = 0, sh
-    return (x0, y0, x1 - x0, y1 - y0)
+    return (x0, 0, x1 - x0, sh)
 
 
 def janela_jogo_cheia(sw, sh, W, hj, cam=None):

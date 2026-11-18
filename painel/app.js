@@ -1415,9 +1415,21 @@
     acompanhamentoAtualizacao = false;
     el("btn-fechar-atualizacao").disabled = false;
     if (res.etapa === "concluido") {
-      const url = new URL(window.location.href);
-      url.searchParams.set("atualizado", res.versao_atual || res.versao_nova || "nova");
-      window.location.assign(url);
+      const versao = res.versao_atual || res.versao_nova || "nova";
+      statusAtualizacao(
+        `Pronto! ${versao === "nova" ? "Versão nova" : versaoComPrefixo(versao)} instalada`,
+        "O CorteLive vai fechar e abrir de novo sozinho em alguns segundos. Seus modelos, cortes e configurações continuam aqui."
+      );
+      const progresso = el("progresso-atualizacao");
+      progresso.value = 100;
+      progresso.hidden = false;
+      el("btn-fechar-atualizacao").disabled = true;
+      // Se por algum motivo a janela não for reaberta sozinha, recarrega a tela na versão nova.
+      setTimeout(() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("atualizado", versao);
+        window.location.assign(url);
+      }, 30000);
     } else if (res.etapa === "rollback" || res.exit_code === 2) {
       statusAtualizacao("Atualização revertida", res.erro || res.msg || "A versão anterior foi restaurada.");
     } else if (res.etapa === "em_dia") {
@@ -1648,7 +1660,6 @@
 
     el("btn-checar-atualizacao").addEventListener("click", () => checarAtualizacao(true));
     el("btn-aplicar-atualizacao").addEventListener("click", aplicarAtualizacao);
-    el("btn-checar-atualizacao").addEventListener("click", () => checarAtualizacao(true));
     el("btn-fechar-atualizacao").addEventListener("click", () => {
       exibirFaixaAtualizacao(false);
       el("btn-checar-atualizacao").focus();

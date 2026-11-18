@@ -35,6 +35,8 @@ if (-not $Raiz) {
 $RAIZ = [IO.Path]::GetFullPath($Raiz)
 $PASTA_ANTIGAS = Join-Path $RAIZ 'versoes_antigas'
 $ARQ_ULTIMA    = Join-Path $PASTA_ANTIGAS 'ultima.txt'
+# .exe que estava aberto durante a troca: fica aqui (fora dos backups) ate o app reabrir e soltar o arquivo.
+$PASTA_EM_USO  = Join-Path $PASTA_ANTIGAS '_em_uso'
 $TMP_UPDATE    = Join-Path $RAIZ '_update_tmp'
 $LOG_UPDATE    = Join-Path $RAIZ 'atualizacao.log'
 $ARQ_CACHE     = Join-Path $RAIZ 'instalador\cache_release.local.json'
@@ -554,7 +556,7 @@ function Salvar-Backup([string]$pastaRaiz, [string]$versaoAtual) {
 
   # Mantem no maximo as 3 ultimas versoes em versoes_antigas\ para nao acumular lixo eterno
   $todosBackups = Get-ChildItem -LiteralPath $PASTA_ANTIGAS -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -ne $nomeSlot } |
+    Where-Object { $_.Name -ne $nomeSlot -and $_.Name -notlike '_*' } |
     Sort-Object LastWriteTime -Descending
   if ($todosBackups.Count -gt 2) {
     foreach ($antigo in ($todosBackups | Select-Object -Skip 2)) {
@@ -651,7 +653,7 @@ function Restaurar-Backup([string]$pastaRaiz, [string]$pastaBackup) {
     }
   }
 
-  Aplicar-ArvoreCodigo $pastaBackup $pastaRaiz $pastaBackup ''
+  Aplicar-ArvoreCodigo $pastaBackup $pastaRaiz $PASTA_EM_USO ''
   Restaurar-ArquivosInternosUsuario $pastaRaiz $internos
 }
 
@@ -755,7 +757,7 @@ function Obter-PastaBackupAnterior([string]$versaoAtualDisco = '') {
   }
   if (Test-Path $PASTA_ANTIGAS) {
     $maisRecente = Get-ChildItem -LiteralPath $PASTA_ANTIGAS -Directory -ErrorAction SilentlyContinue |
-      Where-Object { (Ler-Versao $_.FullName) -ne $versaoAtualDisco } |
+      Where-Object { $_.Name -notlike '_*' -and (Ler-Versao $_.FullName) -ne $versaoAtualDisco } |
       Sort-Object LastWriteTime -Descending |
       Select-Object -First 1
     if ($maisRecente) { return $maisRecente.FullName }
@@ -867,6 +869,11 @@ try {
 
   if (Test-Path $TMP_UPDATE) { Remove-Item -Recurse -Force $TMP_UPDATE }
   New-Item -ItemType Directory -Force $TMP_UPDATE | Out-Null
+  # Solta o que sobrou de trocas anteriores (o que ainda estiver aberto fica para a proxima).
+  if (Test-Path $PASTA_EM_USO) {
+    Get-ChildItem -LiteralPath $PASTA_EM_USO -Force -ErrorAction SilentlyContinue |
+      ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+  }
 
   $zipArq = Join-Path $TMP_UPDATE 'cortelive_amigos.zip'
   $shaArq = Join-Path $TMP_UPDATE 'cortelive_amigos.zip.sha256'
@@ -922,7 +929,7 @@ try {
 # Fase 2: troca do codigo, instalador condicional e autoteste (qualquer falha dispara rollback automatico!)
 try {
   Emitir-Evento -Etapa 'aplicando' -Pct 72 -Msg "Aplicando código da versão $verNovaAlvo (mantendo modelos, .venv, FFmpeg e cortes)..." -VersaoAtual $verAntes -VersaoNova $verNovaAlvo -Erro $null
-  Aplicar-ArvoreCodigo $origemCodigo $RAIZ $pastaBackupCriada $cfgAtual.repo
+  Aplicar-ArvoreCodigo $origemCodigo $RAIZ $PASTA_EM_USO $cfgAtual.repo
 
   if (-not (Test-Path (Join-Path $origemCodigo 'VERSION'))) {
     [IO.File]::WriteAllText((Join-Path $RAIZ 'VERSION'), "$verNovaAlvo`n", $utf8SemBom)

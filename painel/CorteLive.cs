@@ -61,6 +61,17 @@ namespace CorteLivePainel
         private static DateTime? JanelaFechadaEm = null;
         private static Process ProcJanela = null;
 
+        // Atualização em segundo plano: o painel acompanha o progresso por /api/estado.
+        private static readonly object LockAtual = new object();
+        private static volatile bool AtualRodando = false;
+        private static Dictionary<string, object> AtualUltimo = null;
+        // Reabertura depois da atualização (processo auxiliar que fecha o app antigo e abre o novo).
+        private static bool ModoReabrir = false;
+        private static int ReabrirPortaAntiga = 0;
+        private static int ReabrirPidAntigo = 0;
+        private static string ReabrirVersao = "";
+        private static string AtualizadoPara = "";
+
         // Estado de instalação
         private static readonly object LockInst = new object();
         private static Process ProcInstalacao = null;
@@ -144,6 +155,26 @@ namespace CorteLivePainel
                 {
                     JanelaTam = args[++i].Trim();
                 }
+                else if (string.Equals(a, "--reabrir-apos-atualizar", StringComparison.OrdinalIgnoreCase))
+                {
+                    ModoReabrir = true;
+                }
+                else if (string.Equals(a, "--porta-antiga", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    int.TryParse(args[++i], out ReabrirPortaAntiga);
+                }
+                else if (string.Equals(a, "--pid-antigo", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    int.TryParse(args[++i], out ReabrirPidAntigo);
+                }
+                else if (string.Equals(a, "--versao-nova", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    ReabrirVersao = args[++i].Trim();
+                }
+                else if (string.Equals(a, "--atualizado", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    AtualizadoPara = args[++i].Trim();
+                }
             }
 
 #if MODO_DEV
@@ -179,9 +210,20 @@ namespace CorteLivePainel
                 return 1;
             }
 
+            if (ModoReabrir)
+            {
+                return ExecutarReabertura();
+            }
+
             if (SelfTest)
             {
-                return ExecutarSelfTest();
+                int rTeste = ExecutarSelfTest();
+#if !MODO_DEV
+                // O atualizador roda o --self-test do .exe NOVO antes de concluir. Se o app aberto
+                // é de outra versão, deixa um auxiliar que fecha o app antigo e reabre o novo.
+                if (rTeste == 0) AgendarReaberturaSeAtualizando();
+#endif
+                return rTeste;
             }
 
             int portaExistente = VerificarInstanciaAtiva();
@@ -366,7 +408,7 @@ namespace CorteLivePainel
 
         private static bool DeveEncerrarPorJanelaFechada()
         {
-            if (InstRodando) return false;
+            if (InstRodando || AtualRodando) return false;
             double desdeHb = (DateTime.UtcNow - UltimoHeartbeat).TotalSeconds;
             if (JanelaFechadaEm.HasValue)
             {
@@ -505,6 +547,11 @@ namespace CorteLivePainel
             string subPerfil = "webview_dev";
 #else
             string url = String.Format("http://127.0.0.1:{0}/", portaAlvo);
+            if (!string.IsNullOrEmpty(AtualizadoPara))
+            {
+                url += "?atualizado=" + Uri.EscapeDataString(AtualizadoPara);
+                AtualizadoPara = "";
+            }
             string subPerfil = "webview_app";
 #endif
             JanelaFechadaEm = null;
@@ -1019,7 +1066,7 @@ namespace CorteLivePainel
 
             if (rota == "/api/ping")
             {
-                EnviarJson(ns, 200, new { ok = true, versao = LerVersao() });
+                EnviarJson(ns, 200, new { ok = true, versao = LerVersao(), exe_versao = VersaoExe(), pid = Process.GetCurrentProcess().Id });
                 return;
             }
             if (rota == "/api/heartbeat")
@@ -1154,7 +1201,7 @@ namespace CorteLivePainel
                     return;
                 }
                 CacheImportsOk = null;
-                EnviarJson(ns, 200, ExecutarAtualizador("-Aplicar -Canal " + CanalAtualizacao, 900000));
+                EnviarJson(ns, 200, IniciarAtualizacaoEmSegundoPlano("-Aplicar -Canal " + CanalAtualizacao, 900000));
                 return;
             }
             if (rota == "/api/atualizacao/voltar" && metodo == "POST")
@@ -1640,6 +1687,7 @@ namespace CorteLivePainel
                 modo_descricao = instalado ? LerModoDescricao() : "",
                 instalacao = blocoInst,
                 sessao = blocoSessao,
+                atualizacao = BlocoAtualizacao(),
                 cortes = instalado ? ListarCortes() : new List<Dictionary<string, object>>()
             };
         }
@@ -2320,20 +2368,228 @@ namespace CorteLivePainel
         // =========================================================================
         // Atualização via instalador\atualizar.ps1 (CONTRATO_ATUALIZACAO.md)
         // =========================================================================
-        private static object ExecutarAtualizador(string flagModo, int timeoutMs)
+        private static Dictionary<string, object> RespostaAtualizador(string etapa, string msg, string erro, int? exitCode)
+        {
+            Dictionary<string, object> d = new Dictionary<string, object>();
+            d["etapa"] = etapa;
+            d["pct"] = 100;
+            d["msg"] = msg;
+            d["versao_atual"] = LerVersao();
+            d["versao_nova"] = null;
+            d["erro"] = erro;
+            if (exitCode.HasValue) d["exit_code"] = exitCode.Value;
+            return d;
+        }
+
+        // Versão com que ESTE .exe foi compilado (build_apps.ps1 grava AssemblyVersion = VERSION).
+        private static string VersaoExe()
+        {
+            try
+            {
+                Version v = Assembly.GetExecutingAssembly().GetName().Version;
+                return String.Format("{0}.{1}.{2}", v.Major, v.Minor, v.Build);
+            }
+            catch { return ""; }
+        }
+
+        private static Dictionary<string, object> BlocoAtualizacao()
+        {
+            lock (LockAtual)
+            {
+                if (AtualUltimo == null) return null;
+                Dictionary<string, object> d = new Dictionary<string, object>(AtualUltimo);
+                d["rodando"] = AtualRodando;
+                return d;
+            }
+        }
+
+        // Clique em "Atualizar": roda o atualizador em segundo plano e devolve na hora; o painel
+        // mostra o progresso. No fim, o --self-test do .exe novo deixa o auxiliar de reabertura
+        // (AgendarReaberturaSeAtualizando), que fecha este app e abre a versão nova.
+        private static object IniciarAtualizacaoEmSegundoPlano(string flagModo, int timeoutMs)
+        {
+            lock (LockAtual)
+            {
+                if (AtualRodando) return BlocoAtualizacao();
+                AtualRodando = true;
+                Dictionary<string, object> ini = new Dictionary<string, object>();
+                ini["etapa"] = "checando";
+                ini["pct"] = 2;
+                ini["msg"] = "Procurando a versão nova...";
+                ini["versao_atual"] = LerVersao();
+                AtualUltimo = ini;
+            }
+            Thread th = new Thread(delegate()
+            {
+                Dictionary<string, object> fim;
+                try
+                {
+                    fim = ExecutarAtualizador(flagModo, timeoutMs, delegate(Dictionary<string, object> ev)
+                    {
+                        lock (LockAtual) { AtualUltimo = ev; }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    fim = RespostaAtualizador("erro", "Não foi possível atualizar agora.", ex.Message, 1);
+                }
+                lock (LockAtual)
+                {
+                    AtualUltimo = fim;
+                    AtualRodando = false;
+                }
+            });
+            th.IsBackground = true;
+            th.Start();
+            return BlocoAtualizacao();
+        }
+
+        private static void RegistrarLogAtualizacao(string texto)
+        {
+            try
+            {
+                File.AppendAllText(Path.Combine(Raiz, "atualizacao.log"),
+                    String.Format("[{0:s}] {1}\r\n", DateTime.Now, texto), Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private static Dictionary<string, object> LerJsonUrl(string url, string metodo, int timeoutMs)
+        {
+            HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+            req.Method = metodo;
+            req.Timeout = timeoutMs;
+            req.ReadWriteTimeout = timeoutMs;
+            if (metodo == "POST")
+            {
+                req.ContentType = "application/json";
+                byte[] corpo = Encoding.UTF8.GetBytes("{}");
+                req.ContentLength = corpo.Length;
+                using (Stream s = req.GetRequestStream()) s.Write(corpo, 0, corpo.Length);
+            }
+            using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+            using (StreamReader sr = new StreamReader(resp.GetResponseStream(), Encoding.UTF8))
+            {
+                return new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(sr.ReadToEnd());
+            }
+        }
+
+        private static void AgendarReaberturaSeAtualizando()
+        {
+            try
+            {
+                if (Environment.GetEnvironmentVariable("CORTELIVE_SEM_REABRIR") == "1") return;
+                if (!Directory.Exists(Path.Combine(Raiz, "_update_tmp"))) return;
+                string arq = Path.Combine(Raiz, ArqInstanciaNome);
+                if (!File.Exists(arq)) return;
+                Dictionary<string, object> inst = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(arq, Encoding.UTF8));
+                if (inst == null || !inst.ContainsKey("porta")) return;
+                int porta = Convert.ToInt32(inst["porta"]);
+                int pid = inst.ContainsKey("pid") ? Convert.ToInt32(inst["pid"]) : 0;
+                Dictionary<string, object> ping = LerJsonUrl(String.Format("http://127.0.0.1:{0}/api/ping", porta), "GET", 1500);
+                string exeAberto = ping != null && ping.ContainsKey("exe_versao") ? Convert.ToString(ping["exe_versao"]) : "";
+                string versaoDisco = LerVersao();
+                if (exeAberto == versaoDisco) return;
+                ProcessStartInfo psi = new ProcessStartInfo(Application.ExecutablePath, String.Format(
+                    "--reabrir-apos-atualizar --raiz \"{0}\" --porta-antiga {1} --pid-antigo {2} --versao-nova {3}",
+                    Raiz, porta, pid, versaoDisco));
+                // ShellExecute: o auxiliar não herda a saída do atualizador (que espera o self-test acabar).
+                psi.UseShellExecute = true;
+                psi.WorkingDirectory = Raiz;
+                Process.Start(psi);
+                RegistrarLogAtualizacao(String.Format("REABRIR agendado: app aberto v{0} (pid {1}, porta {2}) -> v{3}",
+                    exeAberto == "" ? "antiga" : exeAberto, pid, porta, versaoDisco));
+            }
+            catch (Exception ex)
+            {
+                RegistrarLogAtualizacao("REABRIR não agendado: " + ex.Message);
+            }
+        }
+
+        private static void FecharJanelaDaPorta(int porta)
+        {
+            if (porta <= 0) return;
+            // Só a janela do painel desta instância (perfil CorteLive\webview_* com --app na porta antiga).
+            string ps = "$ErrorActionPreference='SilentlyContinue'; " +
+                "foreach ($p in (Get-CimInstance Win32_Process -Filter \"Name='msedge.exe' or Name='chrome.exe'\")) { " +
+                "$c = [string]$p.CommandLine; " +
+                "if ($c -like '*CorteLive\\webview_*' -and $c -like '*--app=http://127.0.0.1:" + porta + "/*') { Stop-Process -Id $p.ProcessId -Force } }";
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(CaminhoPowerShell(),
+                    "-NoProfile -ExecutionPolicy Bypass -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(ps)));
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+                using (Process p = Process.Start(psi)) p.WaitForExit(20000);
+            }
+            catch { }
+        }
+
+        // Processo auxiliar: espera o atualizador terminar, fecha o app antigo (e a janela dele)
+        // e abre o CorteLive novo. Se a atualização foi desfeita, não faz nada.
+        private static int ExecutarReabertura()
+        {
+            bool criado;
+            using (Mutex mx = new Mutex(true, "Local\\CorteLiveReabrir_" + (Raiz.ToLowerInvariant().GetHashCode() & 0x7fffffff), out criado))
+            {
+                if (!criado) return 0;
+                string tmp = Path.Combine(Raiz, "_update_tmp");
+                DateTime limite = DateTime.UtcNow.AddMinutes(30);
+                while (Directory.Exists(tmp) && DateTime.UtcNow < limite) Thread.Sleep(500);
+                Thread.Sleep(2500);
+
+                string versaoDisco = LerVersao();
+                if (!string.IsNullOrEmpty(ReabrirVersao) && versaoDisco != ReabrirVersao)
+                {
+                    RegistrarLogAtualizacao(String.Format("REABRIR cancelado: versão em disco {0} (esperada {1}); atualização desfeita.", versaoDisco, ReabrirVersao));
+                    return 0;
+                }
+
+                if (ReabrirPortaAntiga > 0)
+                {
+                    try { LerJsonUrl(String.Format("http://127.0.0.1:{0}/api/encerrar", ReabrirPortaAntiga), "POST", 3000); } catch { }
+                }
+                if (ReabrirPidAntigo > 0 && ReabrirPidAntigo != Process.GetCurrentProcess().Id)
+                {
+                    try
+                    {
+                        using (Process antigo = Process.GetProcessById(ReabrirPidAntigo))
+                        {
+                            if (!antigo.WaitForExit(20000))
+                            {
+                                MatarArvoreProcesso(antigo.Id);
+                                antigo.WaitForExit(5000);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                FecharJanelaDaPorta(ReabrirPortaAntiga);
+                try { File.Delete(Path.Combine(Raiz, ArqInstanciaNome)); } catch { }
+
+                string extra = (Environment.GetEnvironmentVariable("CORTELIVE_REABRIR_ARGS") ?? "").Trim();
+                ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(Raiz, "CorteLive.exe"),
+                    ("--atualizado " + versaoDisco + " " + extra).Trim());
+                psi.UseShellExecute = true;
+                psi.WorkingDirectory = Raiz;
+                Process novo = Process.Start(psi);
+                RegistrarLogAtualizacao(String.Format("REABRIR: app antigo (pid {0}) fechado; CorteLive v{1} aberto (pid {2}).",
+                    ReabrirPidAntigo, versaoDisco, novo != null ? novo.Id.ToString() : "?"));
+            }
+            return 0;
+        }
+
+        private static Dictionary<string, object> ExecutarAtualizador(string flagModo, int timeoutMs)
+        {
+            return ExecutarAtualizador(flagModo, timeoutMs, null);
+        }
+
+        private static Dictionary<string, object> ExecutarAtualizador(string flagModo, int timeoutMs, Action<Dictionary<string, object>> aoEvento)
         {
             string script = Path.Combine(Raiz, @"instalador\atualizar.ps1");
             if (!File.Exists(script))
             {
-                return new
-                {
-                    etapa = "indisponivel",
-                    pct = 100,
-                    msg = "Script instalador\\atualizar.ps1 ainda não instalado.",
-                    versao_atual = LerVersao(),
-                    versao_nova = (string)null,
-                    erro = (string)null
-                };
+                return RespostaAtualizador("indisponivel", "Script instalador\\atualizar.ps1 ainda não instalado.", null, null);
             }
 
             ProcessStartInfo psi = new ProcessStartInfo();
@@ -2351,21 +2607,34 @@ namespace CorteLivePainel
             using (Process p = Process.Start(psi))
             {
                 StringBuilder outSb = new StringBuilder();
+                JavaScriptSerializer jsEv = new JavaScriptSerializer();
                 p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
                 {
-                    if (e.Data != null) outSb.AppendLine(e.Data);
+                    if (e.Data == null) return;
+                    lock (outSb) outSb.AppendLine(e.Data);
+                    if (aoEvento == null) return;
+                    string l = e.Data.Trim();
+                    if (!l.StartsWith("{") || !l.EndsWith("}")) return;
+                    try
+                    {
+                        Dictionary<string, object> ev = jsEv.Deserialize<Dictionary<string, object>>(l);
+                        if (ev != null) aoEvento(ev);
+                    }
+                    catch { }
                 };
                 p.BeginOutputReadLine();
                 p.BeginErrorReadLine();
                 if (!p.WaitForExit(timeoutMs))
                 {
                     MatarArvoreProcesso(p.Id);
-                    return new { etapa = "erro", pct = 100, msg = "Tempo esgotado.", versao_atual = LerVersao(), erro = "Tempo esgotado." };
+                    return RespostaAtualizador("erro", "Tempo esgotado.", "Tempo esgotado.", null);
                 }
                 p.WaitForExit();
 
                 int exitCode = p.ExitCode;
-                string[] linhas = outSb.ToString().Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                string saida;
+                lock (outSb) saida = outSb.ToString();
+                string[] linhas = saida.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 JavaScriptSerializer js = new JavaScriptSerializer();
                 for (int i = linhas.Length - 1; i >= 0; i--)
                 {
@@ -2384,7 +2653,7 @@ namespace CorteLivePainel
                         catch { }
                     }
                 }
-                return new { etapa = "erro", pct = 100, versao_atual = LerVersao(), exit_code = exitCode, erro = "Resposta inesperada do atualizador." };
+                return RespostaAtualizador("erro", "Não foi possível atualizar agora.", "Resposta inesperada do atualizador.", exitCode);
             }
         }
 

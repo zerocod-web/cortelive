@@ -1,0 +1,29 @@
+CorteLive — prévias e imagens
+
+Prévias estáticas em qa\previas_painel. As contas, os estados e os cortes são exemplos. A interface e seu texto foram compostos em Segoe UI sobre os recursos gerados, com a paleta do painel. Os prompts de composição estão em português. Os prompts enviados ao gerador estão em inglês.
+
+01-primeira-vez.png
+Tela Windows em 1600 × 1000. Superfícies escuras, botão âmbar INSTALAR e instalação em 62%. Mostrar Python, Bibliotecas, FFmpeg e Modelo de fala. Usar a imagem de boas-vindas no cabeçalho.
+
+02-cortar.png
+Tela Windows em 1600 × 1000. Mostrar Link da live, opções de modelo vertical e legenda, botão CORTAR, “Ouvindo a live… 2 cortes prontos”, duas miniaturas verticais com duração e botões Abrir, Pasta e Postar.
+Prompt das miniaturas: Create one paired contact sheet of TWO authentic documentary-style streamer video frames, each a portrait 9:16 crop, left and right side-by-side with seam dead center and no margin or border. Same Brazilian adult livestream creator wearing a dark shirt and headset in front of subtly lit charcoal studio background. Camera framed wide enough with generous headroom to show every part of the head and a little of upper torso. Left: surprised smiling toward monitor, warm tungsten side lighting. Right: looking at monitor mid-sentence amused, cooler muted studio light. Close to realistic webcam feed, professional natural lighting. Canvas aspect 9:8 if possible. No text, no subtitles, no typography, no logos, no interface, no watermarks. These will be used at small size as the portraits for two clips.
+
+03-postar.png
+Tela Windows em 1600 × 1000. Usar símbolos genéricos para YouTube Shorts, Instagram Reels e TikTok. Mostrar conexão de exemplo, Postar sozinho desligado, Revisar antes ligado e campos de título e legenda por rede com o status de envio.
+
+cortelive-icone.png / cortelive.ico
+Generate a production-ready Windows desktop app icon for CorteLive, a livestream clipper. 1:1 canvas. Icon centered, fills 84% of canvas, background outside rounded square transparent, completely flat solid near-black #161920 tile generously rounded, within that tile a simple bold amber #F5A524 geometric mark: two opposed right-angle editing crop brackets framing one right-facing filled play triangle. Thick consistent strokes, shape unmistakable at 16px. One tiny amber dot may sit upper right ONLY if needed, otherwise omit. Front view, flat, no bevel, no shadow, no gradient, no perspective, no text, no letters, no watermark, no borders around the canvas. Crisp opaque artwork.
+O PNG tem 1024 × 1024. O ICO usa o mesmo símbolo e contém quadros de 16, 32, 48 e 256 px.
+
+cortelive-logo-horizontal.png
+Compor o símbolo gerado ao lado de “CorteLive” em Segoe UI Bold. Usar branco em “Corte” e âmbar em “Live”, com fundo transparente.
+
+boas-vindas-fundo.png
+Create a 16:9 1920x1080 wide dark desktop UI background texture for a professional livestream clipper CorteLive. Purely decorative, never add text, controls, frames or panels. Base charcoal #161920, preserve the left 60% dark and almost completely plain to support readable white text. The right third has a single subtle, barely luminous warm amber #f5a524 audio waveform formed by evenly spaced slim vertical marks mixed with a few thin ghosted video timeline guide lines and extremely faint grid. Quiet intentional framing, fades gently before all edges, near-black edges. Flat front-on design, very low contrast, finely crafted modern studio software. No gradients of strong contrast.
+
+estado-sem-cortes.png
+Transparent background PNG for the empty clips state in dark video clipping desktop software. Centered restrained flat pictogram with only charcoal and amber #f5a524. Show a single vertical 9:16 rounded video film frame, solid charcoal interior, inner play triangle and a small pair of amber scissors crossing a lower corner. A dashed subdued upright frame behind. Crisp geometric outlined 2D shapes, broadly recognizable at 120 px. Space around all edges, no text, no letters, no shadows, no gradients, no bevel, no logo. Separate its outer shape cleanly from transparency.
+
+estado-sem-contas.png
+Generate an empty state icon for a dark Windows app, transparent PNG, 1:1 square. Large flat diagram of an unplugged electric connection, drawn as TWO almost touching opposing chunky connectors with two prongs in the gap and a clipped loose cable curving out of each end. Graphic primarily in solid muted amber #F5A524 and light gray #CBD5E1 (outlines 12% of shape width), so the entire disconnected plug silhouette remains clear on #161920. Centered with at least 18% transparent padding on every edge. Use only amber and light gray. At most a small amber broken link spark above the gap. Coherent spare flat icon with no background panel, no gradient, no black artwork, no text, no logo, no other elements. A high-contrast empty-state illustration, large, simple, and legible at 120 pixels.

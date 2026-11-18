@@ -288,7 +288,6 @@
     const durTxt = c.duracao > 0 ? formatarHms(c.duracao).replace(/^00:/, "") : "MP4";
     const tempoTxt = c.inicio_hms ? `Momento ${c.inicio_hms}` : (c.data_hora || "");
     const titulo = c.titulo || c.nome_arquivo;
-    const motivo = c.motivo || `Layout: ${c.modelo || "vertical 9:16"}`;
 
     const topo = document.createElement("div");
     topo.className = "corte-topo";
@@ -327,13 +326,8 @@
     h3.className = "corte-titulo";
     h3.textContent = titulo;
 
-    const pMotivo = document.createElement("p");
-    pMotivo.className = "corte-motivo";
-    pMotivo.textContent = motivo;
-
     meta.appendChild(linhaCanal);
     meta.appendChild(h3);
-    meta.appendChild(pMotivo);
     topo.appendChild(slate);
     topo.appendChild(meta);
 

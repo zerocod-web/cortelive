@@ -22,3 +22,6 @@ Nenhum código AGPL (Medusa Clip etc.) foi usado.
 - Outfit — Copyright 2021 The Outfit Project Authors (https://github.com/Outfitio/Outfit-Fonts), SIL Open Font License 1.1 (`painel/fontes/Outfit-OFL.txt`, fonte variável local `painel/fontes/Outfit-Variable.woff2`).
 
 ## whisper.cpp — MIT (binário em `ferramentas/whispercpp`, baixado do release oficial).
+
+## YuNet (detector de rosto da câmera) — MIT
+`cortelive/modelos_cam/face_detection_yunet_2023mar.onnx` (~230 KB), do repositório opencv_zoo (https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet). YuNet: Copyright (c) 2020 Shiqi Yu (https://github.com/ShiqiYu/libfacedetection.train). Licença MIT. O arquivo vai dentro do pacote e roda em CPU pelo OpenCV (`cv2.FaceDetectorYN`); nada é baixado na instalação.

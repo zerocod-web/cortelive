@@ -172,6 +172,12 @@ def _overlay(imgs, rosto):
     dire, b2, n2 = _borda(pcol, lcol, int(cx + fw * 0.6), W, 1, k)
     cima, b3, n3 = _borda(plin, llin, int(cy - fh * 0.7), -1, -1, k)
     baixo, b4, n4 = _borda(plin, llin, int(cy + fh * 0.7), H, 1, k)
+    if not b4:
+        # a janela pode acabar logo no queixo (Gaules: borda 0,5 rosto abaixo do centro); começar em 0,7 pula a
+        # borda e a busca chega ao fim da tela. Só nesse caso tenta de novo começando mais perto do rosto.
+        baixo2, b4b, n4b = _borda(plin, llin, int(cy + fh * 0.4), H, 1, k)
+        if b4b:
+            baixo, b4, n4 = baixo2, b4b, n4b
     # lado sem borda por contraste (painel parado do jogo encostado na cam): usa a moldura reta mais forte perto do rosto
     if not b2 and dire >= W - 1:
         cand = [(lcol(x), x) for x in range(int(cx + fw * 0.7), min(W - 2, int(cx + fw * 2.4)))]
@@ -248,6 +254,72 @@ def _overlay_antigo(imgs, rosto):
     return (int(x0), int(y0), int(min(w, x1) - x0), int(min(h, y1) - y0)), nit, mov
 
 
+def _moldura(imgs, rosto):
+    """Reserva para jogo parado/escuro (stepbr12: Minecraft numa caverna — o jogo quase não mexe e o contraste
+    parado x em movimento some). Procura o retângulo em volta do rosto cujos 4 lados são linhas retas presentes em
+    TODOS os quadros, ao longo do lado inteiro. Vence o de lados mais completos (pior lado); empate -> maior.
+    -> ((x, y, w, h) em px da imagem original, nota do pior lado) ou None."""
+    import cv2
+    h, w = imgs[0].shape[:2]
+    esc = LARG_ANALISE / w
+    pq = [cv2.GaussianBlur(cv2.cvtColor(cv2.resize(i, (LARG_ANALISE, int(round(h * esc)))), cv2.COLOR_BGR2GRAY),
+                           (5, 5), 0).astype(np.float32) for i in imgs]
+    H, W = pq[0].shape
+    gx = (np.min(np.stack([np.abs(cv2.Sobel(p, cv2.CV_32F, 1, 0, ksize=3)) for p in pq]), 0) > 18).astype(np.uint8)
+    gy = (np.min(np.stack([np.abs(cv2.Sobel(p, cv2.CV_32F, 0, 1, ksize=3)) for p in pq]), 0) > 18).astype(np.uint8)
+    gx = cv2.dilate(gx, np.ones((1, 3), np.uint8))        # tolerância de 1 px
+    gy = cv2.dilate(gy, np.ones((3, 1), np.uint8))
+    sx = np.vstack([np.zeros((1, W)), np.cumsum(gx, 0)])  # sx[y, x] = linhas de borda na coluna x até y
+    sy = np.hstack([np.zeros((H, 1)), np.cumsum(gy, 1)])  # sy[y, x] = colunas de borda na linha y até x
+    cx, cy, fw, fh = (v * esc for v in rosto[:4])
+    col = lambda x, t, b: (sx[b, x] - sx[t, x]) / max(1, b - t)
+    lin = lambda y, l, r: (sy[y, r] - sy[y, l]) / max(1, r - l)
+
+    def picos(perfil, a, b):
+        a, b = max(0, int(a)), min(len(perfil), int(b))
+        ix = [i for i in range(a, b) if perfil[i] >= 0.35 and perfil[i] == perfil[max(a, i - 2):min(b, i + 3)].max()]
+        return sorted(ix, key=lambda i: -perfil[i])[:14]
+
+    ya, yb = int(max(0, cy - fh)), int(min(H, cy + fh))
+    xa, xb = int(max(0, cx - fw)), int(min(W, cx + fw))
+    pc, pl = gx[ya:yb].mean(0), gy[:, xa:xb].mean(1)
+    esqs = set(picos(pc, 0, cx - fw * 0.7) + [0])
+    dirs = set(picos(pc, cx + fw * 0.7, W) + [W - 1])
+    cimas = set(picos(pl, 0, cy - fh * 0.7) + [0])
+    baixos = set(picos(pl, cy + fh * 0.6, H) + [H - 1])
+    melhor = None
+    for L in esqs:
+        for R in dirs:
+            if not fw * 2.2 <= R - L <= 0.5 * W:
+                continue
+            for T in cimas:
+                for B in baixos:
+                    if not fh * 1.8 <= B - T <= 0.6 * H:
+                        continue
+                    # lado encostado na borda da tela vale como achado
+                    lados = [1.0 if L <= 1 else col(L, T, B), 1.0 if R >= W - 2 else col(R, T, B),
+                             1.0 if T <= 1 else lin(T, L, R), 1.0 if B >= H - 2 else lin(B, L, R)]
+                    chave = (round(min(lados), 1), (R - L) * (B - T))
+                    if melhor is None or chave > melhor[0]:
+                        melhor = (chave, [L, T, R, B], min(lados))
+    if not melhor or melhor[2] < 0.55:
+        return None
+    L, T, R, B = melhor[1]
+    # encostado na tela, mas a moldura de verdade está a poucos px: usa a moldura
+    perto = lambda cands, f: max(cands, key=f) if cands and f(max(cands, key=f)) >= 0.8 else None
+    if L <= 1:
+        L = perto(range(2, int(0.04 * W)), lambda x: col(x, T, B)) or L
+    if R >= W - 2:
+        R = perto(range(W - int(0.04 * W), W - 2), lambda x: col(x, T, B)) or R
+    if T <= 1:
+        T = perto(range(2, int(0.04 * H)), lambda y: lin(y, L, R)) or T
+    if B >= H - 2:
+        B = perto(range(H - int(0.04 * H), H - 2), lambda y: lin(y, L, R)) or B
+    x0, y0 = (0 if L <= 1 else (L + 1) / esc), (0 if T <= 1 else (T + 1) / esc)
+    x1, y1 = (w if R >= W - 2 else R / esc), (h if B >= H - 2 else B / esc)
+    return (int(x0), int(y0), int(x1 - x0), int(y1 - y0)), round(float(melhor[2]), 2)
+
+
 def _cluster_parado(imgs, rosto):
     """Bordas que existem em todos os quadros, fechadas e ligadas ao rosto -> retângulo envolvente."""
     import cv2
@@ -273,14 +345,40 @@ def _cluster_parado(imgs, rosto):
     return (x, y, cw, ch)
 
 
-def ajustar_proporcao(cam, rosto, w, h, prop, bordas=None):
+def faixa_topo(imgs, cam, rosto):
+    """Faixa de cor lisa colada em cima da cam (nome/relógio, ex.: a azul do Gaules). -> altura em px até
+    logo abaixo dela, ou None se não houver. Acha a linha reta que existe em todos os quadros no 1/3 de cima
+    da cam (acima do rosto) e exige que o trecho acima dela seja quase todo da mesma cor."""
+    x, y, cw, ch = (int(v) for v in cam)
+    cy, fh = rosto[1], rosto[3]
+    xa, xb = x + int(cw * 0.05), x + int(cw * 0.95)
+    lim = int(min(y + ch * 0.3, cy - fh * 0.8))
+    if lim - y < 6 or xb - xa < 20:
+        return None
+    pilha = np.stack([i[y:lim, xa:xb].astype(np.float32) for i in imgs])          # quadros x linhas x col x cor
+    linhas = pilha.mean(2)                                                           # cor média de cada linha
+    salto = np.abs(np.diff(linhas, axis=1)).sum(2).min(0)                           # salto entre linhas, em todos
+    r = int(np.argmax(salto))
+    if salto[r] < 60 or r < 3:
+        return None
+    faixa = np.median(pilha[:, :r + 1], 0)                                          # trecho acima da linha
+    cor = np.median(faixa.reshape(-1, 3), 0)
+    lisa = float((np.abs(faixa - cor).sum(2) < 60).mean())
+    ULTIMO["faixa_topo"] = {"px": r + 1, "salto": round(float(salto[r])), "lisa": round(lisa, 2)}
+    if lisa < 0.6:
+        return None
+    return r + 1 + max(2, int(round(ch * 0.015)))       # + folga: o vídeo comprimido borra 1-2 linhas
+
+
+def ajustar_proporcao(cam, rosto, w, h, prop, bordas=None, topo_px=None):
     """Recorta o retângulo da cam na proporção do painel final (largura/altura = prop), centrado no rosto
-    na horizontal e com o rosto a ~48% da altura (espaço acima da cabeça). Nunca corta o rosto."""
+    na horizontal e com o rosto a ~48% da altura (espaço acima da cabeça). Nunca corta o rosto.
+    topo_px: altura medida da faixa de nome em cima da cam (faixa_topo); sem ela, tira 14% por garantia."""
     x, y, cw, ch = cam
     # margem para dentro da borda detectada (~2,5%): a borda medida pode pegar 1-2 linhas do jogo
     y_orig, ch_orig = y, ch
     mx, my = cw * 0.025, ch * 0.025
-    topo = ch * 0.14          # faixa de nome/relógio que algumas lives põem colada em cima da cam
+    topo = topo_px if topo_px else ch * 0.14   # faixa de nome/relógio que algumas lives põem colada em cima da cam
     x, y, cw, ch = x + mx, y + topo, cw - 2 * mx, ch - topo - my
     cx, cy, fw, fh = rosto[:4]
     if cw / ch > prop:            # largo demais: corta nas laterais, centrado no rosto
@@ -341,7 +439,16 @@ def detectar(arquivos, prop=1080 / 640):
         except Exception:
             pass
     if not (lados_ok and plausivel):
-        # 2ª tentativa: o fundo do quarto é cheio de detalhe parado; agrupa as bordas paradas em volta do rosto
+        # 2ª reserva: jogo parado/escuro em volta da cam (contraste de movimento some): moldura reta nos 4 lados
+        try:
+            mold = _moldura(imgs, rosto)
+            if mold and _plaus(mold[0]):
+                cam, bordas, plausivel, lados_ok = mold[0], [True] * 4, True, True
+                ULTIMO["moldura"] = list(mold)
+        except Exception:
+            pass
+    if not (lados_ok and plausivel):
+        # 3ª tentativa: o fundo do quarto é cheio de detalhe parado; agrupa as bordas paradas em volta do rosto
         cam = _cluster_parado(imgs, rosto)
         ULTIMO["overlay_2"] = cam
         if cam:
@@ -351,6 +458,10 @@ def detectar(arquivos, prop=1080 / 640):
         if not cam or not plausivel:
             ULTIMO["motivo"] = "overlay incerto"
             return None
-    final = ajustar_proporcao(cam, rosto, w, h, prop, bordas if "overlay_2" not in ULTIMO else None)
+    try:
+        topo_px = faixa_topo(imgs, cam, rosto)
+    except Exception:
+        topo_px = None
+    final = ajustar_proporcao(cam, rosto, w, h, prop, bordas if "overlay_2" not in ULTIMO else None, topo_px)
     ULTIMO["final"] = final
     return final

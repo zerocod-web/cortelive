@@ -139,15 +139,26 @@ def geometria_faixa(m, sw, sh):
 def _tapa_cam(m, bx, by, bw, bh, nw, nh, jx, jy):
     """Quando a janela do jogo foi achada pela imagem (jogo 4:3 com faixas pretas) e a cam da live fica por cima
     do canto dela, tapa de preto esse pedaço (mais a faixa de nome em cima da cam): no vídeo original ele já
-    escondia o jogo, e no corte vertical a cam aparece em cima, então não deve repetir embaixo."""
+    escondia o jogo, e no corte vertical a cam aparece em cima, então não deve repetir embaixo.
+    v1.0.7: em vez de um bloco preto (aparecia como um quadradinho preto no canto do jogo), preenche com o próprio
+    jogo em volta (delogo). A cam recebida já vem recortada para dentro da janela; o pedaço tapado cresce 8% para os
+    lados/baixo e 22% para cima (faixa de nome) para cobrir a janela inteira da live."""
     if not m.get("_jogo_auto"):
         return ""
-    y0 = max(by - int(bh * 0.22), 0)
-    x1, y1 = min(bx + bw, jx + nw), min(by + bh, jy + nh)
-    x0, y0 = max(bx, jx), max(y0, jy)
+    mx, mb = int(bw * 0.08), int(bh * 0.08)
+    x0, y0 = max(bx - mx, jx), max(by - int(bh * 0.22), jy)
+    x1, y1 = min(bx + bw + mx, jx + nw), min(by + bh + mb, jy + nh)
     if x1 - x0 < 4 or y1 - y0 < 4:
         return ""
-    return f",drawbox=x={x0 - jx}:y={y0 - jy}:w={x1 - x0}:h={y1 - y0}:c=black:t=fill"
+    # o delogo precisa de 1 px de imagem em volta do pedaço: moldura de 2 px, apaga, tira a moldura.
+    # Pedaço encostado na borda do recorte do jogo vai até a moldura (a borda dele fica fora do quadro do jogo).
+    p = 2
+    ax, ay = x0 - jx + p, y0 - jy + p
+    bx2, by2 = x1 - jx + p, y1 - jy + p
+    ax, ay = (1 if ax <= p else ax), (1 if ay <= p else ay)
+    bx2, by2 = (nw + 2 * p - 1 if bx2 >= nw + p else bx2), (nh + 2 * p - 1 if by2 >= nh + p else by2)
+    return (f",pad=iw+{2 * p}:ih+{2 * p}:{p}:{p},delogo=x={ax}:y={ay}:w={bx2 - ax}:h={by2 - ay},"
+            f"crop={nw}:{nh}:{p}:{p}")
 
 
 def filtro_modelo(m, sw, sh):
@@ -173,11 +184,13 @@ def filtro_modelo(m, sw, sh):
             cx, cy, cw, ch = cx + q[0], cy + q[1], q[2], q[3]
             pad = q[4] if len(q) > 4 else 0
         if pad:
-            ih = hc - pad
+            # pad > 0: cam menor e descida (folga acima da cabeça); pad < 0: cam menor colada em cima (rosto
+            # ficaria sob a faixa da legenda)
+            ih = hc - abs(pad)
             cam_f = (f"split=2[ca][cb];[ca]crop={bw}:{bh}:{bx}:{by},scale={W}:{hc}:force_original_aspect_ratio=increase,"
                      f"crop={W}:{hc},{fundo_cam}[cf];"
                      f"[cb]crop={cw}:{ch}:{cx}:{cy},scale=-2:{ih}:{ESCALA_CAM},{NITIDEZ_CAM}[ct];"
-                     f"[cf][ct]overlay=(W-w)/2:{pad}")
+                     f"[cf][ct]overlay=(W-w)/2:{max(0, pad)}")
         elif not q:
             # Sem rosto detectado, encaixa a janela toda para preservar o topo da cabeça.
             cam_f = (f"crop={cw}:{ch}:{cx}:{cy},scale={W}:{hc}:force_original_aspect_ratio=decrease:"
@@ -454,7 +467,7 @@ def _modelo_efetivo(nome, cam, sw, sh):
     return m, False
 
 
-def enquadrar_cam(video, inicio, fim, m, sw, sh):
+def enquadrar_cam(video, inicio, fim, m, sw, sh, visivel=None):
     """Acha o rosto (OpenCV Haar) em 5 quadros do trecho dentro do recorte da cam e devolve
     (x, y, w, h) relativo à cam: proporção do painel, rosto no terço superior com folga acima
     da cabeça, zoom no máximo 'cam_zoom_max' (padrão 1,3x) para não pixelar. Sem rosto: None."""
@@ -489,22 +502,31 @@ def enquadrar_cam(video, inicio, fim, m, sw, sh):
     A = m["largura"] / m.get("altura_cam", 640)
     h_max = min(ch, cw / A)
     # maior zoom (menor h) que ainda deixa a folga com y0 >= 0: y0 = topo - folga*h
+    # queixo: a caixa do Haar acaba na boca/queixo; +10% de folga. Tem de ficar acima de 'visivel' (fração do
+    # painel da cam que a faixa da legenda não cobre). Cam com o rosto colado embaixo (Gaules) caía sob a faixa.
+    queixo = med([b[1] + b[3] * 1.1 for b in caras])
+    vis = visivel if visivel else 1.0
+    y0_de = lambda hh: min(max(0.0, topo - folga * hh), ch - hh)
     h = h_max
     for z in (m.get("cam_zoom_max", 1.3), 1.2, 1.1, 1.0):
         hz = h_max / z
-        if topo - folga * hz >= 0 and min(b[1] + b[3] for b in caras) < hz * 0.85:
+        if (topo - folga * hz >= 0 and min(b[1] + b[3] for b in caras) < hz * 0.85
+                and queixo - y0_de(hz) <= vis * hz):
             h = hz
             break
     w = h * A
-    y0 = max(0.0, topo - folga * h)
-    y0 = min(y0, ch - h)
+    y0 = y0_de(h)
     x0 = min(max(0, ccx - w / 2), cw - w)
     # sem altura para a folga: diminui a cam no painel e desce ela; o resto é a cam desfocada
     pad = 0
+    hc = m.get("altura_cam", 640)
     if topo - folga * h < 0:
-        hc = m.get("altura_cam", 640)
         pad = int(round((folga * h - topo) / h * hc))
-    return tuple(int(v) // 2 * 2 for v in (x0, y0, w, h)) + (pad // 2 * 2,)
+    elif queixo - y0 > vis * h:
+        # rosto ficaria sob a faixa mesmo sem zoom: diminui a cam no painel, colada em cima (pad negativo)
+        ih = vis * hc * h / (queixo - y0)
+        pad = -int(round(hc - ih))
+    return tuple(int(v) // 2 * 2 for v in (x0, y0, w, h)) + (int(pad / 2) * 2,)
 
 
 def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: str, legenda: str,
@@ -525,7 +547,14 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
         if jw_:
             m = dict(m, jogo={"x": jw_[0] / sw, "y": 0.0, "w": jw_[2] / sw, "h": 1.0}, jogo_vista=0.0, _jogo_auto=True)
     if m["tipo"] == "cam-em-cima" and m.get("enquadrar_rosto", True):
-        q = enquadrar_cam(video, inicio, fim, m, sw, sh)
+        visivel = None
+        if (faixa or "rasgada").lower() not in ("blur", "nenhuma"):   # só a rasgada cobre a cam
+            try:   # fração do painel da cam acima do topo da faixa (o rasgo branco também cobre), com 6 px de folga
+                g = geometria_faixa(m, sw, sh)
+                visivel = min(1.0, (g["y"] - 6) / m.get("altura_cam", 640))
+            except Exception:
+                visivel = None
+        q = enquadrar_cam(video, inicio, fim, m, sw, sh, visivel)
         if q:
             m = dict(m, cam_quadro=q)
     faixa = (faixa or "rasgada").lower()

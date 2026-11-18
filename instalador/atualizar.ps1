@@ -46,12 +46,14 @@ $PASTAS_PROTEGIDAS = @(
   'versoes_antigas', '_downloads', '_update_tmp', '.buffer', 'logs', 'dist',
   '.git', '.github', '.githooks', '.agents', '.codex', '.gemini', '.overclock-app',
   'qa', 'testes', 'teste_video', 'cortelive.egg-info', 'build', '.pytest_cache',
-  'contas', 'secrets', 'tokens', 'cookies', 'perfil_navegador'
+  'contas', 'secrets', 'tokens', 'cookies', 'perfil_navegador', 'perfil-browser', 'navegador',
+  'webview_app', 'webview_dev', 'webview_ao_vivo'
 )
 
 $ARQS_USUARIO_RAIZ = @(
   'config.toml', 'postar.toml', 'usuario.toml', 'lives.txt',
-  'painel_config.json', 'instalacao_log.txt', 'atualizacao.log', '.gitignore'
+  'painel_config.json', 'instalacao_log.txt', 'atualizacao.log', '.gitignore',
+  'setup_log.txt', 'cams.json', 'encoder.json'
 )
 
 function Eh-ArquivoUsuarioProtegido([string]$nomeArq) {
@@ -73,7 +75,9 @@ function Eh-PastaProtegida([string]$nomePasta) {
   foreach ($p in $PASTAS_PROTEGIDAS) {
     if ($n -eq $p.ToLowerInvariant()) { return $true }
   }
-  if ($n -like 'sessao_login*' -or $n -like '*.egg-info') { return $true }
+  # Perfil do Edge do painel (cookies, cache, login): dado do usuario e o msedge filho do app o mantem
+  # aberto/travado durante a atualizacao. Nunca copiar, mover nem apagar.
+  if ($n -like 'sessao_login*' -or $n -like '*.egg-info' -or $n -like 'webview_*') { return $true }
   return $false
 }
 

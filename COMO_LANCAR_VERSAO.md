@@ -45,3 +45,14 @@ Toda a regra do lançamento é apenas: **o número dentro do arquivo `VERSION` p
    - Bolinha amarela girando = ainda está montando o pacote (leva ~1 a 2 minutos).
    - Certinho verde = **já está publicado!** Seus amigos já recebem o aviso de atualização ao abrir o painel.
    - X vermelho = algo deu errado (por exemplo, a etiqueta não batia com o arquivo `VERSION`). Nesse caso, os seus amigos continuam na versão anterior normalmente, sem quebrar nada. É só rodar o `lancar_versao.cmd` com o próximo número (ex.: `0.1.2`).
+
+## Quem está na 1.0.4 ou 1.0.5 e o botão Atualizar falha com "arquivo Cookies em uso"
+
+O botão Atualizar roda o `instalador\atualizar.ps1` **já instalado** na máquina. Na 1.0.4 e na 1.0.5 esse
+script não protegia a pasta `webview_app` (perfil do Edge do painel), tentava copiá-la no backup e o Edge aberto
+travava o arquivo `Network\Cookies`. Isso não tem como ser consertado de fora: o script antigo roda antes de
+qualquer arquivo novo. A correção vale a partir da 1.0.6 (a pasta `webview_*` nunca entra em backup nem em troca).
+
+Para quem está preso: fechar o CorteLive (botão direito no ícone ao lado do relógio, Sair) e rodar o
+`CorteLive-Setup.exe` da versão nova por cima, na mesma pasta. O Setup preserva `webview_app`, modelos, cortes,
+configurações e histórico. Depois disso o botão Atualizar funciona normalmente.

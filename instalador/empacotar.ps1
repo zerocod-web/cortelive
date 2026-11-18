@@ -21,7 +21,7 @@ function Copiar-Arvore([string]$nome, [string[]]$excluirDirs, [string[]]$excluir
 
 try {
   $arqsRaiz = @(
-    'VERSION', 'ABRIR_PAINEL.cmd', 'INSTALAR_E_RODAR.bat', 'instalar.cmd', 'cortar.cmd', 'atualizar.cmd',
+    'VERSION', 'ABRIR_PAINEL.cmd', 'INSTALAR_E_RODAR.bat', 'Atualizar CorteLive.bat', 'instalar.cmd', 'cortar.cmd', 'atualizar.cmd',
     'LEIA-ME-AMIGOS.txt', 'GUIA_RAPIDO_AMIGOS.md', 'LEIA-ME_POSTAGEM.md', 'COMO_LANCAR_VERSAO.md', 'CONTRATO_ATUALIZACAO.md', 'README.md',
     'requirements.txt', 'pyproject.toml', 'THIRD_PARTY_NOTICES.md', 'build_apps.ps1'
   )

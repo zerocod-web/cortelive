@@ -32,15 +32,25 @@ def lidas():
         return {}
 
 
+# versão do detector: cam guardada pela detecção automática de uma versão anterior é procurada de novo na próxima
+# live (a 1.0.12 guardou a tela inteira como cam do brino e a memória repetia o erro em todo corte)
+VERSAO_DET = 13
+
+
 def salvar(canal, cam, origem):
     d = lidas()
     d[canal.lower()] = {"cam": list(cam) if cam else None, "origem": origem}
+    if origem == "automática":
+        d[canal.lower()]["det"] = VERSAO_DET
     ARQ.parent.mkdir(parents=True, exist_ok=True)
     ARQ.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def da_memoria(canal):
-    return lidas().get(canal.lower())
+    m = lidas().get(canal.lower())
+    if m and m.get("origem") == "automática" and m.get("det") != VERSAO_DET:
+        return None
+    return m
 
 
 def _sem_opencl():
@@ -330,13 +340,36 @@ def _mexe(lista, cand):
     return ((max(xs) - min(xs)) + (max(ys) - min(ys))) / max(fw, 1)
 
 
-def _solo_cam(cands, w, h, n_quadros):
-    """Layout 'só cam' (Just Chatting): rosto GRANDE (>= 13% da altura), no meio da tela (20-80% da largura), em
-    >= 62% dos quadros. Aí a câmera é a tela inteira. Cam de canto fica no canto (junitombl/leokaos/bokaofc: fora do
-    meio) e com rosto de 5-15% da altura."""
+def _fracao_parada(imgs):
+    """Fração da tela que fica parada entre um quadro e o seguinte (diferença média < 6 de 255, em 1/8 da resolução).
+    Jogo andando: <= 0,25 em todas as lives de 18/11/2026 (cena de cinema do GTA 0,07); só cam (quarto parado,
+    só a pessoa mexe) fica bem acima."""
+    g = np.stack([i[::8, ::8].astype(np.float32).mean(axis=2) for i in imgs])
+    return float((np.abs(np.diff(g, axis=0)).mean(axis=0) < 6).mean())
+
+
+def _solo_cam(cands, w, h, n_quadros, imgs=None):
+    """Layout 'só cam' (Just Chatting): a câmera é a tela inteira. Precisa de TUDO:
+    - rosto GRANDE (>= 13% da altura) no miolo da tela (25-75% da largura, 15-65% da altura), em >= 62% dos quadros;
+    - nenhum outro rosto fixo com tantos votos quanto ele (o brino, 18/11/2026: rosto da cena do jogo no meio com 6
+      votos e a cam dele no canto com 8; a 1.0.12 pôs a tela inteira em cima);
+    - a tela quase toda parada (o jogo muda a tela inteira; o quarto do streamer não).
+    Cam de canto grande (brino: rosto de 21% da altura com o centro a 79% da largura e 73% da altura) não é só cam."""
+    parada = None
     for cx, cy, fw, fh, v in cands:
-        if fh >= 0.13 * h and 0.2 * w <= cx <= 0.8 * w and v >= max(4, n_quadros * 5 // 8):
-            return (0, 0, w // 2 * 2, h // 2 * 2)
+        if not (fh >= 0.13 * h and 0.25 * w <= cx <= 0.75 * w and 0.15 * h <= cy <= 0.65 * h
+                and v >= max(4, n_quadros * 5 // 8)):
+            continue
+        if any(o[4] >= v for o in cands if o[:2] != (cx, cy)):
+            ULTIMO["solo_recusado"] = "outro rosto fixo com tantos votos"
+            continue
+        if imgs is not None:
+            parada = _fracao_parada(imgs) if parada is None else parada
+            ULTIMO["parada"] = round(parada, 2)
+            if parada < 0.4:
+                ULTIMO["solo_recusado"] = "tela mexe (jogo)"
+                continue
+        return (0, 0, w // 2 * 2, h // 2 * 2)
     return None
 
 
@@ -668,7 +701,7 @@ def detectar(arquivos, prop=1080 / 640):
         return None
     ULTIMO["candidatos"] = [[round(v) for v in c] for c in cands]
     # layout só cam: rosto grande no meio da tela -> a câmera é a tela inteira
-    solo = _solo_cam(cands, w, h, len(imgs))
+    solo = _solo_cam(cands, w, h, len(imgs), imgs)
     if solo:
         ULTIMO["solo_cam"] = True
         ULTIMO["final"] = solo

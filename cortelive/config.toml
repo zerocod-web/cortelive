@@ -71,33 +71,9 @@ encodes_simultaneos = 3     # quantos cortes renderizam ao mesmo tempo (todas as
                             # poucas sessões de NVENC; 2 deixa folga para OBS/jogo. Placa profissional: pode subir
 fila_max_cortes = 3        # cortes esperando render; se encher, descarta o mais fraco
 
-# --- Postar sozinho (YouTube Shorts, Instagram Reels, TikTok) -----------------------------------
-# Antes, conecte as contas: python -m cortelive.postar conectar
-postar_sozinho = false      # true = assim que o corte sai, gera título/legenda/hashtags e posta
-revisar_antes = true        # true = não posta direto: o corte fica "aguardando aprovação" no painel
-max_posts_dia = 48
-intervalo_min_posts = 30
-expirar_cortes_horas = 48
-rodizio = false
-postar_redes = ["youtube", "instagram", "tiktok"]
-postar_via = "postiz"       # postiz (conecta as redes no site do Postiz) | direto (APIs oficiais)
-postar_privado = false      # true = sobe como privado/rascunho, para conferir antes de abrir
-postar_dry_run = false      # true = ensaio: faz tudo menos enviar (para testar)
-postar_espera_fim_s = 300   # no fim da live, espera até N s os envios em andamento
-# Seu modelo de texto (vale para todos os cortes):
-canal_nome = ""             # como o streamer aparece no título; vazio = nome do canal da live
-jogo = ""                   # ex.: "GTA RP"; vazio = só cita o jogo se tiver certeza (nome do canal/fala)
-titulo_prefixo = ""         # vai antes do título do YouTube
-titulo_sufixo = ""          # vai depois (antes do #shorts)
-hashtags_fixas = []         # ex.: ["cortesdogaules"] — entram em todas as redes
-descricao_rodape = ""       # linha fixa no fim da descrição do YouTube
-suavizar_palavrao = true   # troca uma letra do palavrão por * no título/legenda
-
 # --- Pasta sincronizada do Drive ---------------------------------------------------------------
 destino_ativo = false          # copia cada corte pronto quando ligado
 destino_pasta = ""              # caminho completo da pasta sincronizada no computador
-destino_txt = false            # inclui título, legenda e hashtags num TXT
-destino_mover_postados = true  # organiza as cópias marcadas na subpasta postados
 
 # --- Espaço em disco e limpeza da gravação bruta ------------------------------------------------
 # Gravar live ocupa espaço (a captura guarda ~buffer_min minutos, o resto é apagado). O painel avisa

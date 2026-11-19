@@ -41,12 +41,6 @@
             </svg>
             <span>Cortar</span>
           </button>
-          <button type="button" class="aba-btn" id="aba-btn-contas" data-aba="contas">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
-            </svg>
-            <span>Postar</span>
-          </button>
           <button type="button" class="aba-btn" id="aba-btn-config" data-aba="config">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="8" cy="18" r="2" fill="currentColor"/>
@@ -442,13 +436,7 @@
               <span id="contador-cortes-total" class="contador-pilula">0 cortes</span>
             </div>
 
-            <div id="filtro-postagem" class="filtro-postagem" role="group" aria-label="Filtrar cortes por postagem">
-              <button type="button" class="btn btn-secundario btn-compacto" data-filtro="todos" aria-pressed="true">Todos</button>
-              <button type="button" class="btn btn-secundario btn-compacto" data-filtro="nao-postados" aria-pressed="false">Não postados</button>
-              <button type="button" class="btn btn-secundario btn-compacto" data-filtro="postados" aria-pressed="false">Postados</button>
-            </div>
-            <p id="estado-filtro-cortes" class="painel-card" role="status" hidden></p>
-            <p id="feedback-postagem-corte" class="ajuda-campo" role="status" hidden></p>
+            <p id="feedback-corte" class="ajuda-campo" role="status" hidden></p>
 
             <div id="estado-sem-cortes" class="painel-card vazio-card">
               <img class="vazio-ilustracao" src="img/estado-sem-cortes.png" width="120" height="120" alt="">
@@ -462,6 +450,30 @@
 
         <!-- ABA 3: CONFIGURAÇÕES -->
         <div id="aba-painel-config" class="pilha-secoes" hidden>
+          <section class="painel-card contas-card" aria-labelledby="titulo-cortes-longos">
+            <div class="contas-cabecalho">
+              <div>
+                <h2 id="titulo-cortes-longos" class="titulo-secao">Duração dos cortes</h2>
+                <p class="subtitulo-secao">Cortes com mais de 1 minuto podem ser monetizados. A escolha fica guardada.</p>
+              </div>
+            </div>
+            <div class="grade-switches">
+              <label class="switch-linha" for="sel-duracao-minima">
+                <div class="switch-textos">
+                  <strong>Duração mínima dos cortes</strong>
+                  <span>Livre: como sempre. Mínimo 30 s, 45 s ou 1 minuto (1:01, ideal para monetização): se a história não cabe no mínimo escolhido, o corte sobe para o próximo (30 → 45 → 1:01); se nem 1 minuto comporta, sai em Parte 1 e Parte 2. Nada abaixo do mínimo escolhido sai. Vale para as próximas lives que você iniciar</span>
+                </div>
+                <select id="sel-duracao-minima" class="campo-select">
+                  <option value="livre">Livre</option>
+                  <option value="30">Mínimo 30 s</option>
+                  <option value="45">Mínimo 45 s</option>
+                  <option value="61">Mínimo 1 minuto</option>
+                </select>
+              </label>
+            </div>
+            <p id="feedback-cortes-longos" class="ajuda-campo" role="status" hidden></p>
+          </section>
+
           <section class="painel-card contas-card" aria-labelledby="titulo-gpt">
             <div>
               <h2 id="titulo-gpt" class="titulo-secao">Conexão com GPT</h2>
@@ -487,146 +499,6 @@
           </section>
         </div>
 
-        <!-- ABA 2: POSTAR E CONTAS (cortelive.postar + cortelive.autopost + autopost_navegador) -->
-        <div id="aba-painel-contas" class="pilha-secoes" hidden>
-          <section class="painel-card contas-card" aria-labelledby="titulo-cortes-longos">
-            <div class="contas-cabecalho">
-              <div>
-                <h2 id="titulo-cortes-longos" class="titulo-secao">Duração dos cortes</h2>
-                <p class="subtitulo-secao">Cortes com mais de 1 minuto podem ser monetizados. A escolha fica guardada.</p>
-              </div>
-            </div>
-            <div class="grade-switches">
-              <label class="switch-linha" for="sel-duracao-minima">
-                <div class="switch-textos">
-                  <strong>Duração mínima dos cortes</strong>
-                  <span>Livre: como sempre. Mínimo 30 s, 45 s ou 1 minuto (1:01, ideal para monetização): se a história não cabe no mínimo escolhido, o corte sobe para o próximo (30 → 45 → 1:01); se nem 1 minuto comporta, sai em Parte 1 e Parte 2. Nada abaixo do mínimo escolhido sai. Vale para as próximas lives que você iniciar</span>
-                </div>
-                <select id="sel-duracao-minima" class="campo-select">
-                  <option value="livre">Livre</option>
-                  <option value="30">Mínimo 30 s</option>
-                  <option value="45">Mínimo 45 s</option>
-                  <option value="61">Mínimo 1 minuto</option>
-                </select>
-              </label>
-            </div>
-            <p id="feedback-cortes-longos" class="ajuda-campo" role="status" hidden></p>
-          </section>
-
-
-          <!-- 3) Contas Oficiais (cortelive.postar) -->
-          <details class="painel-card outras-postagens">
-            <summary>Outras formas de postar</summary>
-            <section class="contas-card reserva-corpo" aria-labelledby="titulo-contas">
-            <div class="contas-cabecalho">
-              <div>
-                <h2 id="titulo-contas" class="titulo-secao">Contas conectadas</h2>
-                <p class="subtitulo-secao">Conexão oficial para envio direto ao YouTube Shorts, Instagram Reels e TikTok.</p>
-              </div>
-              <span id="selo-estado-postar" class="selo-etapa">Verificando…</span>
-            </div>
-
-            <div id="aviso-postar-breve" class="aviso-suave" hidden>
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-              </svg>
-              <p>Módulo de postagem em breve nesta instalação.</p>
-            </div>
-            <p id="aviso-postagem-direta" class="subtitulo-secao" hidden>O envio direto usa as contas já configuradas neste computador.</p>
-
-            <div class="grade-contas" id="lista-redes-contas">
-              <article class="conta-item" data-rede="youtube">
-                <div class="conta-info">
-                  <div class="conta-icone" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="2" y="5" width="20" height="14" rx="4"/><polygon points="10 9 15 12 10 15 10 9" fill="currentColor"/>
-                    </svg>
-                  </div>
-                  <div>
-                    <h3>YouTube Shorts</h3>
-                    <p class="conta-status-texto" id="status-rede-youtube">Verificando…</p>
-                  </div>
-                </div>
-                <button type="button" class="btn btn-secundario btn-conectar-rede" data-rede="youtube">
-                  <span>Conectar</span>
-                </button>
-              </article>
-
-              <article class="conta-item" data-rede="instagram">
-                <div class="conta-info">
-                  <div class="conta-icone" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/>
-                    </svg>
-                  </div>
-                  <div>
-                    <h3>Instagram Reels</h3>
-                    <p class="conta-status-texto" id="status-rede-instagram">Verificando…</p>
-                  </div>
-                </div>
-                <button type="button" class="btn btn-secundario btn-conectar-rede" data-rede="instagram">
-                  <span>Conectar</span>
-                </button>
-              </article>
-
-              <article class="conta-item" data-rede="tiktok">
-                <div class="conta-info">
-                  <div class="conta-icone" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/>
-                    </svg>
-                  </div>
-                  <div>
-                    <h3>TikTok</h3>
-                    <p class="conta-status-texto" id="status-rede-tiktok">Verificando…</p>
-                  </div>
-                </div>
-                <button type="button" class="btn btn-secundario btn-conectar-rede" data-rede="tiktok">
-                  <span>Conectar</span>
-                </button>
-              </article>
-            </div>
-
-            <!-- 4) Reserva pelo navegador (cortelive.autopost_navegador, desligada por padrão) -->
-            <details class="detalhes-reserva" id="detalhes-reserva-nav">
-              <summary>Modo reserva pelo navegador (opcional — desligado por padrão)</summary>
-              <div class="reserva-corpo">
-                <label class="switch-linha" for="chk-reserva-navegador">
-                  <div class="switch-textos">
-                    <strong>Ativar envio reserva pelo navegador</strong>
-                    <span>Usa sessão logada do navegador somente quando você ativar esta opção</span>
-                  </div>
-                  <input type="checkbox" id="chk-reserva-navegador" class="switch-input">
-                </label>
-
-                <div id="controles-reserva-redes" class="grade-contas" hidden>
-                  <div class="conta-item">
-                    <div>
-                      <strong>YouTube (Navegador)</strong>
-                      <p class="conta-status-texto" id="status-nav-youtube">Reserva desligada</p>
-                    </div>
-                    <button type="button" class="btn btn-secundario btn-compacto btn-conectar-nav" data-rede="youtube">Conectar janela</button>
-                  </div>
-                  <div class="conta-item">
-                    <div>
-                      <strong>Instagram (Navegador)</strong>
-                      <p class="conta-status-texto" id="status-nav-instagram">Reserva desligada</p>
-                    </div>
-                    <button type="button" class="btn btn-secundario btn-compacto btn-conectar-nav" data-rede="instagram">Conectar janela</button>
-                  </div>
-                  <div class="conta-item">
-                    <div>
-                      <strong>TikTok (Navegador)</strong>
-                      <p class="conta-status-texto" id="status-nav-tiktok">Reserva desligada</p>
-                    </div>
-                    <button type="button" class="btn btn-secundario btn-compacto btn-conectar-nav" data-rede="tiktok">Conectar janela</button>
-                  </div>
-                </div>
-              </div>
-            </details>
-            </section>
-          </details>
-        </div>
       </div>
     </main>
 
@@ -635,52 +507,6 @@
       <span id="rodape-atualizacao-info">Mantenha o painel aberto durante a instalação</span>
     </footer>
   </div>
-
-  <!-- Modal de Postagem de Corte -->
-  <dialog id="modal-postar" class="modal-dialogo" aria-labelledby="titulo-modal-postar">
-    <form method="dialog" class="modal-interno" id="form-modal-postar">
-      <div class="modal-cabecalho">
-        <h3 id="titulo-modal-postar">Preparar postagem do corte</h3>
-        <button type="button" id="btn-fechar-modal-postar" class="btn-icone" aria-label="Fechar janela de postagem">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-          </svg>
-        </button>
-      </div>
-
-      <div id="corpo-postar-breve" class="modal-corpo" hidden>
-        <p class="texto-apoio">
-          A postagem está indisponível. Clique em <strong>Pasta</strong> no corte para acessar o vídeo.
-        </p>
-      </div>
-
-      <div id="corpo-postar-form" class="modal-corpo" hidden>
-        <input type="hidden" id="postar-caminho-video">
-        <div class="campo-grupo">
-          <label for="postar-titulo" class="campo-rotulo">Título (YouTube Shorts)</label>
-          <input type="text" id="postar-titulo" class="campo-texto" maxlength="100">
-        </div>
-        <div class="campo-grupo">
-          <label for="postar-descricao" class="campo-rotulo">Legenda / Descrição e hashtags</label>
-          <textarea id="postar-descricao" class="campo-texto campo-area" rows="3" placeholder="#cortes #live"></textarea>
-        </div>
-        <fieldset class="grupo-escolha">
-          <legend class="campo-rotulo">Redes de destino</legend>
-          <div class="redes-checks">
-            <label class="check-pilula"><input type="checkbox" name="rede-destino" value="youtube" checked> <span>YouTube Shorts</span></label>
-            <label class="check-pilula"><input type="checkbox" name="rede-destino" value="instagram" checked> <span>Instagram Reels</span></label>
-            <label class="check-pilula"><input type="checkbox" name="rede-destino" value="tiktok" checked> <span>TikTok</span></label>
-          </div>
-        </fieldset>
-        <pre id="postar-progresso-log" class="console-log console-compacto" role="status" hidden></pre>
-      </div>
-
-      <div class="modal-rodape">
-        <button type="button" id="btn-cancelar-postar" class="btn btn-secundario">Fechar</button>
-        <button type="submit" id="btn-confirmar-postar" class="btn btn-primario" hidden>Enviar agora</button>
-      </div>
-    </form>
-  </dialog>
 
   <script src="/app.js"></script>
   <script>

@@ -1,7 +1,6 @@
 /* ==========================================================================
    CorteLive — Lógica do Painel (Vanilla JS, zero dependências externas)
-   Integra: instalar.ps1, motor_painel.py, instalador\atualizar.ps1,
-            cortelive.postar, cortelive.autopost e cortelive.autopost_navegador.
+   Integra: instalar.ps1, motor_painel.py e instalador\atualizar.ps1.
    ========================================================================== */
 (function () {
   "use strict";
@@ -13,10 +12,8 @@
 
   let estadoAtual = null;
   let assinaturaCortes = "";
-  let filtroPostagem = "todos";
   let versaoEstadoCortes = 0;
   const acoesDestinoAtivas = new Set();
-  let postarStatus = { disponivel: false };
   let timerPoll = null;
   let abaAtiva = "cortar";
   let acompanhamentoAtualizacao = false;
@@ -26,12 +23,6 @@
   let ultimoTotalCortesSessao = 0;
   let ultimoCorteDetectadoMs = 0;
   let ultimaAssinaturaLives = "";
-  const redesPostagem = {
-    youtube: "YouTube Shorts",
-    instagram: "Instagram Reels",
-    tiktok: "TikTok"
-  };
-
   const el = (id) => document.getElementById(id);
 
   // --- Tema claro / escuro ---
@@ -155,19 +146,18 @@
 
   // --- Abas ---
   function alternarAba(novaAba) {
-    abaAtiva = novaAba === "contas" || novaAba === "config" ? novaAba : "cortar";
-    for (const nome of ["cortar", "contas", "config"]) {
+    abaAtiva = novaAba === "config" ? novaAba : "cortar";
+    for (const nome of ["cortar", "config"]) {
       const btn = el(`aba-btn-${nome}`);
       btn.classList.toggle("ativa", abaAtiva === nome);
       if (abaAtiva === nome) btn.setAttribute("aria-current", "page");
       else btn.removeAttribute("aria-current");
       el(`aba-painel-${nome}`).hidden = abaAtiva !== nome;
     }
-    if (abaAtiva === "contas") {
-      recarregarTudoPostagem();
-
+    if (abaAtiva === "config") {
+      consultarGPT();
+      carregarConfigCorte();
     }
-    if (abaAtiva === "config") consultarGPT();
   }
 
   function camposGPT() {
@@ -680,17 +670,6 @@
       if (res.ok === false) mostrarAvisoSistema("Não foi possível abrir a pasta", res.erro || "Confira se o corte ainda está na pasta.");
     });
 
-    const btnPostar = document.createElement("button");
-    btnPostar.type = "button";
-    btnPostar.className = "btn btn-secundario btn-compacto";
-    btnPostar.innerHTML = `
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
-      </svg>
-      <span>Postar</span>
-    `;
-    btnPostar.addEventListener("click", () => abrirModalPostar(c));
-
     const btnDrive = document.createElement("button");
     btnDrive.type = "button";
     btnDrive.className = "btn btn-secundario btn-compacto";
@@ -703,52 +682,16 @@
     feedback.hidden = true;
     btnDrive.addEventListener("click", () => alterarDestinoCorte(c, btnDrive, feedback, "/api/drive/enviar", {}, avisoDriveIndisponivel));
 
-    const postagem = document.createElement("div");
-    postagem.className = "corte-postagem";
-    if (c.postado === true) card.classList.add("corte-postado");
-    const status = document.createElement("p");
-    status.className = "corte-postagem-status";
-    const redesMarcadas = Object.entries(redesPostagem).filter(([rede]) => c.postagem?.redes?.[rede]?.postado);
-    if (c.postado === true || redesMarcadas.length) {
-      const redes = redesMarcadas.map(([, nome]) => nome).join(", ");
-      status.textContent = redes ? `Postado em ${redes}` : "Postado";
-      postagem.append(status);
-    }
-
-    const btnMarcar = document.createElement("button");
-    btnMarcar.type = "button";
-    btnMarcar.className = "btn btn-secundario";
-    btnMarcar.textContent = c.postagem?.origem ? "Desfazer marca geral" : "Marcar como postado";
-    btnMarcar.dataset.acaoDestino = "postagem";
-    btnMarcar.addEventListener("click", () => marcarPostado(c, btnMarcar, feedback, !c.postagem?.origem));
-    postagem.append(btnMarcar);
-    if (c.postagem?.redes) {
-      const detalhes = document.createElement("details");
-      const resumo = document.createElement("summary");
-      resumo.textContent = "Marcar por rede";
-      const acoesRedes = document.createElement("div");
-      acoesRedes.className = "corte-postagem-redes";
-      for (const [rede, nome] of Object.entries(redesPostagem)) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "btn btn-secundario btn-compacto";
-        btn.dataset.acaoDestino = rede;
-        btn.textContent = nome;
-        btn.setAttribute("aria-pressed", String(Boolean(c.postagem.redes[rede]?.postado)));
-        btn.addEventListener("click", () => marcarPostado(c, btn, feedback, !c.postagem.redes[rede]?.postado, rede));
-        acoesRedes.append(btn);
-      }
-      detalhes.append(resumo, acoesRedes);
-      postagem.append(detalhes);
-    }
+    const destino = document.createElement("div");
+    destino.className = "corte-destino";
     if (c.destino?.estado === "copiado" || c.destino?.estado === "erro") {
       const estadoCopia = document.createElement("p");
       const falhou = c.destino.estado === "erro";
-      estadoCopia.className = falhou ? "ajuda-campo" : "corte-postagem-status";
+      estadoCopia.className = falhou ? "ajuda-campo" : "corte-destino-status";
       feedbackAcao(estadoCopia, falhou ? c.destino.erro || "Não foi possível copiar para o Drive." : "Copiado para a pasta do Drive", falhou);
-      postagem.append(estadoCopia);
+      destino.append(estadoCopia);
     }
-    postagem.append(feedback);
+    destino.append(feedback);
 
     const btnExcluir = document.createElement("button");
     btnExcluir.type = "button";
@@ -761,9 +704,9 @@
         alterarDestinoCorte(c, btnExcluir, feedback, "/api/cortes/excluir", {}, "A exclusão está indisponível nesta versão.");
       }
     });
-    acoes.append(btnVideo, btnPasta, btnPostar, btnDrive, btnExcluir);
+    acoes.append(btnVideo, btnPasta, btnDrive, btnExcluir);
 
-    card.append(topo, acoes, postagem);
+    card.append(topo, acoes, destino);
     if (acoesDestinoAtivas.has(c.caminho)) {
       card.querySelectorAll("[data-acao-destino]").forEach((controle) => { controle.disabled = true; });
     }
@@ -771,7 +714,6 @@
   }
 
   const avisoDriveIndisponivel = "O envio para o Google Drive ainda não está disponível nesta versão. Você pode abrir a pasta do corte e copiá-lo manualmente.";
-  const avisoRegistroIndisponivel = "O registro de cortes postados ainda não está disponível nesta versão.";
 
   function erroDestino(res, indisponivel) {
     // Uma rota disponível também usa 404 para informar que o corte sumiu.
@@ -780,21 +722,16 @@
     return !corteAusente && rotaEmBreve(res) ? indisponivel : res.erro || "Não foi possível concluir. Tente de novo.";
   }
 
-  function marcarPostado(corte, botao, feedback, postado, rede) {
-    return alterarDestinoCorte(corte, botao, feedback, "/api/cortes/postado", { postado, rede }, avisoRegistroIndisponivel);
-  }
-
   async function alterarDestinoCorte(corte, botao, feedback, rota, corpo, indisponivel) {
     if (acoesDestinoAtivas.has(corte.caminho)) return;
     acoesDestinoAtivas.add(corte.caminho);
     const card = botao.closest(".corte-card");
     const botoes = card.querySelectorAll("[data-acao-destino]");
-    const enviando = rota === "/api/drive/enviar";
     const rotulo = botao.textContent;
     const devolverFoco = document.activeElement === botao;
     botoes.forEach((controle) => { controle.disabled = true; });
     const excluindo = rota === "/api/cortes/excluir";
-    botao.textContent = excluindo ? "Excluindo…" : enviando ? "Copiando…" : "Salvando…";
+    botao.textContent = excluindo ? "Excluindo…" : "Copiando…";
     feedbackAcao(feedback, "");
 
     const res = await api(rota, "POST", { caminho: corte.caminho, ...corpo });
@@ -807,7 +744,7 @@
     cardVisivel?.querySelectorAll("[data-acao-destino]").forEach((controle) => { controle.disabled = false; });
     const restaurarFoco = devolverFoco && [botao, document.body].includes(document.activeElement);
     if (res.ok !== true) {
-      feedbackAcao(cardVisivel?.querySelector("[data-feedback-destino]") || el("feedback-postagem-corte"), erroDestino(res, indisponivel), true);
+      feedbackAcao(cardVisivel?.querySelector("[data-feedback-destino]") || el("feedback-corte"), erroDestino(res, indisponivel), true);
       if (restaurarFoco) botao.focus();
       return;
     }
@@ -816,35 +753,18 @@
     if (excluindo) {
       estadoAtual.cortes = estadoAtual.cortes.filter((item) => item.caminho !== corte.caminho);
       atualizarListaCortes(estadoAtual.cortes);
-      feedbackAcao(el("feedback-postagem-corte"), res.mensagem);
-      if (restaurarFoco) (grade.querySelector("button") || el("filtro-postagem").querySelector("button"))?.focus();
+      feedbackAcao(el("feedback-corte"), res.mensagem);
+      if (restaurarFoco) grade.querySelector("button")?.focus();
       return;
     }
-    const alteracoes = enviando ? { destino: res.destino } : { postado: res.postado, postagem: res.postagem, destino: res.destino };
+    const alteracoes = { destino: res.destino };
     if (estadoAtual?.cortes) {
       estadoAtual.cortes = estadoAtual.cortes.map((item) => item.caminho === corte.caminho ? { ...item, ...alteracoes } : item);
       atualizarListaCortes(estadoAtual.cortes);
     }
     const atualizado = encontrarCard();
-    const mensagem = res.postagem?.aviso ?
-      "A marca foi salva, mas a cópia não pôde ser movida. Confira a pasta e use Enviar ao Drive de novo." : res.mensagem;
-    feedbackAcao(atualizado?.querySelector("[data-feedback-destino]") || el("feedback-postagem-corte"), mensagem || "Alteração salva.", Boolean(res.postagem?.aviso));
-    if (restaurarFoco) {
-      const controle = atualizado?.querySelector(`[data-acao-destino="${botao.dataset.acaoDestino}"]`) ||
-        el("filtro-postagem").querySelector('[aria-pressed="true"]');
-      controle?.focus();
-    }
-  }
-
-  function selecionarFiltroPostagem(evento) {
-    const botao = evento.target.closest("button[data-filtro]");
-    if (!botao) return;
-    feedbackAcao(el("feedback-postagem-corte"), "");
-    filtroPostagem = botao.dataset.filtro;
-    for (const opcao of el("filtro-postagem").querySelectorAll("button")) {
-      opcao.setAttribute("aria-pressed", String(opcao === botao));
-    }
-    atualizarListaCortes(estadoAtual?.cortes);
+    feedbackAcao(atualizado?.querySelector("[data-feedback-destino]") || el("feedback-corte"), res.mensagem || "Alteração salva.");
+    if (restaurarFoco) atualizado?.querySelector(`[data-acao-destino="${botao.dataset.acaoDestino}"]`)?.focus();
   }
 
   function atualizarListaCortes(cortes) {
@@ -854,33 +774,23 @@
 
     const vazio = el("estado-sem-cortes");
     const grade = el("lista-cortes");
-    const avisoFiltro = el("estado-filtro-cortes");
-    const filtrar = filtroPostagem !== "todos";
-    const registroDisponivel = lista.some((corte) => typeof corte.postado === "boolean");
-    const listaFiltrada = filtrar ? lista.filter((corte) => corte.postado === (filtroPostagem === "postados")) : lista;
-    const novaAssinatura = JSON.stringify([filtroPostagem, total, registroDisponivel, listaFiltrada]);
+    const novaAssinatura = JSON.stringify([total, lista]);
     if (novaAssinatura === assinaturaCortes) return;
     assinaturaCortes = novaAssinatura;
 
     vazio.hidden = total > 0;
-    grade.hidden = listaFiltrada.length === 0;
-    const mensagemFiltro = !filtrar || total === 0 || listaFiltrada.length ? "" :
-      !registroDisponivel ? avisoRegistroIndisponivel : filtroPostagem === "postados" ?
-        "Nenhum corte foi marcado como postado." : "Todos os cortes já foram marcados como postados.";
-    feedbackAcao(avisoFiltro, mensagemFiltro);
-    if (!listaFiltrada.length) {
+    grade.hidden = total === 0;
+    if (!total) {
       grade.replaceChildren();
       return;
     }
 
     const cards = new Map(Array.from(grade.children, (card) => [card.dataset.caminho, card]));
-    const mostrados = listaFiltrada.map((c) => {
+    const mostrados = lista.map((c) => {
       const anterior = cards.get(c.caminho);
       const assinatura = JSON.stringify(c);
       if (anterior && (anterior.dataset.assinatura === assinatura || acoesDestinoAtivas.has(c.caminho))) return anterior;
       const card = criarCardCorte(c);
-      const detalhes = card.querySelector(".corte-postagem details");
-      if (detalhes) detalhes.open = Boolean(anterior?.querySelector(".corte-postagem details")?.open);
       card.dataset.caminho = c.caminho;
       card.dataset.assinatura = assinatura;
       return card;
@@ -895,160 +805,29 @@
     });
   }
 
-  async function carregarConfigPostagem() {
+  async function carregarConfigCorte() {
     try {
       const cfg = await api("/api/config-postagem");
       if (cfg.ok === false || salvandoPreferencias) return;
       el("sel-duracao-minima").value = ["livre", "30", "45", "61"].includes(String(cfg.duracao_minima_modo)) ? String(cfg.duracao_minima_modo) : "61";
-      const navLigada = Boolean(cfg.reserva_navegador);
-      el("chk-reserva-navegador").checked = navLigada;
-      el("controles-reserva-redes").hidden = !navLigada;
-      if (navLigada) {
-        carregarStatusNavegador();
-      }
     } catch (_) {}
   }
 
-  async function salvarConfigPostagem() {
-    if (salvandoPreferencias) return null;
+  async function salvarConfigCorte() {
+    if (salvandoPreferencias) return;
     salvandoPreferencias = true;
-    const payload = {
-      reserva_navegador: el("chk-reserva-navegador").checked,
-      duracao_minima_modo: el("sel-duracao-minima").value
-    };
-    el("controles-reserva-redes").hidden = !payload.reserva_navegador;
-    const ids = ["chk-reserva-navegador", "sel-duracao-minima"];
-    ids.forEach((id) => { el(id).disabled = true; });
+    const seletor = el("sel-duracao-minima");
+    seletor.disabled = true;
+    let resp = null;
     try {
-      return await api("/api/config-postagem", "POST", payload);
+      resp = await api("/api/config-postagem", "POST", { duracao_minima_modo: seletor.value });
     } finally {
       salvandoPreferencias = false;
-      ids.forEach((id) => { el(id).disabled = false; });
+      seletor.disabled = false;
     }
-  }
-
-  async function salvarInterruptoresPostagem() {
-    const resp = await salvarConfigPostagem();
     if (resp?.ok === false) {
       mostrarAvisoSistema("Não foi possível salvar as preferências", resp.erro);
-      await carregarConfigPostagem();
-    } else if (el("chk-reserva-navegador").checked) {
-      await carregarStatusNavegador();
-    }
-  }
-
-  async function carregarStatusPostar() {
-    try {
-      const st = await api("/api/postar/status");
-      postarStatus.disponivel = Boolean(st && st.disponivel);
-      const disp = postarStatus.disponivel;
-      const contas = st.contas || {};
-      el("lista-redes-contas").hidden = Boolean(contas.postiz);
-      el("aviso-postagem-direta").hidden = !contas.postiz;
-
-      el("aviso-postar-breve").hidden = disp;
-      el("selo-estado-postar").textContent = disp ? "Ativo" : "Em breve";
-
-      ["youtube", "instagram", "tiktok"].forEach((rede) => {
-        const txtEl = el(`status-rede-${rede}`);
-        const btn = document.querySelector(`.btn-conectar-rede[data-rede="${rede}"]`);
-        if (!disp) {
-          if (txtEl) txtEl.textContent = "Em breve";
-          if (btn) {
-            btn.disabled = true;
-            btn.querySelector("span").textContent = "Em breve";
-          }
-        } else {
-          const infoRede = contas[rede];
-          const conectada =
-            typeof infoRede === "object" && infoRede !== null
-              ? Boolean(infoRede.conectado)
-              : Boolean(infoRede);
-          const detalheRede =
-            (infoRede && (infoRede.conta || infoRede.detalhe)) ||
-            (conectada ? "Conta conectada" : "Não conectada");
-          if (txtEl) txtEl.textContent = detalheRede;
-          if (btn) {
-            btn.disabled = false;
-            btn.querySelector("span").textContent = conectada ? "Reconectar" : "Conectar";
-          }
-        }
-      });
-
-      if (estadoAtual && estadoAtual.cortes) {
-        atualizarListaCortes(estadoAtual.cortes);
-      }
-    } catch (_) {}
-  }
-
-  async function carregarStatusNavegador() {
-    if (!el("chk-reserva-navegador").checked) return;
-    try {
-      const res = await api("/api/autopost-navegador/status");
-      const redes = (res && res.redes) || {};
-      ["youtube", "instagram", "tiktok"].forEach((r) => {
-        const elTxt = el(`status-nav-${r}`);
-        if (!elTxt) return;
-        const info = redes[r];
-        if (!info) {
-          elTxt.textContent = "Pronto para conectar";
-        } else {
-          elTxt.textContent = info.conectado ? "Sessão conectada" : (info.erro || "Não conectada");
-        }
-      });
-    } catch (_) {}
-  }
-
-  async function recarregarTudoPostagem() {
-    await Promise.all([
-      carregarConfigPostagem(),
-      carregarStatusPostar()
-    ]);
-  }
-
-  async function abrirModalPostar(corte) {
-    const dlg = el("modal-postar");
-    const disp = postarStatus.disponivel;
-    el("corpo-postar-breve").hidden = disp;
-    el("corpo-postar-form").hidden = !disp;
-    el("btn-confirmar-postar").hidden = !postarStatus.disponivel;
-    el("postar-progresso-log").hidden = true;
-    el("postar-progresso-log").textContent = "";
-
-    if (disp) {
-      el("postar-caminho-video").value = corte.caminho || "";
-      el("postar-titulo").value = corte.titulo || "";
-      el("postar-descricao").value = "";
-    }
-
-    if (typeof dlg.showModal === "function") {
-      dlg.showModal();
-    } else {
-      dlg.setAttribute("open", "");
-    }
-
-    // Pede sugestão inteligente via cortelive.autopost gerar --video ARQ
-    if (disp && corte.caminho) {
-      try {
-        const gen = await api("/api/autopost/gerar", "POST", {
-          video: corte.caminho,
-          enfileirar: false
-        });
-        if (gen.metadados && dlg.open && el("postar-caminho-video").value === corte.caminho) {
-          const yt = gen.metadados.youtube || {};
-          if (yt.titulo && el("postar-titulo").value === (corte.titulo || "")) el("postar-titulo").value = yt.titulo;
-          if (yt.descricao && !el("postar-descricao").value) el("postar-descricao").value = yt.descricao;
-        }
-      } catch (_) {}
-    }
-  }
-
-  function fecharModalPostar() {
-    const dlg = el("modal-postar");
-    if (typeof dlg.close === "function") {
-      dlg.close();
-    } else {
-      dlg.removeAttribute("open");
+      await carregarConfigCorte();
     }
   }
 
@@ -1238,13 +1017,11 @@
   // --- Eventos de Interface ---
   function registrarEventos() {
     el("aba-btn-cortar").addEventListener("click", () => alternarAba("cortar"));
-    el("aba-btn-contas").addEventListener("click", () => alternarAba("contas"));
     el("aba-btn-config").addEventListener("click", () => alternarAba("config"));
     el("modo-gpt").addEventListener("change", () => { ++versaoFormGPT; camposGPT(); });
     el("chave-gpt").addEventListener("input", () => { ++versaoFormGPT; });
     el("form-gpt").addEventListener("submit", conectarGPT);
     document.querySelectorAll(".btn-enviar-erro").forEach((b) => b.addEventListener("click", enviarErroParaGabriel));
-    el("filtro-postagem").addEventListener("click", selecionarFiltroPostagem);
 
     el("btn-fechar-aviso").addEventListener("click", () => {
       el("faixa-aviso-sistema").hidden = true;
@@ -1361,74 +1138,7 @@
       el("btn-checar-atualizacao").focus();
     });
 
-    // Switches de automação e reserva
-    el("chk-reserva-navegador").addEventListener("change", salvarInterruptoresPostagem);
-    el("sel-duracao-minima").addEventListener("change", salvarInterruptoresPostagem);
-    // Conectar contas oficiais (cortelive.postar)
-    document.querySelectorAll(".btn-conectar-rede").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const rede = btn.getAttribute("data-rede");
-        btn.disabled = true;
-        try {
-          const res = await api("/api/postar/conectar", "POST", { rede });
-          if (res.ok === false) mostrarAvisoSistema("Não foi possível conectar a conta", res.erro);
-          await carregarStatusPostar();
-        } finally {
-          btn.disabled = false;
-        }
-      });
-    });
-
-    // Conectar sessão reserva no navegador (cortelive.autopost_navegador)
-    document.querySelectorAll(".btn-conectar-nav").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const rede = btn.getAttribute("data-rede");
-        btn.disabled = true;
-        try {
-          const res = await api("/api/autopost-navegador/conectar", "POST", { rede });
-          if (res.ok === false) mostrarAvisoSistema("Não foi possível conectar pelo navegador", res.erro);
-          await carregarStatusNavegador();
-        } finally {
-          btn.disabled = false;
-        }
-      });
-    });
-
-    // Modal Postar
-    el("btn-fechar-modal-postar").addEventListener("click", fecharModalPostar);
-    el("btn-cancelar-postar").addEventListener("click", fecharModalPostar);
-
-    el("form-modal-postar").addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      if (!postarStatus.disponivel) {
-        fecharModalPostar();
-        return;
-      }
-      const video = el("postar-caminho-video").value;
-      const titulo = el("postar-titulo").value.trim();
-      const descricao = el("postar-descricao").value.trim();
-      const redes = Array.from(document.querySelectorAll('input[name="rede-destino"]:checked')).map((c) => c.value);
-      const logEl = el("postar-progresso-log");
-      logEl.hidden = false;
-      if (redes.length === 0) {
-        logEl.textContent = "Selecione pelo menos uma rede para postar.";
-        return;
-      }
-      logEl.textContent = "Enviando o corte…";
-      el("btn-confirmar-postar").disabled = true;
-      try {
-        const res = await api("/api/postar/enviar", "POST", {
-          video,
-          titulo,
-          descricao,
-          redes: redes.join(",")
-        });
-        logEl.textContent = res.ok === false ? (res.erro || "Não foi possível postar o vídeo.") :
-          (res.mensagem || "Envio concluído. Confira os canais escolhidos.");
-      } finally {
-        el("btn-confirmar-postar").disabled = false;
-      }
-    });
+    el("sel-duracao-minima").addEventListener("change", salvarConfigCorte);
 
     window.addEventListener("beforeunload", (e) => {
       if (
@@ -1468,7 +1178,7 @@
     }
 
     await carregarEstado();
-    recarregarTudoPostagem();
+    carregarConfigCorte();
     checarAtualizacao();
     setInterval(checarAtualizacao, INTERVALO_ATUALIZACAO_MS);
   });

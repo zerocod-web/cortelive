@@ -22,7 +22,7 @@ function Copiar-Arvore([string]$nome, [string[]]$excluirDirs, [string[]]$excluir
 try {
   $arqsRaiz = @(
     'VERSION', 'ABRIR_PAINEL.cmd', 'INSTALAR_E_RODAR.bat', 'Atualizar CorteLive.bat', 'instalar.cmd', 'cortar.cmd', 'atualizar.cmd',
-    'LEIA-ME-AMIGOS.txt', 'GUIA_RAPIDO_AMIGOS.md', 'LEIA-ME_POSTAGEM.md', 'COMO_LANCAR_VERSAO.md', 'CONTRATO_ATUALIZACAO.md', 'README.md',
+    'LEIA-ME-AMIGOS.txt', 'GUIA_RAPIDO_AMIGOS.md', 'COMO_LANCAR_VERSAO.md', 'CONTRATO_ATUALIZACAO.md', 'README.md',
     'requirements.txt', 'pyproject.toml', 'THIRD_PARTY_NOTICES.md', 'build_apps.ps1'
   )
   foreach ($nome in $arqsRaiz) {
@@ -40,9 +40,9 @@ try {
   $dirsLocais = @('__pycache__', 'ferramentas_dev', '.wrangler', 'node_modules')
   $arqsLocais = @('*.pyc', '*.local.*', 'painel_config.json', 'painel_instancia*.json', '.dev.vars', '.dev.vars.*')
   Copiar-Arvore 'painel' ($dirsLocais + @(Join-Path $raiz 'painel\dev')) $arqsLocais
-  Copiar-Arvore 'cortelive' $dirsLocais ($arqsLocais + @(Join-Path $raiz 'cortelive\postar\config.toml'))
+  Copiar-Arvore 'cortelive' $dirsLocais $arqsLocais
 
-  foreach ($nome in 'cortelive\pastas.py', 'LEIA-ME_POSTAGEM.md', 'GUIA_RAPIDO_AMIGOS.md', 'painel\tema_zerocod.css',
+  foreach ($nome in 'cortelive\pastas.py', 'GUIA_RAPIDO_AMIGOS.md', 'painel\tema_zerocod.css',
       'painel\img\cortelive.ico', 'painel\fontes\Outfit-Variable.woff2') {
     if (-not (Test-Path -LiteralPath (Join-Path $stage $nome) -PathType Leaf)) {
       throw "Arquivo necessario ausente no pacote: $nome"

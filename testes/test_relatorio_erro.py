@@ -34,7 +34,7 @@ def montar(tmp_path, monkeypatch):
         {"canal": "canal", "fonte": f"{WU}live.mp4", "cortes": 2, "falhas": []}), encoding="utf-8")
     (sess / "corte.mp4").write_bytes(b"VIDEO" * 1000)
     (raiz / "config.toml").write_text(f'pasta_saida = "cortes"\napi_key = "{TOKEN}"\nmodelo = "x"\n', encoding="utf-8")
-    (raiz / "painel_config.json").write_text(json.dumps({"postiz_token": TOKEN2, "email": EMAIL, "ok": True}), encoding="utf-8")
+    (raiz / "painel_config.json").write_text(json.dumps({"api_token": TOKEN2, "email": EMAIL, "ok": True}), encoding="utf-8")
     # log enorme: tem que ser cortado
     (raiz / "instalacao_log.txt").write_text(("x" * 99 + "\n") * 20000, encoding="utf-8")
     return raiz

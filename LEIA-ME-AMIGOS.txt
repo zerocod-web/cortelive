@@ -28,27 +28,14 @@ a sessão de corte se ela estiver rodando. Clique em Atualizar e acompanhe
 o progresso. A atualização mantém os cortes, os modelos de voz baixados
 e as configurações.
 
-Levar um corte para o celular e registrar a postagem
+Levar um corte para o celular
 
-Se a sua versão mostrar o cartão Google Drive na aba Postar, clique em
-Encontrar pasta, escolha uma pasta sincronizada e clique em Salvar
-preferências do Drive. Em Cortes prontos, clique em Enviar ao Drive no
-cartão do vídeo. Se o botão estiver ausente ou a cópia falhar, clique em
-Pasta no cartão e copie o MP4 para a pasta já sincronizada pelo Google Drive
-para computador. Confira a sincronização antes de abrir a pasta no celular.
+Em Cortes prontos, clique em Pasta no cartão do vídeo e copie o MP4 para
+uma pasta já sincronizada pelo Google Drive para computador. Se o botão
+Enviar ao Drive aparecer no cartão, ele faz essa cópia por você. Confira a
+sincronização antes de abrir a pasta no celular.
 
-Depois de publicar na rede social, clique em Marcar como postado no cartão
-do corte, se o botão estiver disponível. Use o filtro Postados para ver os
-cortes marcados. Se o botão estiver ausente, confira na própria rede social.
-
-Títulos, legendas e postagem
-
-Se a janela Postar estiver disponível para o corte, o CorteLive usa a fala
-do vídeo para sugerir um título e um texto. Você pode editar a sugestão
-antes de postar.
-
-Na aba Postar, em Automação de postagem, Postar sozinho vem desligado e
-Revisar antes vem ligado. Para enviar um corte para aprovação, use Postar
-no cartão e Pôr na fila (revisar), quando a fila estiver disponível.
+O CorteLive só corta e grava. A publicação nas redes sociais é feita por
+você, no aplicativo de cada rede.
 
 O passo a passo completo está no arquivo GUIA_RAPIDO_AMIGOS.md.

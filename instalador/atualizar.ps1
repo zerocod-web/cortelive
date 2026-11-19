@@ -51,7 +51,7 @@ $PASTAS_PROTEGIDAS = @(
 )
 
 $ARQS_USUARIO_RAIZ = @(
-  'config.toml', 'postar.toml', 'usuario.toml', 'lives.txt',
+  'config.toml', 'usuario.toml', 'lives.txt',
   'painel_config.json', 'instalacao_log.txt', 'atualizacao.log', '.gitignore',
   'setup_log.txt', 'cams.json', 'encoder.json'
 )
@@ -538,9 +538,6 @@ function Salvar-Backup([string]$pastaRaiz, [string]$versaoAtual) {
       Copiar-ArvoreCodigo $item.FullName $subDest
       # Remove arquivos de estado local dentro das pastas de codigo do backup
       Remove-Item (Join-Path $subDest 'modo.txt') -Force -ErrorAction SilentlyContinue
-      if ($item.Name -eq 'cortelive') {
-        Remove-Item (Join-Path $subDest 'postar\config.toml') -Force -ErrorAction SilentlyContinue
-      }
       $pastasCodigoSalvas += $item.Name
     } else {
       if (Eh-ArquivoUsuarioProtegido $item.Name) { continue }
@@ -576,7 +573,6 @@ function Capturar-ArquivosInternosUsuario([string]$pastaRaiz) {
   $relativos = @(
     'instalador\modo.txt',
     'instalador\cache_release.local.json',
-    'cortelive\postar\config.toml',
     'painel\config.local.json'
   )
   foreach ($rel in $relativos) {
@@ -612,6 +608,9 @@ function Aplicar-ArvoreCodigo([string]$origemPacote, [string]$pastaRaiz, [string
       Copiar-ArquivoComExeSeguro $item.FullName (Join-Path $pastaRaiz $item.Name) $pastaReservaExe
     }
   }
+
+  # A postagem automatica saiu do CorteLive (v1.0.15): some o guia antigo que ficava na raiz.
+  Remove-Item -LiteralPath (Join-Path $pastaRaiz 'LEIA-ME_POSTAGEM.md') -Force -ErrorAction SilentlyContinue
 
   # Se versoes.ps1 novo veio com placeholder <dono>/cortelive mas o local ja tinha dono configurado, preserva o dono
   $versoesDestino = Join-Path $pastaRaiz 'instalador\versoes.ps1'

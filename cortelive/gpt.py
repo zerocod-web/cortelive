@@ -11,7 +11,7 @@ import queue
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from cortelive.postar.cofre import criptografar_bytes, descriptografar_bytes, dpapi_disponivel
+from cortelive.cofre import criptografar_bytes, descriptografar_bytes, dpapi_disponivel
 
 MODELO = "gpt-4.1-mini-2025-04-14"
 

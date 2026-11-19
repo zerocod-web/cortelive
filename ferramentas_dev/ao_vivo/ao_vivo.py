@@ -326,7 +326,6 @@ class HostComplementarPainel:
         self.motor = motor
         self._cache_instalado: tuple[float, bool] | None = None
         self._cache_atualizacao: tuple[float, dict] | None = None
-        self._cache_nav: tuple[float, dict] | None = None
 
     def ler_versao(self) -> str:
         arq = self.raiz / "VERSION"
@@ -481,44 +480,6 @@ class HostComplementarPainel:
         self._cache_atualizacao = (agora, res)
         return res
 
-    def status_navegador_reserva(self) -> dict:
-        agora = time.monotonic()
-        if self._cache_nav and (agora - self._cache_nav[0]) < 20.0:
-            return self._cache_nav[1]
-        pasta_mod = self.raiz / "cortelive" / "autopost_navegador"
-        vpy = self.raiz / ".venv" / "Scripts" / "python.exe"
-        if not vpy.is_file() or not (pasta_mod / "__init__.py").is_file():
-            res = {"ok": False, "disponivel": False}
-            self._cache_nav = (agora, res)
-            return res
-        try:
-            proc = subprocess.run(
-                [str(vpy), "-m", "cortelive.autopost_navegador", "status", "todas", "--json"],
-                cwd=str(self.raiz),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                stdin=subprocess.DEVNULL,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=12,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            redes = {}
-            for l in reversed(proc.stdout.splitlines()):
-                l = l.strip()
-                if l.startswith("{") and l.endswith("}"):
-                    try:
-                        redes = json.loads(l)
-                        break
-                    except ValueError:
-                        pass
-            res = {"ok": True, "disponivel": True, "redes": redes}
-        except Exception:
-            res = {"ok": False, "disponivel": False}
-        self._cache_nav = (agora, res)
-        return res
-
     def rota_host(self, metodo: str, rota: str) -> tuple[int, dict] | None:
         if rota == "/api/ping":
             return 200, {"ok": True, "versao": self.ler_versao()}
@@ -537,8 +498,6 @@ class HostComplementarPainel:
             return 200, {"ok": True, "log": log}
         if rota == "/api/atualizacao/checar" and metodo == "GET":
             return 200, self.checar_atualizacao_suave()
-        if rota == "/api/autopost-navegador/status" and metodo == "GET":
-            return 200, self.status_navegador_reserva()
         if rota == "/api/escolher-arquivo" and metodo == "POST":
             return 200, {"ok": True, "caminho": ""}
         return None

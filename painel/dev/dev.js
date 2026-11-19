@@ -18,22 +18,15 @@
   let timerFeedbackPastas = null;
   let versaoAtualDev = "1.0.1";
 
-  // Cache local dos 3 arquivos de configuração editáveis
+  // Cache local dos 2 arquivos de configuração editáveis
   let cacheConfigs = {
     cortelive: { caminho: "cortelive\\config.toml", conteudo: "", salvo: "", existe: true },
-    postar: { caminho: "%LOCALAPPDATA%\\CorteLive\\postar.toml", conteudo: "", salvo: "", existe: false, usando_exemplo: true },
     raiz: { caminho: "config.toml", conteudo: "", salvo: "", existe: false }
   };
   let cfgAlvoAtual = "cortelive";
 
   const TEXTO_AJUDA_CFG_PADRAO =
     "O texto é conferido automaticamente antes de salvar para evitar erros de digitação (atalho: Ctrl+S).";
-
-  const NOMES_REDES = {
-    youtube: "YouTube Shorts",
-    instagram: "Instagram Reels",
-    tiktok: "TikTok"
-  };
 
   async function apiDev(rota, metodo = "GET", corpo = null) {
     const opcoes = {
@@ -133,57 +126,6 @@
     };
   }
 
-  function formatarRotuloCorteDryRun(item) {
-    const bruto = String((item && item.rotulo) || "").replace(/^Corte\s*·\s*/i, "").trim();
-    const caminho = String((item && item.caminho) || "");
-    const partes = caminho.split(/[\\/]/).filter(Boolean);
-    const nomeArq = partes[partes.length - 1] || bruto;
-    const pastaPai = partes.length >= 2 ? partes[partes.length - 2] : "";
-    const mCanal = pastaPai.match(/^\d{4}-\d{2}-\d{2}(?:_\d{4}_|\s+\d{2}h\d{2}\s*-\s*)(.+)$/);
-    const canal = mCanal ? mCanal[1] : pastaPai;
-    const nomeLimpo = nomeArq
-      .replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}h\d{2}\s*-\s*[^-]+-\s*/, "")
-      .replace(/\.mp4$/i, "");
-    if (canal && nomeLimpo) {
-      return `${canal} · ${nomeLimpo}`;
-    }
-    return bruto || nomeArq;
-  }
-
-  function formatarLogPostagem(logBruto) {
-    if (!logBruto || !logBruto.trim()) return "";
-    const linhas = logBruto.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    return linhas.map((linha) => {
-      const t = linha.trim();
-      if (t.startsWith("{") && t.endsWith("}")) {
-        try {
-          const ev = JSON.parse(t);
-          const rede = NOMES_REDES[ev.rede] || ev.rede || "Rede";
-          const pct = typeof ev.pct === "number" ? `${String(ev.pct).padStart(3, " ")}%` : "  — ";
-          const etapa = String(ev.etapa || "").toLowerCase();
-          if (etapa === "preparando") {
-            return `[${rede}] ${pct} · Preparando vídeo para simulação…`;
-          }
-          if (etapa === "iniciando") {
-            return `[${rede}] ${pct} · Conferindo dados do envio…`;
-          }
-          if (etapa === "enviando") {
-            return `[${rede}] ${pct} · Simulando envio para a plataforma…`;
-          }
-          if (etapa === "concluido") {
-            const viaTxt = ev.via === "postiz" ? " via Postiz" : "";
-            const tituloTxt = ev.titulo ? ` · Título: "${ev.titulo}"` : "";
-            return `[${rede}] ${pct} · Simulação concluída${viaTxt} (nenhum vídeo real publicado)${tituloTxt}`;
-          }
-          if (ev.erro) {
-            return `[${rede}] Falha: ${normalizarTextoPortugues(ev.erro)}`;
-          }
-        } catch (_) {}
-      }
-      return normalizarTextoPortugues(t);
-    }).join("\n");
-  }
-
   async function copiarParaClipboard(texto, btn, rotuloPadrao) {
     let ok = false;
     try {
@@ -265,8 +207,8 @@
 
     btn.addEventListener("click", () => ativarAbaDev());
 
-    // Quando o usuário clicar nas abas originais (Cortar / Postar), oculta a aba Dev
-    ["aba-btn-cortar", "aba-btn-contas"].forEach((idBtn) => {
+    // Quando o usuário clicar nas abas originais (Cortar / Configurações), oculta a aba Dev
+    ["aba-btn-cortar", "aba-btn-config"].forEach((idBtn) => {
       const outro = el(idBtn);
       if (outro) {
         outro.addEventListener("click", () => desativarAbaDev());
@@ -281,9 +223,9 @@
 
     abaDevVisivel = true;
     const pCortar = el("aba-painel-cortar");
-    const pContas = el("aba-painel-contas");
+    const pConfig = el("aba-painel-config");
     if (pCortar) pCortar.hidden = true;
-    if (pContas) pContas.hidden = true;
+    if (pConfig) pConfig.hidden = true;
     painelDev.hidden = false;
 
     document.querySelectorAll(".abas-navegacao .aba-btn").forEach((b) => {
@@ -373,53 +315,13 @@
       }
     }
 
-    // O servidor aceita somente vídeos dentro de cortes\ na simulação de postagem
-    const selDry = el("dev-sel-video-dry");
-    const btnDry = el("dev-btn-postar-dry");
-    if (selDry) {
-      const valorAntes = selDry.value;
-      selDry.innerHTML = "";
-      let listaDry = (Array.isArray(res.videos_dry_run) ? res.videos_dry_run : [])
-        .filter((v) => v && v.caminho && /[\\/]cortes[\\/]/i.test(v.caminho) && /\.mp4$/i.test(v.caminho));
-
-      if (listaDry.length === 0) {
-        const fallbackCortes = await apiDev("/api/cortes");
-        if (fallbackCortes && Array.isArray(fallbackCortes.cortes)) {
-          listaDry = fallbackCortes.cortes
-            .filter((c) => c && c.caminho && /\.mp4$/i.test(c.caminho))
-            .map((c) => ({
-              caminho: c.caminho,
-              rotulo: `${c.canal || "Corte"} · ${c.titulo || c.nome_arquivo}`
-            }));
-        }
-      }
-
-      if (listaDry.length === 0) {
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "Gere um corte primeiro para liberar a simulação";
-        selDry.appendChild(opt);
-        if (btnDry) btnDry.disabled = true;
-      } else {
-        listaDry.forEach((v) => {
-          const opt = document.createElement("option");
-          opt.value = v.caminho;
-          opt.textContent = formatarRotuloCorteDryRun(v);
-          selDry.appendChild(opt);
-        });
-        if (valorAntes && Array.from(selDry.options).some((o) => o.value === valorAntes)) {
-          selDry.value = valorAntes;
-        }
-        if (btnDry) btnDry.disabled = false;
-      }
-    }
   }
 
   async function carregarConfigsDev() {
     const res = await apiDev("/api/dev/configs");
     if (!res || res.ok === false || !res.configs) return;
 
-    ["cortelive", "postar", "raiz"].forEach((chave) => {
+    ["cortelive", "raiz"].forEach((chave) => {
       const info = res.configs[chave];
       if (!info) return;
       cacheConfigs[chave] = {
@@ -441,9 +343,6 @@
     if (modificado) {
       badge.className = "dev-pilula-erro";
       badge.textContent = "Alterações não salvas";
-    } else if (cfgAlvoAtual === "postar" && item.usando_exemplo) {
-      badge.className = "dev-pilula-neutra";
-      badge.textContent = "Modelo inicial (salvar cria o arquivo)";
     } else if (cfgAlvoAtual === "raiz" && !item.existe && !item.salvo) {
       badge.className = "dev-pilula-neutra";
       badge.textContent = "Vazio (usa os padrões do corte)";
@@ -502,117 +401,7 @@
     }
   }
 
-  // --- Diagnóstico de Contas e Servidor de Tokens ---
-  function definirLinhaDiagnostico(idNodo, texto, estado, dica) {
-    const nodo = el(idNodo);
-    if (!nodo) return;
-    nodo.textContent = texto;
-    if (estado) nodo.setAttribute("data-estado", estado);
-    else nodo.removeAttribute("data-estado");
-    nodo.title = dica || texto;
-  }
-
-  async function checarContasETokens() {
-    const btn = el("dev-btn-checar-contas");
-    const online = Boolean(el("dev-chk-status-online") && el("dev-chk-status-online").checked);
-    const pilula = el("dev-pilula-worker");
-
-    btn.disabled = true;
-    btn.querySelector("span").textContent = "Verificando…";
-    pilula.className = "dev-pilula-neutra";
-    pilula.textContent = "Verificando…";
-
-    try {
-      const res = await apiDev(`/api/dev/status-contas?online=${online ? "1" : "0"}`);
-      if (!res || res.ok === false) {
-        pilula.className = "dev-pilula-erro";
-        pilula.textContent = "Falha na consulta";
-        definirLinhaDiagnostico(
-          "dev-st-worker",
-          normalizarTextoPortugues((res && res.erro) || "Não foi possível consultar agora"),
-          "alerta"
-        );
-        return;
-      }
-
-      const srv = res.servidor_tokens || {};
-      if (!srv.configurado) {
-        pilula.className = "dev-pilula-neutra";
-        pilula.textContent = "Não configurado";
-        definirLinhaDiagnostico(
-          "dev-st-worker",
-          "Endereço ainda não definido",
-          "neutro",
-          "Configure o endereço do servidor na aba 'Postagem e contas' quando quiser usar conexão direta."
-        );
-      } else if (srv.online) {
-        const msTxt = typeof srv.latencia_ms === "number" ? ` (${srv.latencia_ms} ms)` : "";
-        pilula.className = "dev-pilula-ok";
-        pilula.textContent = "Servidor online";
-        definirLinhaDiagnostico(
-          "dev-st-worker",
-          `Respondendo${msTxt}`,
-          "ok",
-          srv.url || ""
-        );
-      } else {
-        pilula.className = "dev-pilula-erro";
-        pilula.textContent = "Fora do ar";
-        definirLinhaDiagnostico(
-          "dev-st-worker",
-          "Sem resposta na internet",
-          "alerta",
-          `${srv.url || ""} — ${normalizarTextoPortugues(srv.detalhe || "")}`
-        );
-      }
-
-      const dir = res.direto || {};
-      ["youtube", "instagram", "tiktok"].forEach((rede) => {
-        const r = dir[rede] || {};
-        if (r.conectado && r.valido) {
-          definirLinhaDiagnostico(
-            `dev-st-${rede}`,
-            r.conta ? `Conectada · ${r.conta}` : "Conectada e válida",
-            "ok"
-          );
-        } else if (r.conectado) {
-          definirLinhaDiagnostico(
-            `dev-st-${rede}`,
-            "Acesso vencido (reconectar)",
-            "alerta"
-          );
-        } else {
-          definirLinhaDiagnostico(
-            `dev-st-${rede}`,
-            normalizarTextoPortugues(r.detalhe) || "Não conectada",
-            "neutro"
-          );
-        }
-      });
-
-      const pz = res.postiz || {};
-      const qtd = Array.isArray(pz.canais) ? pz.canais.length : 0;
-      if (pz.conectado) {
-        definirLinhaDiagnostico(
-          "dev-st-postiz",
-          `Conectado (${qtd} cana${qtd === 1 ? "l" : "is"})`,
-          "ok"
-        );
-      } else {
-        definirLinhaDiagnostico(
-          "dev-st-postiz",
-          "Não conectado",
-          "neutro",
-          "Você pode conectar sua chave do Postiz na aba 'Postar'."
-        );
-      }
-    } finally {
-      btn.disabled = false;
-      btn.querySelector("span").textContent = "Verificar contas e servidor";
-    }
-  }
-
-  // --- Polling de Registros ao Vivo (Corte + Postagem) ---
+  // --- Polling do Registro ao Vivo do Corte ---
   async function atualizarLogsAoVivo() {
     const res = await apiDev("/api/dev/logs");
     if (!res || res.ok === false) return;
@@ -661,51 +450,6 @@
       }
     }
 
-    // 2) Bus Postagem
-    const post = res.postagem || {};
-    const pRodando = Boolean(post.rodando);
-    const badgePost = el("dev-badge-estado-post");
-    const subPost = el("dev-sub-post");
-
-    if (badgePost) {
-      if (pRodando) {
-        badgePost.className = "tally-pilula tally-preparando";
-        badgePost.textContent = "SIMULANDO…";
-        if (subPost) subPost.textContent = "Testando envio simulado passo a passo…";
-      } else if (post.exit_code === 0) {
-        badgePost.className = "tally-pilula dev-pilula-ok";
-        badgePost.textContent = "CONCLUÍDO";
-        if (subPost) subPost.textContent = "Simulação concluída com sucesso (nenhum vídeo foi publicado nas redes).";
-      } else if (post.exit_code !== null && post.exit_code !== undefined) {
-        badgePost.className = "tally-pilula tally-ao-vivo";
-        badgePost.textContent = "FALHOU";
-        if (subPost) subPost.textContent = "A simulação encontrou um problema. Veja os detalhes abaixo.";
-      } else {
-        badgePost.className = "tally-pilula tally-parado";
-        badgePost.textContent = "AGUARDANDO";
-        if (subPost) subPost.textContent = "Simulação segura: testa o envio sem publicar vídeos reais nas redes.";
-      }
-    }
-
-    const btnPostDry = el("dev-btn-postar-dry");
-    if (btnPostDry) {
-      const semCortes = el("dev-sel-video-dry") && !el("dev-sel-video-dry").value;
-      btnPostDry.disabled = pRodando || semCortes;
-      btnPostDry.querySelector("span").textContent = pRodando ? "Simulando envio…" : "Simular postagem";
-    }
-
-    const prePost = el("dev-pre-log-postagem");
-    if (prePost) {
-      if (post.log && post.log.trim()) {
-        const formatado = formatarLogPostagem(post.log);
-        if (prePost.textContent !== formatado) {
-          prePost.textContent = formatado;
-          if (el("dev-autoscroll-post") && el("dev-autoscroll-post").checked) {
-            prePost.scrollTop = prePost.scrollHeight;
-          }
-        }
-      }
-    }
   }
 
   // --- Modal de Confirmação Antes de Lançar Versão ---
@@ -995,60 +739,14 @@
       await carregarResumoDev();
     });
 
-    // 5. Ensaio 2: Simulação de Postagem (sem publicar de verdade)
-    el("dev-btn-postar-dry").addEventListener("click", async () => {
-      const video = el("dev-sel-video-dry").value;
-      const via = el("dev-sel-via-dry").value;
-      const titulo = el("dev-inp-titulo-dry").value.trim();
-      const redes = Array.from(document.querySelectorAll('input[name="dev-rede-dry"]:checked')).map((c) => c.value);
-      const fb = el("dev-feedback-dry");
-
-      if (!video) {
-        definirFeedbackCurto(fb, "Escolha um corte pronto primeiro.", "erro");
-        return;
-      }
-      if (redes.length === 0) {
-        definirFeedbackCurto(fb, "Marque pelo menos uma rede social.", "erro");
-        return;
-      }
-
-      el("dev-btn-postar-dry").disabled = true;
-      definirFeedbackCurto(fb, "Iniciando simulação…", "neutro");
-      const res = await apiDev("/api/dev/postar-dry-run", "POST", {
-        video,
-        via,
-        titulo: titulo || "Teste de postagem — CorteLive",
-        descricao: "Simulação de envio pelo painel CorteLive #shorts #cortes",
-        redes: redes.join(",")
-      });
-      if (res && res.ok) {
-        definirFeedbackCurto(fb, "Simulação iniciada — veja o registro abaixo.", "ok");
-      } else {
-        definirFeedbackCurto(fb, normalizarTextoPortugues((res && res.erro) || "Não foi possível simular a postagem."), "erro");
-      }
-      await atualizarLogsAoVivo();
-    });
-
-    // 6. Ensaio 3: Status das contas e servidor de tokens
-    el("dev-btn-checar-contas").addEventListener("click", checarContasETokens);
-
     // 7. Controles dos registros ao vivo
     el("dev-btn-copiar-corte").addEventListener("click", (ev) => {
       copiarParaClipboard(el("dev-pre-log-corte").textContent, ev.currentTarget, "Copiar");
-    });
-    el("dev-btn-copiar-post").addEventListener("click", (ev) => {
-      copiarParaClipboard(el("dev-pre-log-postagem").textContent, ev.currentTarget, "Copiar");
     });
     el("dev-btn-limpar-corte").addEventListener("click", async () => {
       await apiDev("/api/dev/limpar-log", "POST", { alvo: "corte" });
       el("dev-pre-log-corte").textContent = "Registro limpo.";
       definirFeedbackCurto(el("dev-feedback-corte"), "", "neutro");
-      await atualizarLogsAoVivo();
-    });
-    el("dev-btn-limpar-post").addEventListener("click", async () => {
-      await apiDev("/api/dev/limpar-log", "POST", { alvo: "postagem" });
-      el("dev-pre-log-postagem").textContent = "Registro de postagem limpo.";
-      definirFeedbackCurto(el("dev-feedback-dry"), "", "neutro");
       await atualizarLogsAoVivo();
     });
 
@@ -1103,7 +801,6 @@
     await Promise.all([
       carregarResumoDev(),
       carregarConfigsDev(),
-      checarContasETokens(),
       atualizarLogsAoVivo()
     ]);
   }

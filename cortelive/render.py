@@ -461,7 +461,7 @@ import os
 import time
 
 # Parâmetros pedidos por placa (testados de verdade com 1 s de encode antes de usar).
-# Arquivo leve para baixar no celular e postar: H.264 High, 30 fps, ~6 Mbps (teto 6-6,5 Mbps), AAC 128k.
+# Arquivo leve para baixar no celular: H.264 High, 30 fps, ~6 Mbps (teto 6-6,5 Mbps), AAC 128k.
 # Medido em 17/11/2026 contra o corte antigo (cq 19 sem teto, 60 fps, 22,7 Mbps, 91 MB em 32 s):
 #   NVENC cq23 teto 6M      -> 6,1 Mbps, SSIM 0,991 (alanzoka) / 0,996 (GTA)
 #   NVENC cq23 teto 8M 60fps-> 8,0 Mbps, SSIM 0,990: 60 fps no mesmo bitrate fica MENOS nítido -> 30 fps

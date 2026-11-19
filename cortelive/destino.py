@@ -1,12 +1,8 @@
-"""Destino dos cortes prontos (pasta do Google Drive, OneDrive ou Dropbox) e o certinho de "postei".
+"""Destino dos cortes prontos (pasta do Google Drive, OneDrive ou Dropbox).
 
-Cópia: cada corte pronto vai para <destino_pasta>/<AAAA-MM-DD HHhMM - canal>/<corte>.mp4 (e, se pedido,
-um .txt com título/legenda/hashtags de cada rede). Roda numa thread própria: o render não espera.
-O app do Drive/OneDrive/Dropbox sobe o arquivo sozinho; o CorteLive não usa chave de API.
-
-Postado: _interno/<corte>.postado.json guarda a marca geral e por rede (data, hora e origem).
-Quando o corte fica postado e `destino_mover_postados` está ligado, a cópia no destino vai para a
-subpasta "postados" da live, para quem abre a pasta no celular saber o que já foi.
+Cópia: cada corte pronto vai para <destino_pasta>/<AAAA-MM-DD HHhMM - canal>/<corte>.mp4. Roda numa thread
+própria: o render não espera. O app do Drive/OneDrive/Dropbox sobe o arquivo sozinho; o CorteLive não usa
+chave de API.
 """
 from __future__ import annotations
 
@@ -26,9 +22,7 @@ from pathlib import Path
 
 from . import pastas
 
-REDES = ("youtube", "instagram", "tiktok")
-POSTADOS = "postados"
-PADRAO = {"destino_ativo": False, "destino_pasta": "", "destino_txt": False, "destino_mover_postados": True}
+PADRAO = {"destino_ativo": False, "destino_pasta": ""}
 _NOMES_MEU_DRIVE = ("Meu Drive", "My Drive", "Mi unidad", "Mon Drive")
 _trava = threading.Lock()
 _fila: queue.Queue = queue.Queue()
@@ -192,10 +186,6 @@ def subpasta_da_live(video: Path) -> str:
     return f"{m[1]} {m[2]}h{m[3]} - {m[4]}" if m else pastas.limpar(nome) or "CorteLive"
 
 
-def _arq_postado(video: Path) -> Path:
-    return pastas.interno_do_video(video) / f"{Path(video).stem}.postado.json"
-
-
 def _arq_copia(video: Path) -> Path:
     return pastas.interno_do_video(video) / f"{Path(video).stem}.destino.json"
 
@@ -232,121 +222,12 @@ def _trava_corte(video: Path) -> Path:
     return pastas.interno_do_video(video) / "_destino.sqlite3"
 
 
-# ------------------------------------------------------------------ postado
-def estado_postado(video) -> dict:
-    """-> {postado, quando, origem, redes:{rede:{postado, quando, origem}}}; `postado` = marca geral
-    ou todas as redes marcadas."""
-    dados = _ler_json(_arq_postado(Path(video)))
-    geral = dados.get("geral") or {}
-    redes = {r: {"postado": bool((dados.get("redes") or {}).get(r, {}).get("postado")),
-                 "quando": (dados.get("redes") or {}).get(r, {}).get("quando"),
-                 "origem": (dados.get("redes") or {}).get(r, {}).get("origem")} for r in REDES}
-    todas = all(r["postado"] for r in redes.values())
-    datas = [r["quando"] for r in redes.values() if isinstance(r["quando"], str)]
-    return {"postado": bool(geral.get("postado")) or todas,
-            "quando": geral.get("quando") or (max(datas, default=None) if todas else None),
-            "origem": geral.get("origem"), "redes": redes}
-
-
 def estado_copia(video) -> dict | None:
     dados = _ler_json(_arq_copia(Path(video)))
     return dados or None
 
 
-def mensagem_marca(postado: bool, rede: str | None) -> str:
-    nome = {"youtube": "YouTube", "instagram": "Instagram", "tiktok": "TikTok"}.get(rede)
-    if postado:
-        return f"Corte marcado como postado no {nome}." if nome else "Corte marcado como postado."
-    return f"Marca de postagem removida no {nome}." if nome else "Marca geral de postagem removida."
-
-
-def marcar(video, rede: str | None = None, postado: bool = True, origem: str = "manual",
-           cfg: dict | None = None) -> dict:
-    """Marca/desmarca o corte (rede None = geral). Move a cópia do destino para 'postados' (ou de volta)."""
-    video = Path(video)
-    if rede is not None and rede not in REDES:
-        raise ErroDestino("Rede inválida. Use youtube, instagram ou tiktok.")
-    with _travar(_trava_corte(video)):
-        arq = _arq_postado(video)
-        dados = _ler_json(arq)
-        marca = {"postado": bool(postado), "quando": time.strftime("%Y-%m-%dT%H:%M:%S") if postado else None,
-                 "origem": origem if postado else None}
-        marcas, chave = (dados, "geral") if rede is None else (dados.setdefault("redes", {}), rede)
-        anterior = marcas.get(chave) or {}
-        if bool(anterior.get("postado")) != postado:
-            marcas[chave] = marca
-            _gravar_json(arq, dados)
-        estado = estado_postado(video)
-        try:
-            if config_atual(cfg)["destino_mover_postados"]:
-                _arrumar_copia(video, estado["postado"])
-        except OSError:
-            estado["aviso"] = "A marca foi salva, mas a cópia no Drive não pôde ser movida. " \
-                              "Confira a pasta do Drive e repita a ação."
-    return estado
-
-
-def _arrumar_copia(video: Path, postado: bool, ausente_ok=False) -> None:
-    copia = estado_copia(video)
-    if not copia or not copia.get("caminho"):
-        return
-    atual = Path(copia["caminho"])
-    pasta_live = atual.parent.parent if atual.parent.name == POSTADOS else atual.parent
-    alvo_dir = pasta_live / POSTADOS if postado else pasta_live
-    for chave in ("caminho", "txt"):
-        if not copia.get(chave):
-            continue
-        origem = Path(copia[chave])
-        alvo = alvo_dir / origem.name
-        if origem == alvo and origem.is_file():
-            continue
-        if origem != alvo and origem.is_file():
-            alvo_dir.mkdir(exist_ok=True)
-            os.replace(origem, alvo)
-        elif not alvo.is_file():
-            if ausente_ok:
-                continue
-            raise FileNotFoundError(alvo)
-        copia[chave] = str(alvo)
-        _gravar_json(_arq_copia(video), copia)
-
-
 # ------------------------------------------------------------------ cópia
-def _texto_redes(video: Path, cfg_sessao: dict) -> str:
-    """Título/legenda/hashtags por rede, para copiar e colar no celular."""
-    meta = pastas.meta_do_video(video)
-    info = _ler_json(meta) if meta else {}
-    dados = None
-    saida = Path(cfg_sessao.get("pasta_saida") or pastas.pasta_sessao_do_video(video).parent)
-    fila = saida / "_autopost" / "fila.json"
-    if fila.is_file():
-        for item in (_ler_json(fila).get("itens") or {}).values():
-            try:
-                if Path(item.get("video", "")).resolve() == video.resolve():
-                    dados = item.get("metadados")
-                    break
-            except OSError:
-                continue
-    if not dados:
-        try:
-            from .autopost import metadados
-            canal = info.get("canal") or pastas.canal_da_pasta(pastas.pasta_sessao_do_video(video).name)
-            dados = metadados.gerar(info.get("transcricao", ""), canal, cfg_sessao, info.get("motivos", ()), None,
-                                    info.get("momento_na_live"), frase_sugerida=info.get("titulo_sugerido", ""),
-                                    usados=[])
-        except Exception:
-            dados = {}
-    titulo = info.get("titulo_sugerido") or video.stem
-    yt, tt, ig = dados.get("youtube") or {}, dados.get("tiktok") or {}, dados.get("instagram") or {}
-    tags = yt.get("tags") or []
-    partes = [f"Corte: {video.name}", "",
-              "== YouTube Shorts ==", f"Título: {yt.get('titulo') or titulo}", "",
-              yt.get("descricao") or "", *([f"Tags: {', '.join(tags)}"] if tags else []), "",
-              "== Instagram Reels ==", ig.get("legenda") or titulo, "",
-              "== TikTok ==", tt.get("legenda") or titulo, ""]
-    return "\n".join(partes)
-
-
 MENSAGEM_COPIA = "Corte copiado para a pasta de destino. Confira a sincronização no aplicativo da nuvem."
 
 
@@ -361,27 +242,18 @@ def copiar(video, cfg: dict | None = None) -> dict:
             reg = estado_copia(video) or {}
             try:
                 raiz = verificar_pasta(dest["destino_pasta"], cfg.get("pasta_saida"))
-                pasta_live = raiz / subpasta_da_live(video)
-                postado = estado_postado(video)["postado"] and dest["destino_mover_postados"]
-                alvo_dir = pasta_live / POSTADOS if postado else pasta_live
+                alvo_dir = raiz / subpasta_da_live(video)
                 alvo = alvo_dir / video.name
                 resolvido = alvo.resolve()
                 saida = cfg.get("pasta_saida")
                 if resolvido == video.resolve() or (saida and resolvido.is_relative_to(Path(saida).resolve())):
                     raise ErroDestino("Escolha uma pasta do Drive fora da pasta dos cortes.")
-                if reg.get("caminho") and Path(reg["caminho"]).parent in (pasta_live, pasta_live / POSTADOS):
-                    _arrumar_copia(video, postado, ausente_ok=True)
-                    reg.update(estado_copia(video) or {})
                 alvo_dir.mkdir(parents=True, exist_ok=True)
                 if reg.get("caminho") != str(alvo) or not alvo.is_file():
                     _copiar_arquivo(alvo, lambda tmp: shutil.copyfile(video, tmp))
                     reg.pop("txt", None)
                 reg["caminho"] = str(alvo)
-                if dest["destino_txt"]:
-                    txt = alvo_dir / f"{video.stem}.txt"
-                    _copiar_arquivo(txt, lambda tmp: tmp.write_text(_texto_redes(video, cfg), encoding="utf-8-sig"))
-                    reg["txt"] = str(txt)
-                elif reg.get("txt") and not Path(reg["txt"]).is_file():
+                if reg.get("txt") and not Path(reg["txt"]).is_file():
                     reg.pop("txt")
                 reg.pop("erro", None)
                 reg["estado"] = "copiado"

@@ -486,12 +486,6 @@ class Sessao:
             (dint / f"{legivel}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
             self._ultimo_corte = final.name
             self._pronto_em = (time.time(), job["titulo"])
-            if cfg.get("postar_sozinho"):      # autopost em thread própria: só enfileira, não segura o render
-                try:
-                    from . import autopost
-                    autopost.disparar(final, cfg, canal, info, job["palavras"])
-                except Exception as e:
-                    log.aviso(f"Autopost não iniciou para {final.name}: {str(e)[:200]}")
             try:
                 copia = destino.disparar(final, cfg)
                 if copia is not None:
@@ -786,10 +780,6 @@ class Sessao:
             log.aviso("Ainda há cópias em andamento. Confira o Drive e reenvie pelo painel se faltar algum corte.")
         if any(copia.exception() for copia in feitas):
             log.aviso("Uma cópia para o Drive foi interrompida. Você pode tentar novamente pelo painel.")
-        if cfg.get("postar_sozinho") and resultados:
-            from . import autopost
-            if not autopost.aguardar(cfg.get("postar_espera_fim_s", 300)):
-                log.aviso("Autopost ainda enviando; o que faltou fica na fila (python -m cortelive.autopost fila).")
 
         if cap.erro_fatal and not resultados:
             raise RuntimeError(cap.erro_fatal)

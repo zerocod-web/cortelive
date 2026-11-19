@@ -102,16 +102,6 @@ namespace CorteLivePainel
         private static readonly List<string> SessaoLinhasLog = new List<string>();
         private static readonly List<Dictionary<string, object>> SessaoLives = new List<Dictionary<string, object>>();
 
-#if MODO_DEV
-        // Estado de postagem / dry-run ao vivo na aba Dev
-        private static readonly object LockDevPost = new object();
-        private static Process ProcDevPost = null;
-        private static bool DevPostRodando = false;
-        private static string DevPostComando = "";
-        private static int? DevPostExitCode = null;
-        private static readonly List<string> DevPostLinhasLog = new List<string>();
-#endif
-
         [STAThread]
         public static int Main(string[] args)
         {
@@ -265,10 +255,6 @@ namespace CorteLivePainel
             Thread thProgresso = new Thread(LoopMonitorProgressoInstalacao);
             thProgresso.IsBackground = true;
             thProgresso.Start();
-
-            Thread thAgenda = new Thread(LoopAgendaPostagem);
-            thAgenda.IsBackground = true;
-            thAgenda.Start();
 
             if (Headless)
             {
@@ -442,9 +428,6 @@ namespace CorteLivePainel
             }
             catch { }
             PararSessaoInterno(true);
-#if MODO_DEV
-            PararDevPostInterno();
-#endif
             try
             {
                 string arq = Path.Combine(Raiz, ArqInstanciaNome);
@@ -745,16 +728,6 @@ namespace CorteLivePainel
             return false;
         }
 
-        private static void LoopAgendaPostagem()
-        {
-            while (!Encerrando)
-            {
-                Thread.Sleep(30000);
-                if (!Encerrando)
-                    ConsultarMotorApiLocal("POST", "/api/autopost/processar", "{}", 300000);
-            }
-        }
-
         private static Dictionary<string, object> ConsultarMotorApiLocal(string metodo, string rota, string corpo,
             int prazoMs = 30000)
         {
@@ -818,35 +791,17 @@ namespace CorteLivePainel
                 "<script>window.CORTELIVE_MODO = 'dev';</script>\n</head>"));
         }
 
-        private static void PararDevPostInterno()
-        {
-            lock (LockDevPost)
-            {
-                if (ProcDevPost != null && !ProcDevPost.HasExited)
-                    MatarArvoreProcesso(ProcDevPost.Id);
-            }
-        }
-
         private static object LogsDev()
         {
-            object corte;
             lock (LockSessao)
-            {
-                corte = new
-                {
-                    rodando = SessaoRodando, estado = SessaoEstado, canal = SessaoCanal,
-                    detalhe_servicos = SessaoDetalheServicos, ultima_mensagem = SessaoUltimaMsg,
-                    log = string.Join("\n", SessaoLinhasLog.ToArray())
-                };
-            }
-            lock (LockDevPost)
             {
                 return new
                 {
-                    ok = true, corte = corte, postagem = new
+                    ok = true, corte = new
                     {
-                        rodando = DevPostRodando, exit_code = DevPostExitCode, comando = DevPostComando,
-                        log = string.Join("\n", DevPostLinhasLog.ToArray())
+                        rodando = SessaoRodando, estado = SessaoEstado, canal = SessaoCanal,
+                        detalhe_servicos = SessaoDetalheServicos, ultima_mensagem = SessaoUltimaMsg,
+                        log = string.Join("\n", SessaoLinhasLog.ToArray())
                     }
                 };
             }
@@ -868,95 +823,10 @@ namespace CorteLivePainel
             return null;
         }
 
-        private static string IniciarDryRunDev(Dictionary<string, object> body)
-        {
-            string video = VideoLocalDev("cortes", ValorStr(body, "video"));
-            string via = ValorStr(body, "via");
-            string redes = ValorStr(body, "redes");
-            string python = Path.Combine(Raiz, @".venv\Scripts\python.exe");
-            if (video == null || (via != "postiz" && via != "direto") ||
-                !Regex.IsMatch(redes, @"^(youtube|instagram|tiktok)(,(youtube|instagram|tiktok))*$") ||
-                !File.Exists(python))
-                return "Escolha um corte, um provedor e pelo menos uma rede.";
-
-            string args = "-m cortelive.postar enviar --dry-run" +
-                " " + EscapeArg("--video=" + video) + " --via=" + via + " --redes=" + redes +
-                " " + EscapeArg("--titulo=" + ValorStr(body, "titulo")) +
-                " " + EscapeArg("--descricao=" + ValorStr(body, "descricao"));
-            lock (LockDevPost)
-            {
-                if (DevPostRodando) return "Já existe uma simulação em andamento.";
-                DevPostRodando = true;
-                DevPostExitCode = null;
-                DevPostComando = "cortelive.postar enviar --dry-run";
-                DevPostLinhasLog.Clear();
-            }
-            Thread th = new Thread(delegate() { ExecutarDryRunDev(python, args); });
-            th.IsBackground = true;
-            th.Start();
-            return null;
-        }
-
-        private static void ExecutarDryRunDev(string python, string args)
-        {
-            int codigo = 1;
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(python, args);
-                psi.WorkingDirectory = Raiz;
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.StandardOutputEncoding = Encoding.UTF8;
-                psi.StandardErrorEncoding = Encoding.UTF8;
-                psi.EnvironmentVariables["PYTHONUTF8"] = "1";
-                psi.EnvironmentVariables["PYTHONPATH"] = Raiz;
-                using (Process p = new Process { StartInfo = psi })
-                {
-                    DataReceivedEventHandler log = delegate(object sender, DataReceivedEventArgs e)
-                    {
-                        if (e.Data == null) return;
-                        lock (LockDevPost) DevPostLinhasLog.Add(e.Data);
-                    };
-                    p.OutputDataReceived += log;
-                    p.ErrorDataReceived += log;
-                    lock (LockDevPost)
-                    {
-                        if (Encerrando) return;
-                        p.Start();
-                        ProcDevPost = p;
-                    }
-                    p.BeginOutputReadLine();
-                    p.BeginErrorReadLine();
-                    if (!p.WaitForExit(120000)) MatarArvoreProcesso(p.Id);
-                    if (p.WaitForExit(5000))
-                    {
-                        p.WaitForExit();
-                        codigo = p.ExitCode;
-                    }
-                    lock (LockDevPost) ProcDevPost = null;
-                }
-            }
-            catch
-            {
-                lock (LockDevPost) DevPostLinhasLog.Add("Não foi possível executar a simulação.");
-            }
-            finally
-            {
-                lock (LockDevPost)
-                {
-                    ProcDevPost = null;
-                    DevPostExitCode = codigo;
-                    DevPostRodando = false;
-                }
-            }
-        }
-
         private static bool TratarRotaDev(NetworkStream ns, string metodo, string rota, string alvo, string corpo)
         {
             if (!rota.StartsWith("/api/dev/", StringComparison.Ordinal)) return false;
-            if (rota == "/api/dev/resumo" || rota == "/api/dev/configs" || rota == "/api/dev/status-contas")
+            if (rota == "/api/dev/resumo" || rota == "/api/dev/configs")
             {
                 if (!RepassarAoMotorApiLocal(ns, metodo, alvo, corpo))
                     EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
@@ -992,7 +862,6 @@ namespace CorteLivePainel
                     switch (ValorStr(body, "alvo"))
                     {
                         case "corte": lock (LockSessao) SessaoLinhasLog.Clear(); break;
-                        case "postagem": lock (LockDevPost) DevPostLinhasLog.Clear(); break;
                         default: erro = "Escolha o log a limpar."; break;
                     }
                     break;
@@ -1022,9 +891,6 @@ namespace CorteLivePainel
                     else
                         erro = IniciarCorte(video, ValorStr(body, "modelo"), ValorStr(body, "legenda"),
                             minutos.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    break;
-                case "/api/dev/postar-dry-run":
-                    erro = IniciarDryRunDev(body);
                     break;
                 case "/api/dev/lancar-versao":
                     string assistente = Path.Combine(Raiz, "lancar_versao.cmd");
@@ -1197,7 +1063,7 @@ namespace CorteLivePainel
             }
 
             if (rota == "/api/drive/detectar" || rota == "/api/drive/config" ||
-                rota == "/api/drive/enviar" || rota == "/api/cortes/postado" || rota == "/api/cortes/excluir" ||
+                rota == "/api/drive/enviar" || rota == "/api/cortes/excluir" ||
                 rota == "/api/enviar-erro")
             {
                 // O envio manual aguarda a cópia integral na pasta sincronizada.
@@ -1232,96 +1098,11 @@ namespace CorteLivePainel
                 return;
             }
 
-            // Config de postagem automática (postar_sozinho / revisar_antes / reserva_navegador)
+            // Preferências de corte (duração mínima), guardadas pelo motor em painel_config.json
             if (rota == "/api/config-postagem")
-            {
-                // O motor guarda tudo em painel_config.json (limites, canais, rodízio); o legado só vale sem motor.
-                if (RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo)) return;
-                if (metodo == "POST")
-                {
-                    Dictionary<string, object> body = LerCorpoJson(corpo);
-                    SalvarConfigPostagem(
-                        ValorBool(body, "postar_sozinho"),
-                        ValorBool(body, "revisar_antes"),
-                        ValorBool(body, "reserva_navegador"));
-                }
-                EnviarJson(ns, 200, LerConfigPostagem());
-                return;
-            }
-
-            // CLI 1: cortelive.postar (conectar | status | enviar)
-            if (rota == "/api/postar/status")
-            {
-                if (RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo)) return;
-                EnviarJson(ns, 200, StatusPostar());
-                return;
-            }
-            if ((rota == "/api/postar/conectar" || rota == "/api/postar/conectar-postiz") && metodo == "POST")
-            {
-                Dictionary<string, object> body = LerCorpoJson(corpo);
-                string redeAlvo = ValorStr(body, "rede");
-                if (rota == "/api/postar/conectar-postiz" || string.Equals(redeAlvo, "postiz", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo)) return;
-                }
-                EnviarJson(ns, 200, ConectarPostar(redeAlvo));
-                return;
-            }
-            if (rota == "/api/postar/enviar" && metodo == "POST")
-            {
-                // O motor envia via Postiz e devolve erro HTTP real quando o envio falha.
-                if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo, 330000))
-                    EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
-                return;
-            }
-
-            // CLI 2: cortelive.autopost (fila | gerar | editar | aprovar | rejeitar)
-            if (rota == "/api/autopost/fila")
-            {
-                EnviarJson(ns, 200, AutopostFila());
-                return;
-            }
-            if (rota == "/api/autopost/gerar" && metodo == "POST")
-            {
-                Dictionary<string, object> body = LerCorpoJson(corpo);
-                EnviarJson(ns, 200, AutopostGerar(ValorStr(body, "video"), ValorBool(body, "enfileirar")));
-                return;
-            }
-            if (rota == "/api/autopost/editar" && metodo == "POST")
-            {
-                Dictionary<string, object> body = LerCorpoJson(corpo);
-                EnviarJson(ns, 200, AutopostEditar(
-                    ValorStr(body, "id"),
-                    body.ContainsKey("titulo") ? ValorStr(body, "titulo") : null,
-                    body.ContainsKey("descricao") ? ValorStr(body, "descricao") : null,
-                    body.ContainsKey("tiktok") ? ValorStr(body, "tiktok") : null,
-                    body.ContainsKey("instagram") ? ValorStr(body, "instagram") : null));
-                return;
-            }
-            if (rota == "/api/autopost/aprovar" || rota == "/api/autopost/editar-agendado" ||
-                rota == "/api/autopost/cancelar")
             {
                 if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo))
                     EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
-                return;
-            }
-            if (rota == "/api/autopost/rejeitar" && metodo == "POST")
-            {
-                Dictionary<string, object> body = LerCorpoJson(corpo);
-                EnviarJson(ns, 200, AutopostAcaoSimples("rejeitar", ValorStr(body, "id"), 15000));
-                return;
-            }
-
-            // CLI 3: cortelive.autopost_navegador (reserva opcional, desligada por padrão)
-            if (rota == "/api/autopost-navegador/status")
-            {
-                EnviarJson(ns, 200, AutopostNavegadorStatus());
-                return;
-            }
-            if (rota == "/api/autopost-navegador/conectar" && metodo == "POST")
-            {
-                Dictionary<string, object> body = LerCorpoJson(corpo);
-                EnviarJson(ns, 200, AutopostNavegadorConectar(ValorStr(body, "rede")));
                 return;
             }
 
@@ -2737,303 +2518,5 @@ namespace CorteLivePainel
             }
         }
 
-        // =========================================================================
-        // Config de Postagem (postar_sozinho / revisar_antes em config.toml)
-        // =========================================================================
-        private static bool ExtrairTomlBool(string texto, string chave, bool padrao)
-        {
-            Match m = Regex.Match(texto ?? "", @"(?m)^\s*" + Regex.Escape(chave) + @"\s*=\s*(true|false)\b");
-            if (m.Success) return string.Equals(m.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
-            return padrao;
-        }
-
-        private static string AtualizarTomlBool(string texto, string chave, bool valor)
-        {
-            string valStr = valor ? "true" : "false";
-            Regex rx = new Regex(@"(?m)^(\s*" + Regex.Escape(chave) + @"\s*=\s*)(true|false)(.*)$");
-            if (rx.IsMatch(texto))
-            {
-                return rx.Replace(texto, "${1}" + valStr + "${3}", 1);
-            }
-            if (texto.Length > 0 && !texto.EndsWith("\n")) texto += "\r\n";
-            return texto + chave + " = " + valStr + "\r\n";
-        }
-
-        private static object LerConfigPostagem()
-        {
-            bool postarSozinho = false;
-            bool revisarAntes = false;
-            bool reservaNav = false;
-
-            string cfgPadrao = Path.Combine(Raiz, @"cortelive\config.toml");
-            if (File.Exists(cfgPadrao))
-            {
-                try
-                {
-                    string t = File.ReadAllText(cfgPadrao, Encoding.UTF8);
-                    postarSozinho = ExtrairTomlBool(t, "postar_sozinho", postarSozinho);
-                    revisarAntes = ExtrairTomlBool(t, "revisar_antes", revisarAntes);
-                }
-                catch { }
-            }
-
-            string cfgUser = Path.Combine(Raiz, "config.toml");
-            if (File.Exists(cfgUser))
-            {
-                try
-                {
-                    string t = File.ReadAllText(cfgUser, Encoding.UTF8);
-                    postarSozinho = ExtrairTomlBool(t, "postar_sozinho", postarSozinho);
-                    revisarAntes = ExtrairTomlBool(t, "revisar_antes", revisarAntes);
-                }
-                catch { }
-            }
-
-            string painelCfg = Path.Combine(Raiz, "painel_config.json");
-            if (File.Exists(painelCfg))
-            {
-                try
-                {
-                    JavaScriptSerializer js = new JavaScriptSerializer();
-                    Dictionary<string, object> d = js.Deserialize<Dictionary<string, object>>(File.ReadAllText(painelCfg, Encoding.UTF8));
-                    reservaNav = ValorBool(d, "reserva_navegador");
-                }
-                catch { }
-            }
-
-            return new
-            {
-                ok = true,
-                postar_sozinho = postarSozinho,
-                revisar_antes = revisarAntes,
-                reserva_navegador = reservaNav
-            };
-        }
-
-        private static void SalvarConfigPostagem(bool postarSozinho, bool revisarAntes, bool reservaNav)
-        {
-            string cfgUser = Path.Combine(Raiz, "config.toml");
-            string txt = "";
-            if (File.Exists(cfgUser))
-            {
-                try { txt = File.ReadAllText(cfgUser, Encoding.UTF8); } catch { }
-            }
-            txt = AtualizarTomlBool(txt, "postar_sozinho", postarSozinho);
-            txt = AtualizarTomlBool(txt, "revisar_antes", revisarAntes);
-            File.WriteAllText(cfgUser, txt, new UTF8Encoding(false));
-
-            string painelCfg = Path.Combine(Raiz, "painel_config.json");
-            JavaScriptSerializer js = new JavaScriptSerializer();
-            Dictionary<string, object> d = new Dictionary<string, object>();
-            if (File.Exists(painelCfg))
-            {
-                try
-                {
-                    d = js.Deserialize<Dictionary<string, object>>(File.ReadAllText(painelCfg, Encoding.UTF8))
-                        ?? new Dictionary<string, object>();
-                }
-                catch { }
-            }
-            d["reserva_navegador"] = reservaNav;
-            File.WriteAllText(painelCfg, js.Serialize(d), new UTF8Encoding(false));
-        }
-
-        // =========================================================================
-        // Execução das CLIs de Postagem: postar, autopost e autopost_navegador
-        // =========================================================================
-        private static bool ModuloPythonExiste(string subpasta)
-        {
-            string vpy = Path.Combine(Raiz, @".venv\Scripts\python.exe");
-            string dir = Path.Combine(Raiz, Path.Combine("cortelive", subpasta));
-            return File.Exists(vpy) && Directory.Exists(dir) &&
-                   (File.Exists(Path.Combine(dir, "__init__.py")) || File.Exists(Path.Combine(dir, "__main__.py")));
-        }
-
-        private static string RodarModuloPython(string modulo, string argsModulo, int timeoutMs)
-        {
-            string vpy = Path.Combine(Raiz, @".venv\Scripts\python.exe");
-            string pathExtra = Path.Combine(Raiz, @"ffmpeg\bin") + ";" + Path.Combine(Raiz, @".venv\Scripts");
-            ProcessStartInfo psi = new ProcessStartInfo();
-            psi.FileName = vpy;
-            psi.Arguments = "-m " + modulo + " " + argsModulo;
-            psi.WorkingDirectory = Raiz;
-            psi.UseShellExecute = false;
-            psi.CreateNoWindow = true;
-            psi.RedirectStandardOutput = true;
-            psi.RedirectStandardError = true;
-            psi.StandardOutputEncoding = Encoding.UTF8;
-            psi.StandardErrorEncoding = Encoding.UTF8;
-            psi.EnvironmentVariables["PATH"] = GarantirPathSistema(pathExtra);
-            psi.EnvironmentVariables["PYTHONPATH"] = Raiz;
-            psi.EnvironmentVariables["PYTHONUTF8"] = "1";
-
-            using (Process p = Process.Start(psi))
-            {
-                StringBuilder outSb = new StringBuilder();
-                p.OutputDataReceived += delegate(object s, DataReceivedEventArgs e)
-                {
-                    if (e.Data != null) outSb.AppendLine(e.Data);
-                };
-                p.BeginOutputReadLine();
-                p.BeginErrorReadLine();
-                if (!p.WaitForExit(timeoutMs))
-                {
-                    MatarArvoreProcesso(p.Id);
-                    return "";
-                }
-                p.WaitForExit();
-                return outSb.ToString().Trim();
-            }
-        }
-
-        private static Dictionary<string, object> ParseUltimaLinhaJson(string texto)
-        {
-            if (string.IsNullOrWhiteSpace(texto)) return null;
-            JavaScriptSerializer js = new JavaScriptSerializer();
-            try
-            {
-                return js.Deserialize<Dictionary<string, object>>(texto);
-            }
-            catch
-            {
-                string[] linhas = texto.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                for (int i = linhas.Length - 1; i >= 0; i--)
-                {
-                    string l = linhas[i].Trim();
-                    if (l.StartsWith("{") && l.EndsWith("}"))
-                    {
-                        try { return js.Deserialize<Dictionary<string, object>>(l); } catch { }
-                    }
-                }
-            }
-            return null;
-        }
-
-        // 1) cortelive.postar
-        private static object StatusPostar()
-        {
-            if (!ModuloPythonExiste("postar"))
-            {
-                return new { disponivel = false, em_breve = true, mensagem = "Em breve" };
-            }
-            try
-            {
-                string outTxt = RodarModuloPython("cortelive.postar", "status", 15000);
-                Dictionary<string, object> parsed = ParseUltimaLinhaJson(outTxt);
-                return new
-                {
-                    disponivel = true,
-                    em_breve = false,
-                    contas = parsed ?? new Dictionary<string, object>()
-                };
-            }
-            catch (Exception ex)
-            {
-                return new { disponivel = false, em_breve = true, erro = ex.Message };
-            }
-        }
-
-        private static object ConectarPostar(string rede)
-        {
-            if (!ModuloPythonExiste("postar")) return new { ok = false, em_breve = true };
-            string r = (rede ?? "").Trim().ToLowerInvariant();
-            if (r != "youtube" && r != "instagram" && r != "tiktok")
-                return new { ok = false, erro = "Rede inválida." };
-            try
-            {
-                string saida = RodarModuloPython("cortelive.postar", "conectar " + r, 120000);
-                return new { ok = true, saida = saida };
-            }
-            catch (Exception ex)
-            {
-                return new { ok = false, erro = ex.Message };
-            }
-        }
-
-        private static object EnviarPostar(string video, string titulo, string descricao, string redes)
-        {
-            if (!ModuloPythonExiste("postar")) return new { ok = false, em_breve = true, mensagem = "Em breve" };
-            try
-            {
-                string args = String.Format("enviar --video {0} --titulo {1} --descricao {2} --redes {3}",
-                    EscapeArg(video), EscapeArg(titulo), EscapeArg(descricao), EscapeArg(redes));
-                string saida = RodarModuloPython("cortelive.postar", args, 300000);
-                return new { ok = true, saida = saida };
-            }
-            catch (Exception ex)
-            {
-                return new { ok = false, erro = ex.Message };
-            }
-        }
-
-        // 2) cortelive.autopost
-        private static object AutopostFila()
-        {
-            if (!ModuloPythonExiste("autopost"))
-            {
-                return new { ok = true, disponivel = false, itens = new object[0] };
-            }
-            try
-            {
-                string saida = RodarModuloPython("cortelive.autopost", "fila", 15000);
-                Dictionary<string, object> d = ParseUltimaLinhaJson(saida) ?? new Dictionary<string, object>();
-                d["disponivel"] = true;
-                return d;
-            }
-            catch (Exception ex)
-            {
-                return new { ok = false, disponivel = false, itens = new object[0], erro = ex.Message };
-            }
-        }
-
-        private static object AutopostGerar(string video, bool enfileirar)
-        {
-            if (!ModuloPythonExiste("autopost")) return new { ok = false, disponivel = false };
-            string args = "gerar --video " + EscapeArg(video) + (enfileirar ? " --enfileirar" : "");
-            string saida = RodarModuloPython("cortelive.autopost", args, 45000);
-            return (object)ParseUltimaLinhaJson(saida) ?? new { ok = false, saida = saida };
-        }
-
-        private static object AutopostEditar(string id, string titulo, string descricao, string tiktok, string instagram)
-        {
-            if (!ModuloPythonExiste("autopost") || string.IsNullOrWhiteSpace(id))
-                return new { ok = false };
-            StringBuilder sb = new StringBuilder();
-            sb.Append("editar ").Append(EscapeArg(id));
-            if (titulo != null) sb.Append(" --titulo ").Append(EscapeArg(titulo));
-            if (descricao != null) sb.Append(" --descricao ").Append(EscapeArg(descricao));
-            if (tiktok != null) sb.Append(" --tiktok ").Append(EscapeArg(tiktok));
-            if (instagram != null) sb.Append(" --instagram ").Append(EscapeArg(instagram));
-            string saida = RodarModuloPython("cortelive.autopost", sb.ToString(), 20000);
-            return (object)ParseUltimaLinhaJson(saida) ?? new { ok = false, saida = saida };
-        }
-
-        private static object AutopostAcaoSimples(string subcmd, string id, int timeoutMs)
-        {
-            if (!ModuloPythonExiste("autopost") || string.IsNullOrWhiteSpace(id))
-                return new { ok = false };
-            string saida = RodarModuloPython("cortelive.autopost", subcmd + " " + EscapeArg(id), timeoutMs);
-            return (object)ParseUltimaLinhaJson(saida) ?? new { ok = true, saida = saida };
-        }
-
-        // 3) cortelive.autopost_navegador (reserva opcional)
-        private static object AutopostNavegadorStatus()
-        {
-            if (!ModuloPythonExiste("autopost_navegador"))
-                return new { ok = false, disponivel = false };
-            string saida = RodarModuloPython("cortelive.autopost_navegador", "status todas --json", 25000);
-            return new { ok = true, disponivel = true, redes = ParseUltimaLinhaJson(saida) ?? new Dictionary<string, object>() };
-        }
-
-        private static object AutopostNavegadorConectar(string rede)
-        {
-            if (!ModuloPythonExiste("autopost_navegador"))
-                return new { ok = false, disponivel = false };
-            string r = (rede ?? "").Trim().ToLowerInvariant();
-            if (r != "youtube" && r != "instagram" && r != "tiktok")
-                return new { ok = false, erro = "Rede inválida." };
-            string saida = RodarModuloPython("cortelive.autopost_navegador", "conectar " + r, 180000);
-            return (object)ParseUltimaLinhaJson(saida) ?? new { ok = true, saida = saida };
-        }
     }
 }

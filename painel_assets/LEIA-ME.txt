@@ -6,11 +6,8 @@ Prévias estáticas em qa\previas_painel. As contas, os estados e os cortes são
 Tela Windows em 1600 × 1000. Superfícies escuras, botão âmbar INSTALAR e instalação em 62%. Mostrar Python, Bibliotecas, FFmpeg e Modelo de fala. Usar a imagem de boas-vindas no cabeçalho.
 
 02-cortar.png
-Tela Windows em 1600 × 1000. Mostrar Link da live, opções de modelo vertical e legenda, botão CORTAR, “Ouvindo a live… 2 cortes prontos”, duas miniaturas verticais com duração e botões Abrir, Pasta e Postar.
+Tela Windows em 1600 × 1000. Mostrar Link da live, opções de modelo vertical e legenda, botão CORTAR, “Ouvindo a live… 2 cortes prontos”, duas miniaturas verticais com duração e botões Abrir e Pasta.
 Prompt das miniaturas: Create one paired contact sheet of TWO authentic documentary-style streamer video frames, each a portrait 9:16 crop, left and right side-by-side with seam dead center and no margin or border. Same Brazilian adult livestream creator wearing a dark shirt and headset in front of subtly lit charcoal studio background. Camera framed wide enough with generous headroom to show every part of the head and a little of upper torso. Left: surprised smiling toward monitor, warm tungsten side lighting. Right: looking at monitor mid-sentence amused, cooler muted studio light. Close to realistic webcam feed, professional natural lighting. Canvas aspect 9:8 if possible. No text, no subtitles, no typography, no logos, no interface, no watermarks. These will be used at small size as the portraits for two clips.
-
-03-postar.png
-Tela Windows em 1600 × 1000. Usar símbolos genéricos para YouTube Shorts, Instagram Reels e TikTok. Mostrar conexão de exemplo, Postar sozinho desligado, Revisar antes ligado e campos de título e legenda por rede com o status de envio.
 
 cortelive-icone.png / cortelive.ico
 Generate a production-ready Windows desktop app icon for CorteLive, a livestream clipper. 1:1 canvas. Icon centered, fills 84% of canvas, background outside rounded square transparent, completely flat solid near-black #161920 tile generously rounded, within that tile a simple bold amber #F5A524 geometric mark: two opposed right-angle editing crop brackets framing one right-facing filled play triangle. Thick consistent strokes, shape unmistakable at 16px. One tiny amber dot may sit upper right ONLY if needed, otherwise omit. Front view, flat, no bevel, no shadow, no gradient, no perspective, no text, no letters, no watermark, no borders around the canvas. Crisp opaque artwork.

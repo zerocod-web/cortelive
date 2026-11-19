@@ -47,12 +47,12 @@ namespace CorteLiveSetup
             "tokens", "cookies", "perfil_navegador", "perfil-browser"
         }, StringComparer.OrdinalIgnoreCase);
         private static readonly HashSet<string> ProtectedFiles = new HashSet<string>(new[] {
-            "config.toml", "postar.toml", "usuario.toml", "lives.txt", "painel_config.json",
+            "config.toml", "usuario.toml", "lives.txt", "painel_config.json",
             "instalacao_log.txt", "atualizacao.log", "setup_log.txt", ".gitignore"
         }, StringComparer.OrdinalIgnoreCase);
         private static readonly string[] InternalSettings = {
             @"instalador\modo.txt", @"instalador\cache_release.local.json",
-            @"cortelive\postar\config.toml", @"painel\config.local.json"
+            @"painel\config.local.json"
         };
         private static readonly HashSet<string> SharedProfile = new HashSet<string>(new[] {
             "setup_log.txt", "cams.json", "encoder.json", "contas", "navegador",

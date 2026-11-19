@@ -1,17 +1,11 @@
-"""Armazenamento seguro de tokens OAuth fora do repositorio, com DPAPI do Windows."""
+"""Cofre local com DPAPI do Windows (usado pela conexão GPT, arquivo contas/conexao-gpt.bin)."""
 from __future__ import annotations
 
 import base64
 import ctypes
-import json
-import os
 import sys
-import time
 from ctypes import wintypes
-from pathlib import Path
 from typing import Any
-
-from .config import CHAVES_COFRE_VALIDAS, garantir_fora_do_repo, pasta_contas
 
 CABECALHO_DPAPI = b"CLDPAPI1:"
 CABECALHO_FALLBACK = b"CLB64FB1:"
@@ -138,65 +132,3 @@ def descriptografar_bytes(pacote: bytes) -> bytes:
         return base64.b64decode(pacote[len(CABECALHO_FALLBACK):])
 
     raise ValueError("Formato de arquivo de conta desconhecido ou corrompido.")
-
-
-def caminho_token(rede: str, diretorio: Path | None = None) -> Path:
-    if rede not in CHAVES_COFRE_VALIDAS:
-        raise ValueError(f"Chave de conta invalida: {rede}")
-    pasta = (diretorio or pasta_contas()).resolve()
-    garantir_fora_do_repo(pasta)
-    pasta.mkdir(parents=True, exist_ok=True)
-    return pasta / f"{rede}.bin"
-
-
-def salvar_token(rede: str, dados: dict[str, Any], diretorio: Path | None = None) -> Path:
-    """Salva o dicionario de token criptografado fora do repositorio."""
-    arq = caminho_token(rede, diretorio=diretorio)
-    payload = dict(dados)
-    payload["rede"] = rede
-    payload.setdefault("atualizado_em", time.time())
-    bruto = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    protegido = criptografar_bytes(bruto)
-
-    tmp = arq.with_suffix(".tmp")
-    tmp.write_bytes(protegido)
-    try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass
-    tmp.replace(arq)
-    return arq
-
-
-def carregar_token(rede: str, diretorio: Path | None = None) -> dict[str, Any] | None:
-    """Carrega e descriptografa o token da rede, ou retorna None se nao conectado."""
-    arq = caminho_token(rede, diretorio=diretorio)
-    if not arq.is_file():
-        return None
-    pacote = arq.read_bytes()
-    bruto = descriptografar_bytes(pacote)
-    return json.loads(bruto.decode("utf-8"))
-
-
-def remover_token(rede: str, diretorio: Path | None = None) -> bool:
-    """Remove o token salvo de uma rede."""
-    arq = caminho_token(rede, diretorio=diretorio)
-    if arq.is_file():
-        arq.unlink()
-        return True
-    return False
-
-
-def token_esta_criptografado_em_disco(rede: str, diretorio: Path | None = None) -> bool:
-    """Verifica se o arquivo no disco possui cabecalho DPAPI e nao expoe JSON em texto puro."""
-    arq = caminho_token(rede, diretorio=diretorio)
-    if not arq.is_file():
-        return False
-    bruto = arq.read_bytes()
-    if dpapi_disponivel() and not bruto.startswith(CABECALHO_DPAPI):
-        return False
-    return (
-        b"access_token" not in bruto
-        and b"refresh_token" not in bruto
-        and b"api_key" not in bruto
-    )

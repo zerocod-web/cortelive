@@ -102,7 +102,7 @@ Logs detalhados de rede e do `instalar.ps1` vão para `atualizacao.log` na raiz 
 1. **SHA-256 obrigatório:** `-Aplicar` exige o asset `.sha256` na Release e valida o hash antes de tocar em qualquer arquivo da pasta. Se faltar ou divergir, descarta o download temporário e encerra com código `1`.
 2. **Intocados na atualização e no rollback (mesmo conteúdo e mesmo `mtime`):**
    - Pastas pesadas e dados: `.venv\`, `python\`, `ffmpeg\`, `ferramentas\`, `modelos\`, `cortes\`, `versoes_antigas\`, `.buffer\`, `logs\`.
-   - Configurações locais do usuário: `config.toml` (na raiz), `postar.toml`, `usuario.toml`, `lives.txt`, `painel_config.json`, `instalador\modo.txt`, `cortelive\postar\config.toml`, arquivos `*.local.*`, além de `%LOCALAPPDATA%\cortelive\` e `%LOCALAPPDATA%\CorteLive\`.
+   - Configurações locais do usuário: `config.toml` (na raiz), `usuario.toml`, `lives.txt`, `painel_config.json`, `instalador\modo.txt`, arquivos `*.local.*`, além de `%LOCALAPPDATA%\cortelive\` e `%LOCALAPPDATA%\CorteLive\`.
    - Nota: `cortelive\config.toml` é o template padrão do código e **é** atualizado; as customizações do usuário em `config.toml` da raiz permanecem intactas.
 3. **Backup e retenção:** backups ficam em `versoes_antigas\v<versao>\` com `versoes_antigas\ultima.txt` apontando para a versão imediatamente anterior (mantém até as 3 últimas versões de código, poucos KB/MB).
 4. **Cache da API do GitHub:** salvo em `instalador\cache_release.local.json` com TTL padrão de 15 minutos (`900` s) + `ETag` (`If-None-Match` → `304 Not Modified`), evitando estourar o limite público de 60 req/h por IP do GitHub sem token.

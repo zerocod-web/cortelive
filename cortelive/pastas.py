@@ -2,11 +2,10 @@
 
     cortes/
       2026-11-17 22h35 - alanzoka/                                  pasta da sessão (o que a pessoa abre)
-        2026-11-17 22h36 - alanzoka - A coisa tá feíssima.mp4      pronto para postar (com legenda)
+        2026-11-17 22h36 - alanzoka - A coisa tá feíssima.mp4      corte pronto (com legenda)
         sem legenda/2026-11-17 22h36 - alanzoka - A coisa ....mp4  mesmo corte sem legenda (CapCut etc.)
         _interno/   (oculta)                                        .json, .ass, log.txt, sessao.json,
-                                                                    .autopost.jsonl, .buffer, temporários
-      _autopost/    (oculta)                                        fila do autopost e anti-duplicado
+                                                                    .buffer, temporários
 
 Cortes no formato antigo (corte_001_000018.mp4 com .json/.ass ao lado, pasta 2026-11-17_1628_canal)
 continuam sendo lidos. Para trazer uma pasta antiga para o formato novo:
@@ -32,27 +31,22 @@ _RE_VELHA = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{4}_(.+)$")
 
 
 # ------------------------------------------------------------------ nomes
-# Cópia da lista do autopost (autopost/metadados.py): a pasta autopost/ não vai no pacote público,
-# e o nome do arquivo tem que sair sem palavrão mesmo assim.
+# O nome do arquivo sai sem palavrão (troca uma letra por *, continua legível).
 _PALAVROES = {"porra": "p*rra", "caralho": "c*ralho", "puta": "p*ta", "foda": "f*da", "fodase": "f*da-se",
               "merda": "m*rda", "cacete": "c*cete", "buceta": "b*ceta"}
 
 
 def _suavizar(t: str) -> str:
-    try:
-        from .autopost.metadados import suavizar
-        return suavizar(t)
-    except Exception:
-        import unicodedata
+    import unicodedata
 
-        def troca(m):
-            w = m.group(0)
-            k = "".join(c for c in unicodedata.normalize("NFKD", w.lower()) if not unicodedata.combining(c))
-            s = _PALAVROES.get(k.replace("-", ""))
-            if not s:
-                return w
-            return s.upper() if w.isupper() else (s[:1].upper() + s[1:] if w[:1].isupper() else s)
-        return re.sub(r"\b[\w-]+\b", troca, t)
+    def troca(m):
+        w = m.group(0)
+        k = "".join(c for c in unicodedata.normalize("NFKD", w.lower()) if not unicodedata.combining(c))
+        s = _PALAVROES.get(k.replace("-", ""))
+        if not s:
+            return w
+        return s.upper() if w.isupper() else (s[:1].upper() + s[1:] if w[:1].isupper() else s)
+    return re.sub(r"\b[\w-]+\b", troca, t)
 
 
 def _corta(t: str, n: int) -> str:
@@ -172,11 +166,6 @@ def sessao_json_do_video(video) -> Path:
     return novo if novo.is_file() else s / "sessao.json"
 
 
-def log_autopost(video) -> Path:
-    v = Path(video)
-    return interno_do_video(v) / f"{v.stem}.autopost.jsonl"
-
-
 # ------------------------------------------------------------------ migrador (formato antigo -> novo)
 def _mover(a: Path, b: Path, feitos: list, aplicar: bool):
     if not a.exists():
@@ -214,7 +203,6 @@ def migrar_sessao(pasta: Path, aplicar=False) -> dict:
         _mover(mp4, destino / f"{novo}.mp4", feitos, aplicar)
         _mover(pasta / f"{st}_sem_legenda.mp4", destino / SEM_LEGENDA / f"{novo}.mp4", feitos, aplicar)
         _mover(pasta / f"{st}.ass", dint / f"{novo}.ass", feitos, aplicar)
-        _mover(pasta / f"{st}.autopost.jsonl", dint / f"{novo}.autopost.jsonl", feitos, aplicar)
         if aplicar:
             info.update(arquivo=f"{novo}.mp4", sem_legenda=f"{SEM_LEGENDA}/{novo}.mp4", nome_interno=st,
                         legenda=f"{novo}.ass" if info.get("legenda") else None)
@@ -237,10 +225,6 @@ def migrar_sessao(pasta: Path, aplicar=False) -> dict:
 def migrar(raiz="cortes", aplicar=False) -> list[dict]:
     raiz = Path(raiz)
     out = [migrar_sessao(p, aplicar) for p in sorted(raiz.iterdir()) if p.is_dir() and _RE_VELHA.match(p.name)]
-    mapa = {k: v for r in out for k, v in r.get("videos", {}).items()}
-    if aplicar and mapa and (raiz / "_autopost" / "fila.json").exists():
-        from .autopost.fila import Fila
-        Fila(raiz).trocar_caminhos(mapa)
     return out
 
 

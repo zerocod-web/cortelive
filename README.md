@@ -10,15 +10,13 @@ O CorteLive acompanha uma live e gera vídeos verticais legendados enquanto a tr
 4. Na aba **Cortar**, cole o endereço da transmissão em **Link da live**, escolha o **Modelo do corte** e o **Estilo da legenda** e clique em **CORTAR**.
 5. Veja os vídeos em **Cortes prontos**. Use **Abrir** para assistir e **Pasta** para localizar um vídeo. Para encerrar, clique em **PARAR SESSÃO**.
 
-## Atualizar, enviar e revisar
+## Atualizar e levar ao celular
 
 - **Atualizações** fica no topo do painel mesmo sem versão nova. Quando uma estiver disponível, encerre o corte ativo, clique em **Atualizar** e acompanhe o progresso. Seus cortes, modelos de voz e configurações são mantidos.
-- Se a sua versão mostrar o cartão **Google Drive** na aba **Postar**, escolha uma pasta sincronizada, clique em **Salvar preferências do Drive** e use **Enviar ao Drive** no corte escolhido. Se o botão estiver ausente ou não concluir a cópia, use **Pasta** no corte e copie o vídeo para a pasta sincronizada pelo Google Drive para computador. Confira a sincronização no aplicativo do Drive.
-- Depois de publicar na rede social, use **Marcar como postado** no cartão para registrar a publicação no painel, se o botão estiver disponível. Para conferir a publicação, abra a própria rede social.
-- **Postar sozinho** vem desligado e **Revisar antes** vem ligado. Quando a fila estiver disponível, abra **Postar** no cartão, escolha **Pôr na fila (revisar)** e confira o vídeo antes de aprovar.
-- O CorteLive usa a fala do corte para sugerir título e texto de postagem no próprio computador. Você pode editar a sugestão antes de postar.
+- Para levar um corte ao celular, clique em **Pasta** no cartão e copie o vídeo para uma pasta sincronizada pelo Google Drive para computador. Se o botão **Enviar ao Drive** aparecer, ele faz a cópia. Confira a sincronização no aplicativo do Drive.
+- O CorteLive só corta e grava; a publicação nas redes sociais é feita por você.
 
-[Passo a passo para amigos](GUIA_RAPIDO_AMIGOS.md) · [Como revisar uma postagem](LEIA-ME_POSTAGEM.md#para-amigos-postagem-pelo-painel)
+[Passo a passo para amigos](GUIA_RAPIDO_AMIGOS.md)
 
 ---
 
@@ -53,7 +51,7 @@ No começo ele mostra o que achou: placa, encoder (NVIDIA `h264_nvenc`, AMD `h26
 CPU por último) e o motor de fala.
 
 ### O que sai
-`cortes\2026-11-17 22h35 - <canal>\` mostra só o que é para postar:
+`cortes\2026-11-17 22h35 - <canal>\` mostra só os vídeos prontos:
 - `2026-11-17 22h36 - <canal> - <título do momento>.mp4` (com legenda; H.264 1080x1920, 30 fps,
   ~6 Mbps, AAC 128k: uns 30 MB para 40 s, leve para baixar no celular)
 - `sem legenda\` com o mesmo corte sem legenda (para pôr a sua no CapCut, por exemplo)

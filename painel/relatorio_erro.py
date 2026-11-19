@@ -185,7 +185,7 @@ def _configuracoes(raiz: Path, usuario) -> dict:
 
 
 def _sessoes_recentes(pasta_cortes: Path):
-    """Pastas de sessão mais recentes (formato novo e antigo), sem entrar em _autopost nem em vídeos."""
+    """Pastas de sessão mais recentes (formato novo e antigo), sem entrar em pastas ocultas (_...) nem em vídeos."""
     achadas = []
     try:
         for d in pasta_cortes.iterdir():

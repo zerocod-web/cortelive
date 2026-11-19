@@ -220,7 +220,7 @@
 
 .dev-grade-ensaios {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -289,8 +289,7 @@
   min-width: 0;
 }
 
-.dev-campo .campo-rotulo,
-.dev-redes-fieldset .campo-rotulo {
+.dev-campo .campo-rotulo {
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--texto-secundario);
@@ -319,124 +318,10 @@
   gap: 8px;
 }
 
-.dev-redes-fieldset {
-  border: 0;
-  margin: 0;
-  padding: 0;
-  min-width: 0;
-}
-
-.dev-redes-linha {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 4px;
-}
-
-.dev-check-inline {
-  min-height: 44px;
-  padding: 4px 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: var(--texto-secundario);
-  cursor: pointer;
-  border-radius: var(--raio-interno);
-}
-
-.dev-check-inline:hover {
-  color: var(--texto-primario);
-}
-
-.dev-check-inline input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--sinal-acao);
-  margin: 0;
-  cursor: pointer;
-}
-
-.dev-ensaio-rodape {
-  margin-top: auto;
-  padding-top: 6px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.dev-feedback-curto {
-  font-size: 0.82rem;
-  color: var(--texto-secundario);
-}
-
-.dev-feedback-curto[data-erro="true"] {
-  color: var(--sinal-ao-vivo-texto);
-  font-weight: 600;
-}
-
-.dev-feedback-curto[data-ok="true"] {
-  color: var(--sinal-ok-texto);
-  font-weight: 600;
-}
-
-/* Lista de diagnóstico de contas e servidor de tokens */
-.dev-diagnostico-lista {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.dev-diagnostico-lista li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 7px 10px;
-  background: var(--mesa-painel);
-  border: 1px solid var(--borda-sutil);
-  border-radius: var(--raio-interno);
-  font-size: 0.83rem;
-}
-
-.dev-diagnostico-lista li span {
-  color: var(--texto-secundario);
-  white-space: nowrap;
-}
-
-.dev-diagnostico-lista li strong {
-  font-family: var(--fonte-mono);
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--texto-primario);
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dev-diagnostico-lista li strong[data-estado="ok"] {
-  color: var(--sinal-ok-texto);
-}
-
-.dev-diagnostico-lista li strong[data-estado="alerta"] {
-  color: var(--sinal-ao-vivo-texto);
-}
-
-.dev-diagnostico-lista li strong[data-estado="neutro"] {
-  color: var(--texto-terciario);
-}
-
-/* 3. Monitores de Registro ao Vivo (Corte + Postagem) */
+/* 3. Monitor do Registro ao Vivo do Corte */
 .dev-monitores-grade {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 

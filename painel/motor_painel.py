@@ -11,7 +11,6 @@ import base64
 import hmac
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -28,18 +27,9 @@ from urllib.parse import parse_qs, quote, urlsplit
 RAIZ_PAINEL = Path(__file__).resolve().parents[1]
 LIMITE_CORPO = 65536
 PARADA_APOS_S = 3600   # log sem mexer há 1 h = live terminada ou parada
-PADRAO_POSTAGEM = {
-    "postar_sozinho": False, "revisar_antes": True, "reserva_navegador": False,
-    "cortes_longos": False,
-}
+PADRAO_POSTAGEM = {"cortes_longos": False}
 DURACAO_MODOS = ("livre", "30", "45", "61")     # duração mínima dos cortes; padrão: mínimo 1 minuto (61 s)
 DURACAO_PADRAO = "61"
-CHAVES_ANTIGAS_POSTAGEM = {
-    "postar_max_dia": "max_posts_dia", "postar_intervalo_min": "intervalo_min_posts",
-    "postar_canais": "canais_postiz", "postar_rodizio": "rodizio",
-}
-
-
 def ler_json(caminho: Path):
     try:
         dados = json.loads(caminho.read_text(encoding="utf-8-sig"))
@@ -49,16 +39,10 @@ def ler_json(caminho: Path):
 
 
 def ler_config_postagem(raiz: Path):
-    dados = ler_json(raiz / "painel_config.json")
-    for antiga, atual in CHAVES_ANTIGAS_POSTAGEM.items():
-        if antiga in dados:
-            dados.setdefault(atual, dados.pop(antiga))
-    return dados
+    return ler_json(raiz / "painel_config.json")
 
 
 def config_postagem(raiz: Path):
-    from cortelive.autopost.agenda import opcoes_agenda
-
     dados = ler_config_postagem(raiz)
     config = {
         chave: dados[chave] if isinstance(dados.get(chave), bool) else padrao
@@ -68,7 +52,7 @@ def config_postagem(raiz: Path):
     modo = modo if modo in DURACAO_MODOS else DURACAO_PADRAO
     config["duracao_minima_modo"] = modo
     config["cortes_longos"] = modo != "livre"        # compatível com o interruptor antigo
-    return {**config, **opcoes_agenda(dados)}
+    return config
 
 
 class ErroApi(Exception):
@@ -100,33 +84,6 @@ class ApiPainel:
         env["PATH"] = os.pathsep.join((str(self.raiz / "ffmpeg" / "bin"),
                                        str(self.python.parent), env.get("PATH", "")))
         return env
-
-    def cli(self, modulo, *args, prazo=25, entrada=None):
-        processo = subprocess.run(
-            [str(self.python), "-m", modulo, *args],
-            cwd=self.raiz, env=self.ambiente(), encoding="utf-8", errors="replace",
-            input=entrada, stdin=subprocess.DEVNULL if entrada is None else None,
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=prazo,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        eventos = []
-        for linha in processo.stdout.splitlines():
-            try:
-                evento = json.loads(linha.lstrip("\ufeff"))
-            except ValueError:
-                continue
-            if isinstance(evento, dict):
-                eventos.append(evento)
-        return eventos, processo.returncode
-
-    def resultado_cli(self, modulo, *args, prazo=25):
-        eventos, codigo = self.cli(modulo, *args, prazo=prazo)
-        final = eventos[-1] if eventos else {}
-        if codigo or not final or final.get("ok") is False:
-            erro = final.get("erro")
-            raise ErroApi(502, erro if isinstance(erro, str) and erro else
-                          "A operação não foi concluída. Confira a fila ou tente novamente.")
-        return eventos, final
 
     def config_motor(self):
         cfg = {}
@@ -187,7 +144,6 @@ class ApiPainel:
             nota_gpt = dados.get("nota_juiz")
             if dados.get("juiz") not in ("api", "chatgpt") or type(nota_gpt) is not int or not 0 <= nota_gpt <= 10:
                 nota_gpt = None
-            postagem = destino.estado_postado(video)
             sem_legenda = next((p for p in (
                 video.parent / pastas.SEM_LEGENDA / video.name,
                 video.with_stem(video.stem + "_sem_legenda"),
@@ -203,7 +159,7 @@ class ApiPainel:
                 "data_hora": datetime.fromtimestamp(mtime).strftime("%d/%m %H:%M"),
                 "inicio_hms": dados.get("momento_hms") or dados.get("inicio_hms"),
                 "motivo": dados.get("motivo"), "modelo": dados.get("modelo_usado") or dados.get("modelo"),
-                "postado": postagem["postado"], "postagem": postagem, "destino": destino.estado_copia(video),
+                "destino": destino.estado_copia(video),
             })
         return itens
 
@@ -247,23 +203,19 @@ class ApiPainel:
         return processo.stdout
 
     def postagem(self, metodo, corpo):
-        from cortelive.autopost.agenda import PADROES_AGENDA, opcao_valida
-
         if metodo == "GET":
             return config_postagem(self.raiz)
-        alteracoes = {k: corpo[k] for k in PADRAO_POSTAGEM | PADROES_AGENDA if k in corpo}
+        alteracoes = {k: corpo[k] for k in PADRAO_POSTAGEM if k in corpo}
         if "duracao_minima_modo" in corpo:
             if str(corpo["duracao_minima_modo"]) not in DURACAO_MODOS:
                 raise ErroApi(400, "Opção de duração inválida.")
             alteracoes["duracao_minima_modo"] = str(corpo["duracao_minima_modo"])
             alteracoes.pop("cortes_longos", None)
         if not alteracoes:
-            raise ErroApi(400, "Informe pelo menos uma opção de postagem.")
+            raise ErroApi(400, "Informe pelo menos uma opção.")
         for chave, valor in alteracoes.items():
-            valido = (True if chave == "duracao_minima_modo" else
-                      isinstance(valor, bool) if chave in PADRAO_POSTAGEM else opcao_valida(chave, valor))
-            if not valido:
-                raise ErroApi(400, f"Opção de postagem inválida: {chave}.")
+            if chave != "duracao_minima_modo" and not isinstance(valor, bool):
+                raise ErroApi(400, f"Opção inválida: {chave}.")
         with self.trava_config:
             arq = self.raiz / "painel_config.json"
             dados = ler_config_postagem(self.raiz)
@@ -329,29 +281,9 @@ class ApiPainel:
             raise ErroApi(404, "Corte não encontrado.")
         return video
 
-    def marcar_postado(self, corpo):
-        from cortelive import destino
-
-        video = self.corte_para_destino(corpo)
-        postado = corpo.get("postado", True)
-        if not isinstance(postado, bool):
-            raise ErroApi(400, "Informe se o corte foi postado.")
-        rede = corpo.get("rede")
-        cfg = {**self.config_motor(), "painel_raiz": self.raiz}
-        try:
-            postagem = destino.marcar(video, rede=rede, postado=postado, cfg=cfg)
-        except destino.ErroDestino as erro:
-            raise ErroApi(400, str(erro)) from None
-        except TimeoutError as erro:
-            raise ErroApi(409, str(erro)) from None
-        except OSError:
-            raise ErroApi(502, "Não consegui salvar a marca de postagem. Confira a pasta do corte.") from None
-        return {"postado": postagem["postado"], "postagem": postagem, "destino": destino.estado_copia(video),
-                "mensagem": postagem.get("aviso") or destino.mensagem_marca(postado, rede)}
-
     def apagar_historico(self, corpo=None):
         """Apaga só o histórico: log.txt e sessao.json de lives já terminadas e os arquivos de logs/.
-        Nunca toca em vídeos, legendas, fila de postagem nem em sessão sem sessao.json recente (pode estar rodando)."""
+        Nunca toca em vídeos, legendas nem em sessão sem sessao.json recente (pode estar rodando)."""
         agora = time.time()
         apagados, bytes_livres, pulados = 0, 0, 0
 
@@ -396,158 +328,6 @@ class ApiPainel:
                         "Seus cortes continuam onde estavam.")
         return {"apagados": apagados, "bytes_liberados": bytes_livres, "pulados": pulados, "mensagem": mensagem}
 
-    def postar(self, acao, corpo):
-        modulo = "cortelive.postar"
-        if acao == "status":
-            _, contas = self.resultado_cli(modulo, "status", "--via", "postiz", "--json")
-            for conta in contas.values():
-                if not isinstance(conta, dict):
-                    continue
-                if not conta.get("valido") and conta.get("conectado"):
-                    conta["detalhe"] = "Não foi possível consultar os canais do Postiz."
-                elif not conta.get("conectado"):
-                    conta["detalhe"] = "Nenhuma conta conectada pelo Postiz."
-            return {"disponivel": True, "em_breve": False, "contas": contas}
-        if acao in ("conectar", "conectar-postiz"):
-            chave = campo(corpo, "chave").strip()
-            if campo(corpo, "rede", "postiz") != "postiz":
-                raise ErroApi(400, "Selecione Postiz para conectar as contas.")
-            if not chave or len(chave) > 4096 or any(c in chave for c in "\r\n"):
-                raise ErroApi(400, "Informe uma chave válida do Postiz.")
-            try:
-                _, codigo = self.cli(modulo, "conectar", "postiz", "--json",
-                                     entrada=chave + "\n", prazo=45)
-            except (OSError, subprocess.SubprocessError):
-                raise ErroApi(502, "Não foi possível conectar ao Postiz. Confira a chave e a internet.") from None
-            if codigo:
-                raise ErroApi(502, "Não foi possível conectar ao Postiz. Confira a chave e a internet.")
-            return {"mensagem": "Postiz conectado."}
-        video = self.dentro_dos_cortes(campo(corpo, "video"))
-        redes = [r.strip().lower() for r in campo(corpo, "redes").split(",")]
-        if not set(redes) <= {"youtube", "instagram", "tiktok"}:
-            raise ErroApi(400, "Escolha as redes de postagem.")
-        eventos, _ = self.resultado_cli(
-            modulo, "enviar", f"--video={video}", "--via", "postiz",
-            f"--titulo={campo(corpo, 'titulo')}", f"--descricao={campo(corpo, 'descricao')}",
-            "--redes=" + ",".join(redes), prazo=300,
-        )
-        return {"eventos": eventos, "saida": "\n".join(json.dumps(e, ensure_ascii=False) for e in eventos)}
-
-    def autopost(self, acao, corpo):
-        args = [acao]
-        if acao == "processar":
-            return {"itens": self.processar_autopost()}
-        if acao == "gerar":
-            return self.gerar_metadados(corpo)
-        if acao != "fila":
-            ident = campo(corpo, "id")
-            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}", ident):
-                raise ErroApi(400, "ID da fila inválido.")
-            if acao in ("cancelar", "editar-agendado"):
-                return self.alterar_agendamento(ident, acao, corpo)
-            args.append(ident)
-            if acao == "editar":
-                args.extend(f"--{k}={campo(corpo, k)}" for k in
-                            ("titulo", "descricao", "tiktok", "instagram", "tags") if k in corpo)
-                if "canais_postiz" in corpo:
-                    return self.editar_destinos(ident, corpo, args)
-            elif acao == "aprovar":
-                args.append("--adiar")
-        prazo = 300 if acao == "aprovar" else 25
-        _, final = self.resultado_cli("cortelive.autopost", *args, prazo=prazo)
-        return {"disponivel": True, **final}
-
-    def processar_autopost(self):
-        from cortelive.autopost import agenda
-
-        cfg = {**self.config_motor(), **config_postagem(self.raiz)}
-        pasta = Path(cfg["pasta_saida"])
-        if not (pasta / "_autopost" / "fila.json").is_file():
-            return []
-        return agenda.processar_pendentes(pasta, cfg)
-
-    def alterar_agendamento(self, ident, acao, corpo):
-        from cortelive.autopost import agenda
-        from cortelive.autopost.fila import Fila
-        from cortelive.postar.redes import ErroEnvio
-
-        edicao = {}
-        if acao == "editar-agendado":
-            nomes = {"titulo", "descricao", "tiktok", "instagram", "tags"}
-            if not corpo.keys() - {"id"} or corpo.keys() - nomes - {"id"}:
-                raise ErroApi(400, "Informe os textos a editar no agendamento.")
-            edicao = {nome: campo(corpo, nome) for nome in nomes & corpo.keys()}
-            if "tags" in edicao:
-                edicao["tags"] = edicao["tags"].split(",")
-        fila = Fila(self.pasta_cortes())
-        with fila.reservar_processamento() as livre:
-            if not livre:
-                raise ErroApi(409, "Aguarde o processamento da fila para alterar o agendamento.")
-            item = fila.pegar(ident)
-            if not item:
-                raise ErroApi(404, "Corte não encontrado na fila.")
-            if acao == "cancelar" and item["estado"] == "cancelado":
-                return {"item": item}
-            alvos = agenda.agendamentos_futuros(item)
-            if (acao == "editar-agendado" and (not alvos or item["estado"] == "cancelando")
-                    or acao == "cancelar" and not alvos and item["estado"] != "cancelando"):
-                raise ErroApi(409, "O corte não tem agendamento futuro disponível para esta ação.")
-            try:
-                if acao == "cancelar":
-                    return {"item": agenda.cancelar_agendamentos(fila, item, alvos)}
-                return {"item": agenda.editar_agendamentos(fila, item, alvos, edicao)}
-            except ErroEnvio as erro:
-                raise ErroApi(502, str(erro)) from erro
-
-    def editar_destinos(self, ident, corpo, args):
-        from cortelive.autopost.agenda import canais_validos
-        from cortelive.autopost.fila import Fila
-
-        canais = corpo["canais_postiz"]
-        if canais is not None and not canais_validos(canais):
-            raise ErroApi(400, "Selecione canais ativos do Postiz ou use a seleção automática.")
-        fila = Fila(self.pasta_cortes())
-        with fila.reservar_processamento() as livre:
-            if not livre:
-                raise ErroApi(409, "A fila está sendo processada. Aguarde para alterar os canais.")
-            item = fila.pegar(ident)
-            if not item:
-                raise ErroApi(404, "Corte não encontrado na fila.")
-            if item["estado"] not in ("aguardando_aprovacao", "na_fila") or any(
-                r.get("destinos") for r in item.get("redes", {}).values()
-            ):
-                raise ErroApi(409, "O envio desse corte já começou.")
-            if len(args) > 2:
-                self.resultado_cli("cortelive.autopost", *args)
-            return {"item": fila.atualizar(item["id"], canais_postiz=canais)}
-
-    def gerar_metadados(self, corpo):
-        from cortelive import autopost, pastas
-
-        video = self.dentro_dos_cortes(campo(corpo, "video"))
-        enfileirar = corpo.get("enfileirar", False)
-        if not isinstance(enfileirar, bool):
-            raise ErroApi(400, "A opção enfileirar deve ser booleana.")
-        cfg = self.config_motor()
-        cfg.update(config_postagem(self.raiz))
-        if enfileirar:
-            destinos = {}
-            if "canais_postiz" in corpo:
-                canais = corpo["canais_postiz"]
-                if canais is not None and not autopost.agenda.canais_validos(canais):
-                    raise ErroApi(400, "Selecione canais ativos do Postiz ou use a seleção automática.")
-                destinos["canais_postiz"] = canais
-            item, novo = autopost.criar_item(video, cfg, **destinos)
-            return {"novo": novo, "item": item}
-        meta = pastas.meta_do_video(video)
-        info = ler_json(meta) if meta else {}
-        canal = info.get("canal") or pastas.canal_da_pasta(pastas.pasta_sessao_do_video(video).name)
-        dados = autopost.metadados.gerar(
-            info.get("transcricao", ""), canal, cfg, info.get("motivos", ()), None,
-            info.get("momento_na_live"), frase_sugerida=info.get("titulo_sugerido", ""),
-        )
-        return {"video": str(video), "canal": canal, "metadados": dados}
-
     def enviar_erro(self, corpo):
         """Junta logs/versão/máquina num .zip na Área de Trabalho (sem segredos, sem internet) e abre a pasta."""
         if str(self.raiz) not in sys.path:
@@ -584,13 +364,9 @@ class ApiPainel:
         if grupo == "dev":
             return despachar_rota_dev(self, metodo, acoes, url, corpo)
         acao = acoes[0] if len(acoes) == 1 else ""
-        consultas = {("cortes", ""), ("miniatura", ""), ("postar", "status"), ("autopost", "fila"),
-                     ("drive", "detectar"), ("gpt", "status")}
-        acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""), ("postar", "conectar"),
-                      ("postar", "conectar-postiz"), ("postar", "enviar"), ("gpt", "conectar"),
-                      ("drive", "enviar"), ("cortes", "postado"), ("cortes", "excluir"),
-                      *(("autopost", a) for a in ("gerar", "editar", "aprovar", "rejeitar", "processar",
-                                                 "cancelar", "editar-agendado"))}
+        consultas = {("cortes", ""), ("miniatura", ""), ("drive", "detectar"), ("gpt", "status")}
+        acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""),
+                      ("gpt", "conectar"), ("drive", "enviar"), ("cortes", "excluir")}
         par = grupo, acao
         if len(acoes) > 1 or par not in consultas | acoes_post | {("config-postagem", ""), ("drive", "config")}:
             raise ErroApi(404, "Rota não encontrada.")
@@ -610,8 +386,6 @@ class ApiPainel:
         if grupo == "cortes":
             if acao == "excluir":
                 return self.excluir_corte(corpo)
-            if acao == "postado":
-                return self.marcar_postado(corpo)
             return {"cortes": self.listar_cortes()}
         if grupo == "miniatura":
             texto = parse_qs(url.query).get("caminho", [""])[0]
@@ -620,10 +394,6 @@ class ApiPainel:
             return self.apagar_historico(corpo)
         if grupo == "enviar-erro":
             return self.enviar_erro(corpo)
-        if grupo == "postar":
-            return self.postar(acao, corpo)
-        if grupo == "autopost":
-            return self.autopost(acao, corpo)
         texto = campo(corpo, "caminho")
         if grupo == "abrir-pasta":
             caminho = self.dentro_dos_cortes(texto, video=False)
@@ -724,16 +494,6 @@ def iniciar_api(argv):
         p.error("O host precisa fornecer CORTELIVE_PAINEL_TOKEN.")
     with servidor_local(api, token, a.porta) as servidor:
         cancelar = threading.Event()
-
-        def rodar_agenda():
-            while not cancelar.wait(30):
-                try:
-                    api.processar_autopost()
-                except Exception:
-                    # A próxima rodada relê a fila persistente. Não registrar dados do provedor.
-                    continue
-
-        threading.Thread(target=rodar_agenda, daemon=True, name="agenda-autopost").start()
         print(json.dumps({"porta": servidor.server_port}), flush=True)
         try:
             servidor.serve_forever()
@@ -1256,22 +1016,14 @@ def _gravar_texto_atomico(alvo: Path, conteudo: str):
 
 
 def _caminhos_configs_dev(raiz: Path):
-    from cortelive.postar.config import pasta_dados_local
-
-    arq_cortelive = (raiz / "cortelive" / "config.toml").resolve()
-    arq_raiz = (raiz / "config.toml").resolve()
-    arq_postar = (pasta_dados_local() / "postar.toml").resolve()
-    arq_postar_exemplo = (raiz / "cortelive" / "postar" / "config.exemplo.toml").resolve()
     return {
-        "cortelive": arq_cortelive,
-        "raiz": arq_raiz,
-        "postar": arq_postar,
-        "postar_exemplo": arq_postar_exemplo,
+        "cortelive": (raiz / "cortelive" / "config.toml").resolve(),
+        "raiz": (raiz / "config.toml").resolve(),
     }
 
 
 def dev_resumo(raiz: Path):
-    from cortelive.postar.config import pasta_contas, pasta_dados_local
+    from cortelive.dados_local import pasta_contas, pasta_dados_local
 
     raiz = raiz.resolve()
     pasta_tv = raiz / "teste_video"
@@ -1289,53 +1041,6 @@ def dev_resumo(raiz: Path):
                         "caminho": str(arq.resolve()),
                         "tamanho_mb": mb,
                     })
-
-    videos_dry_run = []
-    vistos = set()
-    pasta_cortes = raiz / "cortes"
-    if pasta_cortes.is_dir():
-        cands = []
-        for mp4 in pasta_cortes.rglob("*.mp4"):
-            if mp4.name.lower().endswith("_sem_legenda.mp4"):
-                continue
-            if any(
-                p.startswith((".", "_")) or p.casefold() == "sem legenda"
-                for p in mp4.relative_to(pasta_cortes).parts
-            ):
-                continue
-            try:
-                cands.append((mp4.stat().st_mtime, mp4.resolve()))
-            except OSError:
-                continue
-        for _, mp4 in sorted(cands, reverse=True)[:25]:
-            s = str(mp4)
-            if s not in vistos:
-                vistos.add(s)
-                videos_dry_run.append({
-                    "rotulo": f"Corte · {mp4.parent.name}/{mp4.name}",
-                    "caminho": s,
-                })
-
-    pasta_render_teste = raiz / "testes" / "render_saida"
-    if pasta_render_teste.is_dir():
-        for mp4 in sorted(pasta_render_teste.glob("*.mp4"))[:8]:
-            if mp4.name.lower().endswith("_sem_legenda.mp4"):
-                continue
-            s = str(mp4.resolve())
-            if s not in vistos:
-                vistos.add(s)
-                videos_dry_run.append({
-                    "rotulo": f" Amostra · {mp4.name}".strip(),
-                    "caminho": s,
-                })
-
-    for vt in videos_teste:
-        if vt["caminho"] not in vistos:
-            vistos.add(vt["caminho"])
-            videos_dry_run.append({
-                "rotulo": f"teste_video · {vt['nome']}",
-                "caminho": vt["caminho"],
-            })
 
     versao = "0.1.0"
     arq_ver = raiz / "VERSION"
@@ -1372,7 +1077,6 @@ def dev_resumo(raiz: Path):
         "git_branch": git_branch,
         "git_ultimo_tag": git_ultimo_tag,
         "videos_teste": videos_teste,
-        "videos_dry_run": videos_dry_run,
         "lancar_versao_existe": (raiz / "lancar_versao.cmd").is_file(),
         "pastas": {
             "cortes": str((raiz / "cortes").resolve()),
@@ -1384,7 +1088,6 @@ def dev_resumo(raiz: Path):
         "arquivos_config": {
             "cortelive": str(caminhos_cfg["cortelive"]),
             "raiz": str(caminhos_cfg["raiz"]),
-            "postar": str(caminhos_cfg["postar"]),
         },
     }
 
@@ -1400,14 +1103,6 @@ def dev_ler_configs(raiz: Path):
     if raiz_existe:
         txt_raiz = caminhos["raiz"].read_text(encoding="utf-8-sig")
 
-    postar_existe = caminhos["postar"].is_file()
-    if postar_existe:
-        txt_postar = caminhos["postar"].read_text(encoding="utf-8-sig")
-    elif caminhos["postar_exemplo"].is_file():
-        txt_postar = caminhos["postar_exemplo"].read_text(encoding="utf-8-sig")
-    else:
-        txt_postar = ""
-
     return {
         "configs": {
             "cortelive": {
@@ -1420,34 +1115,20 @@ def dev_ler_configs(raiz: Path):
                 "existe": raiz_existe,
                 "conteudo": txt_raiz,
             },
-            "postar": {
-                "caminho": str(caminhos["postar"]),
-                "existe": postar_existe,
-                "usando_exemplo": not postar_existe,
-                "conteudo": txt_postar,
-            },
         }
     }
 
 
 def dev_salvar_config(raiz: Path, corpo: dict):
-    from cortelive.postar.config import validar_sem_segredo_tiktok_meta
-
     alvo = campo(corpo, "alvo").strip().lower()
     conteudo = campo(corpo, "conteudo")
-    if alvo not in ("cortelive", "raiz", "postar"):
-        raise ErroApi(400, "Alvo de configuração inválido. Use 'cortelive', 'raiz' ou 'postar'.")
+    if alvo not in ("cortelive", "raiz"):
+        raise ErroApi(400, "Alvo de configuração inválido. Use 'cortelive' ou 'raiz'.")
 
     try:
-        parsed = tomllib.loads(conteudo) if conteudo.strip() else {}
+        tomllib.loads(conteudo) if conteudo.strip() else {}
     except tomllib.TOMLDecodeError as exc:
         raise ErroApi(400, f"Erro de sintaxe TOML: {exc}") from None
-
-    if alvo == "postar":
-        try:
-            validar_sem_segredo_tiktok_meta(parsed)
-        except ValueError as exc:
-            raise ErroApi(400, str(exc)) from None
 
     caminhos = _caminhos_configs_dev(raiz.resolve())
     caminho_final = caminhos[alvo]
@@ -1457,96 +1138,6 @@ def dev_salvar_config(raiz: Path, corpo: dict):
         "alvo": alvo,
         "caminho": str(caminho_final),
         "mensagem": f"Configuração salva com sucesso em {caminho_final.name}.",
-    }
-
-
-def dev_status_contas_tokens(raiz: Path, consultar_online: bool = False):
-    import urllib.error
-    import urllib.request
-    from cortelive.postar.config import (
-        CHAVES_COFRE_VALIDAS,
-        _eh_placeholder,
-        carregar_config_postar,
-        pasta_contas,
-    )
-    from cortelive.postar.oauth import status_contas
-    from cortelive.postar.redes.postiz import status_postiz
-
-    try:
-        cfg = carregar_config_postar()
-        erro_cfg = None
-    except Exception as exc:
-        cfg = {}
-        erro_cfg = str(exc)
-
-    contas_direto = {}
-    try:
-        contas_direto = status_contas(cfg=cfg, renovar_se_expirado=consultar_online)
-    except Exception as exc:
-        contas_direto = {"erro": str(exc)}
-
-    info_postiz = {}
-    try:
-        st_pz = status_postiz(cfg=cfg, consultar_online=consultar_online)
-        info_postiz = st_pz.get("postiz", st_pz)
-    except Exception as exc:
-        info_postiz = {"conectado": False, "valido": False, "detalhe": str(exc)}
-
-    dir_cofre = pasta_contas()
-    cofre_arqs = {
-        ch: (dir_cofre / f"{ch}.bin").is_file()
-        for ch in CHAVES_COFRE_VALIDAS
-    }
-
-    bloco_srv = (cfg.get("servidor_tokens") or {}) if isinstance(cfg, dict) else {}
-    url_srv = str(bloco_srv.get("url") or cfg.get("servidor_tokens_url") or "").strip().rstrip("/")
-    eh_ph = _eh_placeholder(url_srv)
-    srv_info = {
-        "url": url_srv or "(vazio)",
-        "configurado": not eh_ph,
-        "online": False,
-        "http_status": None,
-        "latencia_ms": None,
-        "detalhe": "",
-    }
-    if eh_ph:
-        srv_info["detalhe"] = "Não configurado (URL placeholder em postar.toml — veja servidor_tokens/README.md)."
-    else:
-        t0 = time.perf_counter()
-        req = urllib.request.Request(
-            url_srv,
-            headers={"User-Agent": "CorteLive-Dev-Probe/0.1", "Accept": "application/json"},
-            method="GET",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                ms = round((time.perf_counter() - t0) * 1000)
-                srv_info.update(
-                    online=True,
-                    http_status=resp.status,
-                    latencia_ms=ms,
-                    detalhe=f"Online · HTTP {resp.status} ({ms} ms)",
-                )
-        except urllib.error.HTTPError as hexc:
-            ms = round((time.perf_counter() - t0) * 1000)
-            online = hexc.code < 500
-            srv_info.update(
-                online=online,
-                http_status=hexc.code,
-                latencia_ms=ms,
-                detalhe=f"{'Worker respondeu' if online else 'Erro no Worker'} · HTTP {hexc.code} ({ms} ms)",
-            )
-        except Exception as exc:
-            srv_info["detalhe"] = f"Inacessível: {exc}"
-
-    return {
-        "erro_config": erro_cfg,
-        "provedor_padrao": cfg.get("provedor_padrao", "direto") if isinstance(cfg, dict) else "direto",
-        "direto": contas_direto,
-        "postiz": info_postiz,
-        "cofre": cofre_arqs,
-        "pasta_cofre": str(dir_cofre),
-        "servidor_tokens": srv_info,
     }
 
 
@@ -1560,17 +1151,13 @@ def despachar_rota_dev(api_painel: ApiPainel, metodo: str, acoes: list[str], url
         return dev_ler_configs(api_painel.raiz)
     if metodo == "POST" and acao == "configs":
         return dev_salvar_config(api_painel.raiz, corpo)
-    if metodo == "GET" and acao == "status-contas":
-        online = parse_qs(url.query).get("online", ["0"])[0] == "1"
-        return dev_status_contas_tokens(api_painel.raiz, consultar_online=online)
     raise ErroApi(404, "Rota Dev não encontrada.")
 
 
 def iniciar_dev_cli(argv: list[str]):
     p = argparse.ArgumentParser(prog="motor_painel --dev-api")
-    p.add_argument("acao", choices=("resumo", "configs", "salvar-config", "status-contas"))
+    p.add_argument("acao", choices=("resumo", "configs", "salvar-config"))
     p.add_argument("--raiz", type=Path, default=RAIZ_PAINEL)
-    p.add_argument("--online", action="store_true")
     a = p.parse_args(argv)
     try:
         if a.acao == "resumo":
@@ -1581,8 +1168,6 @@ def iniciar_dev_cli(argv: list[str]):
             bruto = sys.stdin.buffer.read(LIMITE_CORPO * 4)
             corpo = json.loads(bruto.decode("utf-8-sig")) if bruto else {}
             dados = dev_salvar_config(a.raiz, corpo)
-        elif a.acao == "status-contas":
-            dados = dev_status_contas_tokens(a.raiz, consultar_online=a.online)
         else:
             raise ErroApi(400, "Ação desconhecida.")
         print(json.dumps({"ok": True, **dados}, ensure_ascii=False), flush=True)

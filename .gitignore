@@ -52,9 +52,6 @@ painel_config.json
 painel_instancia.json
 painel_instancia_dev.json
 /ferramentas_dev/**/instancia.json
-/cortelive/postar/**/config.toml
-!/cortelive/postar/**/config.exemplo.toml
-/cortelive/postar/servidor_tokens/.dev.vars
 
 # Segredos, chaves, contas, sessoes e cookies (NUNCA versionar)
 .env

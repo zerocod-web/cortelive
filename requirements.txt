@@ -10,6 +10,3 @@ onnxruntime==1.32.0
 # só NVIDIA (transcrição na placa):
 nvidia-cublas-cu12==12.9.2.10; sys_platform == "win32"
 nvidia-cudnn-cu12==9.27.0.42; sys_platform == "win32"
-# postagem automatica (OAuth 2.0 oficial):
-oauthlib==4.0.1
-requests-oauthlib==2.0.0

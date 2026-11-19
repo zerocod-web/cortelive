@@ -467,32 +467,8 @@ body.modo-dev img.marca-icone {
 }
 
 /* --------------------------------------------------------------------------
-   7. Tela 2 / Aba 2 — Postar e Contas, Switches e Fila
+   7. Configurações e switches
    -------------------------------------------------------------------------- */
-@media (min-width: 900px) {
-  #lista-redes-contas,
-  #controles-reserva-redes {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-  }
-}
-
-.conta-item {
-  background: var(--mesa-entrada);
-  border-color: var(--borda-sutil);
-}
-
-.conta-icone {
-  background: #161413;
-  border-color: var(--borda-sutil);
-  color: var(--sinal-acao-texto-suave);
-}
-
-[data-tema="claro"] .conta-icone {
-  background: var(--mesa-painel);
-}
-
 .switch-linha {
   background: var(--mesa-entrada);
   border-color: var(--borda-sutil);

@@ -251,9 +251,7 @@ const ctx = {
     let payload = { ok: true };
     if (rota === "/api/estado") payload = estadoCorrente;
     else if (rota === "/api/atualizacao/checar") payload = { etapa: "em_dia", versao_atual: "1.0.7" };
-    else if (rota === "/api/autopost/fila") payload = { ok: true, disponivel: true, itens: [] };
-    else if (rota === "/api/postar/status") payload = { ok: true, disponivel: true, contas: {} };
-    else if (rota === "/api/config-postagem") payload = { ok: true, postar_sozinho: false, revisar_antes: true };
+    else if (rota === "/api/config-postagem") payload = { ok: true, duracao_minima_modo: "61", cortes_longos: true };
     const txt = JSON.stringify(payload);
     return { ok: true, status: 200, text: async () => txt };
   }

@@ -27,7 +27,7 @@
           </svg>
           <span>Pasta do projeto</span>
         </button>
-        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="dados_local" data-nome-pasta="Dados salvos neste computador" title="Abre a pasta local onde ficam guardadas as contas e opções de postagem deste PC">
+        <button type="button" class="btn btn-secundario btn-compacto dev-btn-pasta" data-pasta="dados_local" data-nome-pasta="Dados salvos neste computador" title="Abre a pasta local onde ficam guardadas as conexões e preferências deste PC">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
           </svg>
@@ -92,7 +92,7 @@
     <div class="dev-secao-topo">
       <div>
         <span class="dev-kicker">BANCADA DE TESTES</span>
-        <h2 id="dev-titulo-bancada" class="titulo-secao">Ensaios de corte, simulação de postagem e contas</h2>
+        <h2 id="dev-titulo-bancada" class="titulo-secao">Ensaios de corte</h2>
       </div>
       <span id="dev-git-info" class="tag-versao" title="Ramo e versão atual do projeto">Versão local</span>
     </div>
@@ -143,85 +143,11 @@
         </div>
       </article>
 
-      <!-- Ensaio 2: Simulação de Postagem (Sem publicar de verdade) -->
-      <article class="dev-ensaio-card" aria-labelledby="dev-card-dry-t">
-        <div class="dev-ensaio-cabecalho">
-          <h3 id="dev-card-dry-t">2. Simulação de postagem</h3>
-          <span class="dev-pilula-ok">Sem publicar</span>
-        </div>
-
-        <div class="dev-campo">
-          <label for="dev-sel-video-dry" class="campo-rotulo">Corte pronto para simular</label>
-          <select id="dev-sel-video-dry" class="campo-texto dev-select"></select>
-        </div>
-
-        <div class="dev-linha-dupla">
-          <div class="dev-campo">
-            <label for="dev-sel-via-dry" class="campo-rotulo">Por onde enviar</label>
-            <select id="dev-sel-via-dry" class="campo-texto dev-select">
-              <option value="direto">Conexão direta</option>
-              <option value="postiz">Postiz</option>
-            </select>
-          </div>
-          <div class="dev-campo">
-            <label for="dev-inp-titulo-dry" class="campo-rotulo">Título do teste</label>
-            <input type="text" id="dev-inp-titulo-dry" class="campo-texto" value="Teste de postagem — CorteLive" maxlength="100">
-          </div>
-        </div>
-
-        <fieldset class="dev-redes-fieldset">
-          <legend class="campo-rotulo">Redes de destino</legend>
-          <div class="dev-redes-linha">
-            <label class="dev-check-inline"><input type="checkbox" name="dev-rede-dry" value="youtube" checked> <span>YouTube</span></label>
-            <label class="dev-check-inline"><input type="checkbox" name="dev-rede-dry" value="instagram" checked> <span>Instagram</span></label>
-            <label class="dev-check-inline"><input type="checkbox" name="dev-rede-dry" value="tiktok" checked> <span>TikTok</span></label>
-          </div>
-        </fieldset>
-
-        <div class="dev-ensaio-rodape">
-          <button type="button" id="dev-btn-postar-dry" class="btn btn-primario btn-compacto">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
-            </svg>
-            <span>Simular postagem</span>
-          </button>
-          <span id="dev-feedback-dry" class="dev-feedback-curto" role="status" aria-live="polite"></span>
-        </div>
-      </article>
-
-      <!-- Ensaio 3: Status das Contas e Servidor de Tokens -->
-      <article class="dev-ensaio-card" aria-labelledby="dev-card-status-t">
-        <div class="dev-ensaio-cabecalho">
-          <h3 id="dev-card-status-t">3. Contas e servidor de tokens</h3>
-          <span id="dev-pilula-worker" class="dev-pilula-neutra">Não verificado</span>
-        </div>
-
-        <ul id="dev-lista-diagnostico" class="dev-diagnostico-lista" aria-live="polite">
-          <li><span>Servidor de tokens</span><strong id="dev-st-worker">—</strong></li>
-          <li><span>YouTube Shorts</span><strong id="dev-st-youtube">—</strong></li>
-          <li><span>Instagram Reels</span><strong id="dev-st-instagram">—</strong></li>
-          <li><span>TikTok</span><strong id="dev-st-tiktok">—</strong></li>
-          <li><span>Postiz</span><strong id="dev-st-postiz">—</strong></li>
-        </ul>
-
-        <div class="dev-ensaio-rodape">
-          <button type="button" id="dev-btn-checar-contas" class="btn btn-secundario btn-compacto">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-            </svg>
-            <span>Verificar contas e servidor</span>
-          </button>
-          <label class="dev-check-inline" for="dev-chk-status-online" title="Testa na hora se as contas conectadas e o servidor de tokens respondem pela internet">
-            <input type="checkbox" id="dev-chk-status-online" checked>
-            <span>Testar na internet</span>
-          </label>
-        </div>
-      </article>
     </div>
   </section>
 
-  <!-- 3. Foco Principal: Monitores de Registro ao Vivo (Corte + Postagem) -->
-  <section class="dev-monitores-grade" aria-label="Registros ao vivo do corte e da postagem">
+  <!-- 3. Foco Principal: Registro ao Vivo do Corte -->
+  <section class="dev-monitores-grade" aria-label="Registro ao vivo do corte">
     <!-- Bus A: Registro ao Vivo do Corte -->
     <article class="painel-card dev-console-card" aria-labelledby="dev-log-corte-titulo">
       <div class="dev-console-topo">
@@ -246,29 +172,6 @@
       <pre id="dev-pre-log-corte" class="console-log dev-console-pre" tabindex="0">Nenhuma atividade de corte registrada nesta sessão ainda.</pre>
     </article>
 
-    <!-- Bus B: Registro ao Vivo da Postagem -->
-    <article class="painel-card dev-console-card" aria-labelledby="dev-log-post-titulo">
-      <div class="dev-console-topo">
-        <div class="dev-console-titulo-bloco">
-          <span id="dev-badge-estado-post" class="tally-pilula tally-parado">AGUARDANDO</span>
-          <h2 id="dev-log-post-titulo" class="titulo-secao dev-titulo-compacto">Registro ao vivo · Postagem</h2>
-        </div>
-        <div class="dev-console-controles">
-          <label class="dev-check-inline" for="dev-autoscroll-post">
-            <input type="checkbox" id="dev-autoscroll-post" checked>
-            <span>Rolar sozinho</span>
-          </label>
-          <button type="button" id="dev-btn-copiar-post" class="btn btn-secundario btn-compacto">
-            <span>Copiar</span>
-          </button>
-          <button type="button" id="dev-btn-limpar-post" class="btn btn-secundario btn-compacto">
-            <span>Limpar</span>
-          </button>
-        </div>
-      </div>
-      <p id="dev-sub-post" class="dev-console-cmd">Simulação segura: testa o envio sem publicar vídeos reais nas redes.</p>
-      <pre id="dev-pre-log-postagem" class="console-log dev-console-pre" tabindex="0">Clique em "Simular postagem" acima para testar o envio passo a passo sem publicar nada de verdade.</pre>
-    </article>
   </section>
 
   <!-- 4. Editor Completo de Configuração -->
@@ -282,9 +185,6 @@
       <div class="dev-cfg-abas" role="tablist" aria-label="Escolher arquivo de configuração">
         <button type="button" role="tab" class="dev-cfg-aba ativa" data-cfg-alvo="cortelive" aria-selected="true">
           <span>Padrões do corte</span>
-        </button>
-        <button type="button" role="tab" class="dev-cfg-aba" data-cfg-alvo="postar" aria-selected="false">
-          <span>Postagem e contas</span>
         </button>
         <button type="button" role="tab" class="dev-cfg-aba" data-cfg-alvo="raiz" aria-selected="false">
           <span>Ajustes desta pasta</span>

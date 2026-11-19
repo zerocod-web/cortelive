@@ -6,6 +6,7 @@ subtitles.py do OpenShorts (MIT); o código aqui é próprio.
 """
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -238,11 +239,43 @@ def _tapa_cam(m, bx, by, bw, bh, nw, nh, jx, jy):
             f"[g1][rem]overlay={x0 - jx}:{y0 - jy}")
 
 
+def _filtro_foco(m, sw, sh):
+    """Foco marcado à mão no painel (v1.0.16): a área da câmera vai inteira para o painel de cima e a da gameplay para
+    o de baixo, fixas no corte todo. O editor trava a proporção das caixas na dos painéis, então o recorte é exato
+    (o increase+crop só apara 1-2 px de arredondamento)."""
+    W, H = m["largura"], m["altura"]
+    hc = m.get("altura_cam", 640)
+    hj = H - hc
+    f = m["_foco_manual"]
+    x, y, w, h = f["cam"]
+    jx, jy, jw, jh = f["jogo"]
+    base = (f"[0:v]split=2[a][b];"
+            f"[a]crop={w}:{h}:{x}:{y},scale={W}:{hc}:force_original_aspect_ratio=increase:{ESCALA_CAM},"
+            f"crop={W}:{hc},{NITIDEZ_CAM}[cam];"
+            f"[b]crop={jw}:{jh}:{jx}:{jy},scale={W}:{hj}:force_original_aspect_ratio=increase,crop={W}:{hj}[jogo];")
+    return base + _rabo_faixa(m, W)
+
+
+def _rabo_faixa(m, W):
+    fx = m.get("_faixa") or {}
+    if fx.get("modo") == "rasgada" and fx.get("arquivo"):
+        return (f"[cam][jogo]vstack=2[pilha];[1:v]scale={W}:{fx['h']}:flags=lanczos,format=rgba[fx];"
+                f"[pilha][fx]overlay=0:{fx['y']},setsar=1,format=yuv420p[v]")
+    if fx.get("modo") == "rasgada":
+        a, b = FAIXA_OPACO
+        y, h = fx["y"] + fx["h"] * a // FAIXA_ALT, fx["h"] * (b - a) // FAIXA_ALT
+        cor = FAIXA_COR_LISA.get(fx.get("cor"), FAIXA_COR_LISA["vermelha"])
+        return f"[cam][jogo]vstack=2,drawbox=x=0:y={y}:w={W}:h={h}:c={cor}:t=fill,setsar=1,format=yuv420p[v]"
+    return "[cam][jogo]vstack=2,setsar=1,format=yuv420p[v]"
+
+
 def filtro_modelo(m, sw, sh):
     """Filtro do quadro vertical. Com m['_faixa'] = {modo, y, h, arquivo, cor}: 'rasgada' sobrepõe o
     PNG (entrada [1:v] do ffmpeg; sem arquivo, faixa lisa), 'nenhuma' tira o blur atrás do jogo."""
     W, H = m["largura"], m["altura"]
     t = m["tipo"]
+    if m.get("_foco_manual"):
+        return _filtro_foco(m, sw, sh)
     if t == "cam-em-cima":
         c = m["cam"]
         hc = m.get("altura_cam", 640)
@@ -562,6 +595,83 @@ def _modelo_efetivo(nome, cam, sw, sh, recuo=None):
     return m, False
 
 
+def _quadros_do_trecho(video, inicio, fim, n):
+    import cv2
+    cap = cv2.VideoCapture(str(video))
+    out = []
+    for k in range(n):
+        cap.set(cv2.CAP_PROP_POS_MSEC, (inicio + (fim - inicio) * (k + 0.5) / n) * 1000)
+        ok, f = cap.read()
+        if ok:
+            out.append(f)
+    cap.release()
+    return out
+
+
+def _rosto_na_caixa(imgs, cam):
+    """Em quantos quadros há um rosto com o centro dentro da caixa da cam."""
+    from . import camauto
+    x, y, w, h = cam
+    n = 0
+    for f in imgs:
+        for r in camauto.rostos(f):
+            fx, fy = r[0] + r[2] / 2, r[1] + r[3] / 2
+            if x <= fx <= x + w and y <= fy <= y + h:
+                n += 1
+                break
+    return n
+
+
+def rever_cam(video, inicio, fim, cam, prop):
+    """v1.0.16: a cam é detectada UMA vez no começo da live e vale para todos os cortes. Se a live começa numa tela
+    de abertura (gabepeixe 19/11/2026: o desenho dele em 'Stream carregando' virou a 'cam') ou o streamer muda a
+    cena depois, a caixa fica num lugar sem ninguém e o corte mostra a parede. Aqui cada corte confere a caixa nos
+    próprios quadros: com rosto em >= 3 de 10 quadros fica como está; sem rosto, procura a cam de novo dentro do
+    corte; sem achar, devolve None (o render usa o recuo sem cam em vez de um enquadramento errado).
+    -> (cam, motivo) com motivo None quando nada mudou."""
+    try:
+        imgs = _quadros_do_trecho(video, inicio, fim, 10)
+    except Exception:
+        return cam, None
+    if len(imgs) < 3:
+        return cam, None
+    if _rosto_na_caixa(imgs, cam) >= 3:
+        return cam, None
+    from . import camauto
+    try:
+        nova = camauto.detectar_imgs(imgs, prop)
+    except Exception:
+        nova = None
+    if nova and _rosto_na_caixa(imgs, nova) >= 3:
+        return tuple(int(v) for v in nova), "cam sem rosto neste corte: achei de novo nos quadros do corte"
+    return None, "cam sem rosto neste corte e nenhuma outra achada: corte sem cam"
+
+
+def _caixa_par(v, total):
+    return max(0, int(round(float(v) / 2)) * 2)
+
+
+def foco_valido(foco, sw, sh):
+    """Normaliza a marcação manual {'cam': [x,y,w,h], 'jogo': [x,y,w,h]} (px do vídeo fonte): números pares, dentro
+    da tela, tamanho mínimo. Caixa inválida -> ValueError com o motivo em português."""
+    out = {}
+    for chave, nome in (("cam", "câmera"), ("jogo", "gameplay")):
+        c = (foco or {}).get(chave)
+        if c is None:
+            continue
+        if not isinstance(c, (list, tuple)) or len(c) != 4:
+            raise ValueError(f"Marcação da {nome} inválida.")
+        x, y, w, h = (_caixa_par(v, 0) for v in c)
+        x, y = min(x, sw - 2), min(y, sh - 2)
+        w, h = min(w, (sw - x) // 2 * 2), min(h, (sh - y) // 2 * 2)
+        if w < 32 or h < 32:
+            raise ValueError(f"A caixa da {nome} ficou pequena demais. Arraste uma área maior.")
+        out[chave] = [x, y, w, h]
+    if "jogo" not in out:
+        raise ValueError("Marque a área da gameplay.")
+    return out
+
+
 def enquadrar_cam(video, inicio, fim, m, sw, sh, visivel=None):
     """Acha o rosto (OpenCV Haar) em 5 quadros do trecho dentro do recorte da cam e devolve
     (x, y, w, h) relativo à cam: proporção do painel, rosto no terço superior com folga acima
@@ -626,27 +736,52 @@ def enquadrar_cam(video, inicio, fim, m, sw, sh, visivel=None):
 
 def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: str, legenda: str,
                  cam: tuple | None, saida_dir: str, nome: str, encoder: str | None = None,
-                 faixa: str | None = None, faixa_cor: str | None = None, faixa_variacao: int | None = None, recuo_sem_cam: list | None = None) -> dict:
+                 faixa: str | None = None, faixa_cor: str | None = None, faixa_variacao: int | None = None, recuo_sem_cam: list | None = None,
+                 conferir_cam: bool = False, foco: dict | None = None, ass_pronto: str | None = None) -> dict:
     """Corte preciso [inicio, fim] do vídeo -> vertical 1080x1920 com e sem legenda, num passe só.
     palavras: [{w, start, end}] em tempo absoluto do vídeo. cam: (x, y, w, h) em px do vídeo fonte.
     faixa: 'rasgada' (padrão) | 'blur' | 'nenhuma' — o que fica atrás da legenda no cam-em-cima.
-    faixa_variacao: qual rasgo usar; sem valor, alterna pelo número do corte no nome (corte_003 -> 3)."""
+    faixa_variacao: qual rasgo usar; sem valor, alterna pelo número do corte no nome (corte_003 -> 3).
+    conferir_cam: a cam veio da detecção automática; confere nos quadros do corte (rever_cam).
+    foco: marcação manual do painel {'cam': [x,y,w,h], 'jogo': [x,y,w,h]} em px do vídeo; usada exatamente, fixa.
+    ass_pronto: legenda .ass já feita (refazer um corte antigo sem as palavras guardadas)."""
     out = Path(saida_dir); out.mkdir(parents=True, exist_ok=True)
     sw, sh, fps, tem_audio = _probe(video)
-    m, caiu = _modelo_efetivo(modelo, cam, sw, sh, recuo_sem_cam)
-    if m["tipo"] == "cam-em-cima" and m.get("jogo_auto", True):
+    cam_revista = None
+    if foco:
+        foco = foco_valido(foco, sw, sh)
+        if "cam" not in foco:
+            raise ValueError("Marque a área da câmera.")
+        m = carregar("modelo", modelo)
+        if m["tipo"] != "cam-em-cima":
+            m = carregar("modelo", "cam-em-cima")
+        cam = tuple(foco["cam"])
+        jx, jy, jw, jh = foco["jogo"]
+        m = dict(m, cam={"x": cam[0] / sw, "y": cam[1] / sh, "w": cam[2] / sw, "h": cam[3] / sh},
+                 jogo={"x": jx / sw, "y": jy / sh, "w": jw / sw, "h": jh / sh}, jogo_vista=0.0, _foco_manual=foco)
+        caiu = False
+    else:
+        if conferir_cam and cam is not None:
+            try:
+                m0 = carregar("modelo", modelo)
+                if m0["tipo"] == "cam-em-cima":
+                    cam, cam_revista = rever_cam(video, inicio, fim, tuple(cam), m0["largura"] / m0.get("altura_cam", 640))
+            except Exception:
+                cam_revista = None
+        m, caiu = _modelo_efetivo(modelo, cam, sw, sh, recuo_sem_cam)
+    if m["tipo"] == "cam-em-cima" and m.get("jogo_auto", True) and not foco:
         try:
             jw_ = janela_do_jogo(video, inicio, fim, sw, sh, cam)
         except Exception:
             jw_ = None
         if jw_:
             m = dict(m, jogo={"x": jw_[0] / sw, "y": jw_[1] / sh, "w": jw_[2] / sw, "h": jw_[3] / sh}, jogo_vista=0.0, _jogo_auto=True)
-    if m["tipo"] == "cam-em-cima" and not m.get("_jogo_auto") and cam is not None:
+    if m["tipo"] == "cam-em-cima" and not m.get("_jogo_auto") and cam is not None and not foco:
         W_, hj_ = m["largura"], m["altura"] - m.get("altura_cam", 640)
         jx_, jy_, jw2, jh2, cobrir = janela_jogo_cheia(sw, sh, W_, hj_, cam)
         m = dict(m, jogo={"x": jx_ / sw, "y": 0.0, "w": jw2 / sw, "h": 1.0}, jogo_vista=0.0, _jogo_cheio=True,
                  _cobrir_cam=cobrir)
-    if m["tipo"] == "cam-em-cima" and m.get("enquadrar_rosto", True):
+    if m["tipo"] == "cam-em-cima" and m.get("enquadrar_rosto", True) and not foco:
         visivel = None
         if (faixa or "rasgada").lower() not in ("blur", "nenhuma"):   # só a rasgada cobre a cam
             try:   # fração do painel da cam acima do topo da faixa (o rasgo branco também cobre), com 6 px de folga
@@ -681,7 +816,11 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     mp4 = out / f"{nome}.mp4"
     aviso = None
     try:
-        gerar_ass(pal, inicio, fim, est, m, ass)
+        if ass_pronto:
+            if Path(ass_pronto).resolve() != ass.resolve():
+                shutil.copyfile(ass_pronto, ass)
+        else:
+            gerar_ass(pal, inicio, fim, est, m, ass)
     except Exception as e:
         aviso = f"A legenda deste corte não pôde ser gerada ({e}); o vídeo foi salvo sem legenda."
     enc = encoder_corte(encoder)
@@ -726,5 +865,6 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     return {"mp4": str(mp4), "mp4_sem_legenda": None, "ass": None if aviso else str(ass), "encoder": enc,
             "legenda_ok": aviso is None, "aviso": aviso,
             "modelo": m["tipo"], "caiu_sem_cam": caiu,
+            "cam_usada": list(cam) if cam is not None else None, "cam_revista": cam_revista, "foco_manual": bool(foco),
             "faixa": (m.get("_faixa") or {}).get("modo", "blur" if m["tipo"] == "cam-em-cima" else None),
             "faixa_arquivo": arq_faixa.name if arq_faixa else None, "segundos": round(time.time() - t0, 1)}

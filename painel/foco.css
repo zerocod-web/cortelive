@@ -1,0 +1,56 @@
+/* Editor de foco do corte (v1.0.16). Usa os tokens de estilos.css; só as duas cores das caixas são próprias:
+   câmera no vermelho de "ao vivo" do painel, gameplay num ciano que separa bem dele nos dois temas. */
+:root {
+  --foco-cam: var(--sinal-ao-vivo);
+  --foco-jogo: #22d3ee;
+}
+[data-tema="claro"] { --foco-jogo: #0891b2; }
+
+.modal-foco { width: min(96vw, 1160px); max-width: calc(100vw - 32px); }
+.modal-foco .modal-corpo > * { min-width: 0; }
+.modal-foco .modal-rodape .btn { white-space: normal; }
+.modal-foco .modal-corpo { display: grid; grid-template-columns: minmax(0, 1fr) 232px; gap: 20px; align-items: start; }
+@media (max-width: 760px) { .modal-foco .modal-corpo { grid-template-columns: 1fr; } }
+
+.foco-ferramentas { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.foco-ferramentas .campo-rotulo { margin: 0 4px 0 0; }
+.foco-alvo { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px;
+  border: 1px solid var(--borda-forte); border-radius: 8px; background: var(--mesa-elevado);
+  color: var(--texto-secundario); font: inherit; font-weight: 500; cursor: pointer;
+  transition: border-color 160ms ease-out, background-color 160ms ease-out; }
+.foco-alvo:hover { border-color: var(--borda-destaque); }
+.foco-alvo:focus-visible { outline: 2px solid var(--foco-anel); outline-offset: 2px; }
+.foco-alvo[aria-pressed="true"] { color: var(--texto-primario); background: var(--sinal-acao-fundo-suave);
+  border-color: var(--borda-destaque); }
+.foco-alvo .foco-amostra { width: 14px; height: 10px; border: 2px solid currentColor; border-radius: 2px; }
+.foco-alvo[data-alvo="cam"] .foco-amostra { color: var(--foco-cam); }
+.foco-alvo[data-alvo="jogo"] .foco-amostra { color: var(--foco-jogo); }
+
+.foco-palco { position: relative; width: 100%; border-radius: 8px; overflow: hidden; background: var(--mesa-console);
+  border: 1px solid var(--borda-sutil); touch-action: none; user-select: none; cursor: crosshair; }
+.foco-palco img { display: block; width: 100%; height: auto; pointer-events: none; }
+.foco-palco .foco-vazio { padding: 64px 16px; text-align: center; color: var(--texto-terciario); }
+.foco-caixa { position: absolute; border: 3px solid; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+  cursor: move; }
+.foco-caixa[data-alvo="cam"] { border-color: var(--foco-cam); }
+.foco-caixa[data-alvo="jogo"] { border-color: var(--foco-jogo); }
+.foco-caixa .foco-etiqueta { position: absolute; left: -3px; top: -3px; transform: translateY(-100%);
+  padding: 2px 8px; font-size: 12px; font-weight: 600; color: #fff; border-radius: 4px 4px 0 0; white-space: nowrap; }
+.foco-caixa[data-alvo="cam"] .foco-etiqueta { background: var(--foco-cam); }
+.foco-caixa[data-alvo="jogo"] .foco-etiqueta { background: var(--foco-jogo); color: #06262d; }
+.foco-caixa[data-ativa="false"] { opacity: 0.6; }
+.foco-alca { position: absolute; right: -9px; bottom: -9px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; border: 2px solid rgba(0, 0, 0, 0.6); cursor: nwse-resize; }
+
+.foco-linha-tempo { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.foco-linha-tempo input[type="range"] { flex: 1; min-height: 44px; accent-color: var(--sinal-acao); cursor: pointer; }
+.foco-tempo { font-variant-numeric: tabular-nums; color: var(--texto-terciario); min-width: 44px; text-align: right; }
+
+.foco-previa-titulo { margin: 0 0 8px; }
+.foco-previa { display: block; width: 216px; height: 384px; border-radius: 8px; background: #000;
+  border: 1px solid var(--borda-sutil); }
+.foco-ajuda { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--texto-terciario); }
+.foco-status { min-height: 1.5em; margin: 0; }
+.foco-status[data-erro="true"] { color: var(--sinal-ao-vivo-texto); }
+.modal-foco .modal-rodape { flex-wrap: wrap; gap: 8px; }
+.modal-foco .modal-rodape .foco-espaco { flex: 1; }

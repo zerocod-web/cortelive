@@ -16,7 +16,7 @@ import time
 import types
 from pathlib import Path
 
-from . import __version__, disco, hw, log, pastas
+from . import __version__, aprendizado, disco, hw, log, miniatura, pastas, triagem
 from .cli import carregar_config, _hms, AQUI
 
 ESTADOS = ("iniciando", "esperando live", "ao vivo", "reconectando", "encerrada", "erro")
@@ -280,8 +280,41 @@ class Sessao:
         resultados, falhas, descartados = [], [], []
         n_corte = [0]
 
+        aprend = [aprendizado.Base.carregar(cfg["pasta_saida"]), time.time()]
+
         def enfileirar(job):
+            # v1.0.17: nota do GPT ajustada pelo que o Gabriel rejeitou antes ("Não quero"), no máximo ±2
+            if time.time() - aprend[1] > 1800:
+                aprend[:] = [aprendizado.Base.carregar(cfg["pasta_saida"]), time.time()]
+            try:
+                job["sinais"] = aprend[0].aplicar(canal, job["sinais"])
+            except Exception as e:
+                log.debug(f"aprendizado: {e}")
+            aj = job["sinais"].get("ajuste_aprendizado")
+            if aj:
+                log.info(f"Nota do GPT ajustada de {job['sinais']['nota_gpt_original']} para "
+                         f"{job['sinais']['nota_gpt']} pelo que você rejeitou ({aj['motivo']}).")
+            # v1.0.17: corte repetido (mais da metade do tempo em comum com outro desta live) -> fica o de nota maior
             with lk:
+                rival = triagem.repetido(job, pendentes)
+                if rival is not None and triagem.valor(job) <= triagem.valor(rival):
+                    cap.prender(job["segs"], False)
+                    log.info(f"Momento em {_hms(job['evento'])} repete o corte em fila de {_hms(rival['evento'])} "
+                             f"(nota igual ou maior); fica só o da fila.")
+                    return
+                if rival is not None:
+                    pendentes.remove(rival)
+                    cap.prender(rival["segs"], False)
+                    log.info(f"Momento em {_hms(job['evento'])} repete o corte em fila de {_hms(rival['evento'])} "
+                             f"com nota maior; fica só o novo.")
+                pronto_igual = triagem.repetido(job, [r for r in resultados if isinstance(r, dict)])
+                if pronto_igual is not None and triagem.valor(job) <= triagem.valor(pronto_igual):
+                    cap.prender(job["segs"], False)
+                    log.info(f"Momento em {_hms(job['evento'])} repete o corte pronto \"{pronto_igual.get('arquivo')}\" "
+                             f"(nota igual ou maior); não corto de novo.")
+                    return
+                if pronto_igual is not None:
+                    job["substitui_pronto"] = pronto_igual.get("arquivo")
                 pendentes.append(job)
                 if len(pendentes) > cfg["fila_max_cortes"]:
                     fraco = min(pendentes, key=lambda j: j["nota"])
@@ -294,6 +327,19 @@ class Sessao:
 
         class _CorteDescartado(Exception):
             pass
+
+        def _trocar_repetido(velho_nome, novo_nome):
+            """O corte novo repete um pronto com nota menor: o pronto vai para a Lixeira do Windows (dá para restaurar)."""
+            velho = pasta / str(velho_nome)
+            if not velho.is_file() or velho.name == novo_nome:
+                return
+            try:
+                from painel import lixeira
+                lixeira.reciclar(velho)
+                log.info(f"\"{velho.name}\" foi para a Lixeira: o corte novo \"{novo_nome}\" cobre o mesmo momento "
+                         f"com nota maior.")
+            except Exception as e:
+                log.aviso(f"Corte repetido \"{velho.name}\" mantido (não consegui enviar à Lixeira: {e}).")
 
         def _limpar_parciais_corte(nome_base):
             for parcial in dint.glob(f"{nome_base}*"):
@@ -509,6 +555,9 @@ class Sessao:
                 "transcricao": " ".join(w["w"] for w in job["palavras"]),
             }
             (dint / f"{legivel}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+            miniatura.gerar(final, dint, legivel, fim - ini)     # v1.0.17: quadro do meio + tira da prévia
+            if job.get("substitui_pronto"):
+                _trocar_repetido(job["substitui_pronto"], final.name)
             self._ultimo_corte = final.name
             self._pronto_em = (time.time(), job["titulo"])
             try:

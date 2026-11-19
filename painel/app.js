@@ -584,6 +584,52 @@
     }
   }
 
+  // Prévia ao passar o mouse (v1.0.17): uma tira de 8 quadros do corte, trocada a cada 350 ms. A tira só é
+  // pedida na primeira passada do mouse; sem ela (corte antigo sem prévia), nada acontece.
+  const QUADROS_PREVIA = 8;
+  const movimentoReduzido = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  function ativarPrevia(slate, url) {
+    if (movimentoReduzido) return;
+    let tira = null;
+    let timer = null;
+    let quadro = 0;
+    const parar = () => {
+      clearInterval(timer);
+      timer = null;
+      if (tira) tira.hidden = true;
+    };
+    slate.addEventListener("mouseenter", () => {
+      if (!tira) {
+        tira = document.createElement("div");
+        tira.className = "corte-previa";
+        tira.hidden = true;
+        const img = new Image();
+        img.addEventListener("load", () => {
+          tira.style.backgroundImage = `url("${url}")`;
+          tira.dataset.pronta = "1";
+          if (slate.matches(":hover")) iniciar();
+        }, { once: true });
+        img.addEventListener("error", () => { tira.dataset.falhou = "1"; }, { once: true });
+        img.src = url;
+        slate.append(tira);
+      } else if (tira.dataset.pronta) {
+        iniciar();
+      }
+    });
+    slate.addEventListener("mouseleave", parar);
+    function iniciar() {
+      if (timer || !tira?.dataset.pronta) return;
+      quadro = 0;
+      tira.hidden = false;
+      const passo = () => {
+        tira.style.backgroundPosition = `${(quadro / (QUADROS_PREVIA - 1)) * 100}% 0`;
+        quadro = (quadro + 1) % QUADROS_PREVIA;
+      };
+      passo();
+      timer = setInterval(passo, 350);
+    }
+  }
+
   // --- Lista de Cortes ---
   function criarCardCorte(c) {
     const card = document.createElement("article");
@@ -632,12 +678,33 @@
 
     meta.appendChild(linhaCanal);
     meta.appendChild(h3);
-    if (Number.isInteger(c.nota_juiz) && c.nota_juiz >= 0 && c.nota_juiz <= 10) {
+    // v1.0.17: ver o corte sem abrir — nota em destaque na miniatura, primeira frase e prévia ao passar o mouse
+    const nota = notaDoCorte(c);
+    if (nota !== null) {
+      const selo = document.createElement("span");
+      selo.className = "corte-nota-selo";
+      selo.dataset.faixa = nota >= 8 ? "alta" : nota >= 6 ? "media" : "baixa";
+      selo.textContent = String(nota);
+      selo.setAttribute("aria-label", `Nota do GPT ${nota} de 10`);
+      slate.append(selo);
+    }
+    if (c.frase) {
+      const frase = document.createElement("p");
+      frase.className = "corte-frase";
+      frase.textContent = `“${c.frase}”`;
+      meta.appendChild(frase);
+    }
+    if (nota !== null) {
       const notaGPT = document.createElement("p");
       notaGPT.className = "ajuda-campo";
-      notaGPT.textContent = "Avaliado pelo GPT · " + c.nota_juiz + "/10";
+      const ajustada = Number.isInteger(c.nota_original) && c.nota_original !== nota && c.ajuste_nota;
+      notaGPT.textContent = ajustada
+        ? `Nota ${nota}/10 · o GPT deu ${c.nota_original}, ajustada pelo que você rejeitou antes`
+        : `Avaliado pelo GPT · ${nota}/10`;
+      if (ajustada && c.ajuste_nota.motivo) notaGPT.title = c.ajuste_nota.motivo;
       meta.appendChild(notaGPT);
     }
+    if (c.previa && c.previa.startsWith("/api/miniatura?")) ativarPrevia(slate, c.previa);
     topo.appendChild(slate);
     topo.appendChild(meta);
 
@@ -972,6 +1039,80 @@
     feedbackAcao(el("feedback-corte"), falhas.length
       ? `${ok}. ${falhas.length === 1 ? "1 não pôde" : falhas.length + " não puderam"} ser excluídos: ${falhas[0]}`
       : `${ok}. Para desfazer, restaure pela Lixeira.`, falhas.length > 0);
+  }
+
+  // --- Espaço em disco (v1.0.17): avisa antes de lotar e oferece limpar o que é do CorteLive ---
+  const fmtGB = (bytes) => (bytes / 1024 ** 3).toFixed(1).replace(".", ",");
+  let ultimoEspaco = null;
+
+  async function carregarEspaco() {
+    const r = await api("/api/espaco");
+    if (r.ok === false || typeof r.livre_gb !== "number") return;
+    ultimoEspaco = r;
+    const aviso = el("aviso-espaco");
+    aviso.hidden = r.nivel === "ok";
+    if (aviso.hidden) return;
+    aviso.dataset.nivel = r.nivel;
+    const livre = r.livre_gb.toFixed(1).replace(".", ",");
+    el("aviso-espaco-titulo").textContent = r.nivel === "critico"
+      ? `Disco quase lotado: ${livre} GB livres` : `Pouco espaço no disco: ${livre} GB livres`;
+    const partes = [];
+    if (r.lixeira.itens) partes.push(`${r.lixeira.itens === 1 ? "1 corte" : r.lixeira.itens + " cortes"} na Lixeira (${fmtGB(r.lixeira.bytes)} GB)`);
+    if (r.originais.itens) partes.push(`${r.originais.itens === 1 ? "1 original" : r.originais.itens + " originais"} com mais de ${r.originais.dias} dias (${fmtGB(r.originais.bytes)} GB)`);
+    const total = r.lixeira.bytes + r.originais.bytes;
+    el("aviso-espaco-detalhe").textContent = total > 0
+      ? `Dá para liberar ${fmtGB(total)} GB: ${partes.join(" e ")}.`
+      : "Nada do CorteLive para liberar agora. Apague cortes antigos ou libere espaço em outras pastas.";
+    const btn = el("btn-limpar-espaco");
+    btn.hidden = total <= 0;
+    btn.textContent = `Liberar ${fmtGB(total)} GB`;
+  }
+
+  async function limparEspaco() {
+    const r = ultimoEspaco;
+    if (!r) return;
+    const itens = [];
+    if (r.lixeira.itens) itens.push(`• ${r.lixeira.itens} corte(s) que você já mandou para a Lixeira`);
+    if (r.originais.itens) itens.push(`• ${r.originais.itens} original(is) com mais de ${r.originais.dias} dias (o “Ajustar foco” desses cortes deixa de funcionar)`);
+    if (!window.confirm(`Apagar de vez, sem volta?\n\n${itens.join("\n")}\n\nOs cortes prontos na lista não são apagados.`)) return;
+    const btn = el("btn-limpar-espaco");
+    btn.disabled = true;
+    btn.textContent = "Liberando…";
+    const res = await api("/api/espaco/limpar", "POST", { lixeira: true, originais: true });
+    btn.disabled = false;
+    feedbackAcao(el("feedback-corte"), res.ok === false ? (res.erro || "Não consegui liberar espaço.") : res.mensagem, res.ok === false);
+    await carregarEspaco();
+  }
+
+  // --- Aprender com o "Não quero" (configurações) ---
+  async function carregarAprendizado() {
+    const r = await api("/api/aprendizado");
+    const status = el("aprendizado-status");
+    if (r.ok === false || typeof r.rejeitados !== "number") {
+      status.textContent = "Não foi possível ler o aprendizado agora.";
+      return;
+    }
+    const n = r.rejeitados;
+    status.textContent = r.ativo
+      ? `Aprendendo com ${n} ${n === 1 ? "corte rejeitado" : "cortes rejeitados"}.`
+      : `Aprendendo com ${n} ${n === 1 ? "corte rejeitado" : "cortes rejeitados"}. Começa a ajustar as notas a partir de ${r.minimo}.`;
+    el("btn-zerar-aprendizado").disabled = n === 0;
+  }
+
+  async function zerarAprendizado() {
+    if (!window.confirm("Zerar o aprendizado? As notas deixam de ser ajustadas até você rejeitar 15 cortes de novo. O histórico atual fica guardado num arquivo à parte.")) return;
+    const r = await api("/api/aprendizado/zerar", "POST", {});
+    feedbackAcao(el("feedback-aprendizado"), r.ok === false ? (r.erro || "Não foi possível zerar.") : r.mensagem, r.ok === false);
+    await carregarAprendizado();
+  }
+
+  function iniciarTriagem() {
+    el("btn-limpar-espaco").addEventListener("click", limparEspaco);
+    el("btn-zerar-aprendizado").addEventListener("click", zerarAprendizado);
+    el("aba-btn-config")?.addEventListener("click", carregarAprendizado);
+    carregarAprendizado();
+    carregarEspaco();
+    setInterval(carregarEspaco, 120000);
   }
 
   function atualizarListaCortes(cortes) {
@@ -1378,6 +1519,9 @@
     iniciarTema();
     iniciarFiltroNotas();
     registrarEventos();
+    try {
+      iniciarTriagem();
+    } catch (_) {}
 
     const params = new URLSearchParams(window.location.search);
     if (params.get("atualizado")) {

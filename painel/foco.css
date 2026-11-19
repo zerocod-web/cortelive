@@ -55,3 +55,8 @@
 .foco-status[data-erro="true"] { color: var(--sinal-ao-vivo-texto); }
 .modal-foco .modal-rodape { flex-wrap: wrap; gap: 8px; }
 .modal-foco .modal-rodape .foco-espaco { flex: 1; }
+
+/* Foco da live (conferido no começo) e focos salvos por canal */
+.foco-lembrar { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; white-space: nowrap; }
+.focos-salvos { display: flex; flex-direction: column; gap: .5rem; margin-top: .75rem; }
+.foco-salvo { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }

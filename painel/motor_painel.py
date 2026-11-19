@@ -220,6 +220,38 @@ class ApiPainel:
         except foco.ErroFoco as erro:
             raise ErroApi(400, str(erro)) from None
 
+    def foco_live(self, acao, url, corpo):
+        """Foco da live conferido no começo: pedidos pendentes, quadro, resposta e focos salvos por canal."""
+        from cortelive import foco_live
+        if acao == "pendente":
+            from painel import foco
+            return {"pendentes": foco_live.pendentes(self.pasta_cortes()), "proporcoes": foco.proporcoes()}
+        if acao == "canais":
+            return {"canais": foco_live.canais_salvos()}
+        if acao == "esquecer":
+            return {"esquecido": foco_live.esquecer(campo(corpo, "canal"))}
+        nome = parse_qs(url.query).get("sessao", [""])[0] if acao == "quadro" else campo(corpo, "sessao")
+        pasta = self.dentro_dos_cortes(nome, video=False)
+        if not nome or pasta.parent != self.pasta_cortes() or not pasta.is_dir():
+            raise ErroApi(404, "Live não encontrada.")
+        dint = pasta / "_interno"
+        if acao == "quadro":
+            jpg = dint / foco_live.QUADRO
+            if not jpg.is_file():
+                raise ErroApi(404, "O quadro desta live ainda não está pronto.")
+            return jpg.read_bytes()
+        foco = corpo.get("foco")
+        if foco is not None and not isinstance(foco, dict):
+            raise ErroApi(400, "Marque a área da câmera e a da gameplay.")
+        try:
+            d = foco_live.responder(dint, foco, bool(corpo.get("lembrar", True)))
+        except ValueError as erro:
+            raise ErroApi(400, str(erro)) from None
+        if d["estado"] == "automatico":
+            return {"mensagem": "Combinado: esta live segue no automático."}
+        return {"mensagem": "Foco confirmado: os próximos cortes desta live saem com ele"
+                            + (", e as próximas lives deste canal já começam com ele." if d.get("lembrar") else ".")}
+
     def miniatura(self, video):
         from cortelive import pastas
 
@@ -401,10 +433,12 @@ class ApiPainel:
             return despachar_rota_dev(self, metodo, acoes, url, corpo)
         acao = acoes[0] if len(acoes) == 1 else ""
         consultas = {("cortes", ""), ("miniatura", ""), ("drive", "detectar"), ("gpt", "status"),
-                     ("foco", "estado"), ("foco", "quadro")}
+                     ("foco", "estado"), ("foco", "quadro"),
+                     ("foco-live", "pendente"), ("foco-live", "quadro"), ("foco-live", "canais")}
         acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""),
                       ("gpt", "conectar"), ("drive", "enviar"), ("cortes", "excluir"),
-                      ("foco", "refazer"), ("foco", "automatico"), ("foco", "baixar")}
+                      ("foco", "refazer"), ("foco", "automatico"), ("foco", "baixar"),
+                      ("foco-live", "confirmar"), ("foco-live", "esquecer")}
         par = grupo, acao
         if len(acoes) > 1 or par not in consultas | acoes_post | {("config-postagem", ""), ("drive", "config")}:
             raise ErroApi(404, "Rota não encontrada.")
@@ -423,6 +457,8 @@ class ApiPainel:
             return self.drive(acao, metodo, corpo)
         if grupo == "foco":
             return self.foco(acao, url, corpo)
+        if grupo == "foco-live":
+            return self.foco_live(acao, url, corpo)
         if grupo == "cortes":
             if acao == "excluir":
                 return self.excluir_corte(corpo)

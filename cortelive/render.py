@@ -748,6 +748,19 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     out = Path(saida_dir); out.mkdir(parents=True, exist_ok=True)
     sw, sh, fps, tem_audio = _probe(video)
     cam_revista = None
+    if foco and conferir_cam:
+        # foco da live (conferido no começo): a câmera marcada ainda passa pela conferência de rosto neste corte;
+        # se o streamer saiu da cam ou mudou a cena, este corte volta ao automático
+        try:
+            fv = foco_valido(foco, sw, sh)
+            m0 = carregar("modelo", "cam-em-cima")
+            nova, motivo = rever_cam(video, inicio, fim, tuple(fv["cam"]), m0["largura"] / m0.get("altura_cam", 640))
+        except Exception:
+            nova, motivo = None, None
+        if motivo:
+            foco, cam = None, nova
+            cam_revista = motivo + " (o foco da live não foi usado neste corte)"
+            conferir_cam = False
     if foco:
         foco = foco_valido(foco, sw, sh)
         if "cam" not in foco:
@@ -870,6 +883,6 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     return {"mp4": str(mp4), "mp4_sem_legenda": None, "ass": None if aviso else str(ass), "encoder": enc,
             "legenda_ok": aviso is None, "aviso": aviso,
             "modelo": m["tipo"], "caiu_sem_cam": caiu,
-            "cam_usada": list(cam) if cam is not None else None, "cam_revista": cam_revista, "foco_manual": bool(foco),
+            "cam_usada": list(cam) if cam is not None else None, "cam_revista": cam_revista, "foco_manual": bool(foco), "foco_usado": foco or None,
             "faixa": (m.get("_faixa") or {}).get("modo", "blur" if m["tipo"] == "cam-em-cima" else None),
             "faixa_arquivo": arq_faixa.name if arq_faixa else None, "segundos": round(time.time() - t0, 1)}

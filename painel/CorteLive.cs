@@ -1064,7 +1064,10 @@ namespace CorteLivePainel
 
             // Editor de foco do corte (v1.0.16): estado, quadro (JPEG) e refazer/automático/baixar (começam em segundo plano)
             if (rota == "/api/foco/estado" || rota == "/api/foco/quadro" || rota == "/api/foco/refazer" ||
-                rota == "/api/foco/automatico" || rota == "/api/foco/baixar")
+                rota == "/api/foco/automatico" || rota == "/api/foco/baixar" ||
+                rota == "/api/foco-live/pendente" || rota == "/api/foco-live/quadro" ||
+                rota == "/api/foco-live/confirmar" || rota == "/api/foco-live/canais" ||
+                rota == "/api/foco-live/esquecer")
             {
                 if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo, 30000))
                     EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });

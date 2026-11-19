@@ -66,6 +66,7 @@
         <div class="modal-rodape">
           <p class="foco-status" data-foco="status" role="status" aria-live="polite"></p>
           <span class="foco-espaco"></span>
+          <label class="foco-lembrar" data-foco="lembrar-linha" hidden><input type="checkbox" data-foco="lembrar" checked> Usar nas próximas lives deste canal</label>
           <button type="button" class="btn btn-secundario" data-foco="auto">Voltar ao automático</button>
           <button type="button" class="btn btn-primario" data-foco="refazer">Refazer o corte com este foco</button>
         </div>
@@ -104,9 +105,19 @@
     q('[data-foco="auto"]').disabled = !ativos;
   }
 
+  function modoDoModal(live) {
+    q("#titulo-modal-foco").textContent = live ? `Conferir o foco desta live${live.canal ? " — " + live.canal : ""}` : "Ajustar foco do corte";
+    q(".foco-linha-tempo").hidden = !!live;
+    q('[data-foco="lembrar-linha"]').hidden = !live;
+    q('[data-foco="lembrar"]').checked = true;
+    q('[data-foco="refazer"]').textContent = live ? "Usar este foco na live" : "Refazer o corte com este foco";
+    q('[data-foco="auto"]').textContent = live ? "Deixar no automático" : "Voltar ao automático";
+  }
+
   async function abrir(corte) {
     const dlg = criarModal();
     st = { corte, caixas: {}, alvo: "cam", sw: 0, sh: 0, prop: null, img: null, fechado: false };
+    modoDoModal(null);
     q('[data-foco="palco"]').querySelectorAll(".foco-caixa, img").forEach((n) => n.remove());
     q('[data-foco="vazio"]').hidden = false;
     q('[data-foco="vazio"]').textContent = "Carregando o quadro do corte…";
@@ -115,6 +126,93 @@
     escolherAlvo("cam");
     if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
     await prepararFonte();
+  }
+
+  // ---- foco da live: conferido no começo, vale para a live toda (e, se marcado, para as próximas do canal) ----
+  function abrirLive(p, proporcoes) {
+    const dlg = criarModal();
+    st = { live: p, caixas: {}, alvo: "cam", sw: p.tamanho[0], sh: p.tamanho[1], prop: proporcoes, img: null, fechado: false };
+    modoDoModal(p);
+    q('[data-foco="palco"]').querySelectorAll(".foco-caixa, img").forEach((n) => n.remove());
+    q('[data-foco="vazio"]').hidden = false;
+    q('[data-foco="vazio"]').textContent = "Carregando o quadro da live…";
+    const pr = p.proposta || {};
+    const salvo = p.origem === "salvo do canal";
+    st.caixas.cam = salvo && pr.cam ? ajustar("cam", pr.cam[0], pr.cam[1], pr.cam[2]) : caixaInicial("cam", pr.cam);
+    st.caixas.jogo = pr.jogo ? caixaDentro("jogo", pr.jogo) : caixaInicial("jogo", null);
+    status(salvo ? "Esta live já começou com o foco salvo deste canal. Confirme ou arraste para corrigir."
+      : "Confira a câmera e o jogo. Sem resposta, a live segue no automático.");
+    escolherAlvo("cam");
+    botoes(true);
+    if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open", "");
+    carregarQuadro(0);
+  }
+
+  function caixaDentro(alvo, c) {
+    // a maior caixa na proporção do painel, centrada na área achada (o jogo pode não ter a proporção do painel)
+    const [x, y, w, h] = c, p = proporcao(alvo);
+    const ww = Math.min(w, h * p);
+    return ajustar(alvo, x + (w - ww) / 2, y + (h - ww / p) / 2, ww);
+  }
+
+  async function responderLive(automatico) {
+    const meu = st;
+    botoes(false);
+    const arred = (c) => c.map((v) => Math.round(v / 2) * 2);
+    const r = await chamar("/api/foco-live/confirmar", "POST", {
+      sessao: meu.live.sessao, lembrar: q('[data-foco="lembrar"]').checked,
+      foco: automatico ? null : { cam: arred(meu.caixas.cam), jogo: arred(meu.caixas.jogo) },
+    });
+    if (r.ok === false) { status(r.erro, true); botoes(true); return; }
+    status(r.mensagem || "Pronto.");
+    setTimeout(() => { if (st === meu && !meu.fechado) document.getElementById("modal-foco").close(); }, 1800);
+    if (!automatico) listarSalvos();
+  }
+
+  const vistos = new Set((() => { try { return JSON.parse(sessionStorage.getItem("focoLiveVistos") || "[]"); } catch (_) { return []; } })());
+  async function vigiarLives() {
+    const aberto = document.getElementById("modal-foco")?.open;
+    if (!aberto) {
+      const r = await chamar("/api/foco-live/pendente");
+      const p = r.ok !== false && (r.pendentes || []).find((x) => !vistos.has(x.sessao + "|" + x.t));
+      if (p && p.tamanho) {
+        vistos.add(p.sessao + "|" + p.t);
+        try { sessionStorage.setItem("focoLiveVistos", JSON.stringify([...vistos])); } catch (_) {}
+        abrirLive(p, r.proporcoes);
+      }
+    }
+    setTimeout(vigiarLives, 4000);
+  }
+
+  // Configurações › Foco salvo por canal
+  async function listarSalvos() {
+    const caixa = document.getElementById("focos-salvos");
+    if (!caixa) return;
+    const r = await chamar("/api/foco-live/canais");
+    caixa.textContent = "";
+    const lista = r.ok === false ? [] : r.canais || [];
+    if (!lista.length) {
+      const p = document.createElement("p");
+      p.className = "ajuda-campo";
+      p.textContent = r.ok === false ? r.erro : "Nenhum canal com foco salvo.";
+      caixa.append(p);
+      return;
+    }
+    lista.forEach((c) => {
+      const linha = document.createElement("div");
+      linha.className = "foco-salvo";
+      const nome = document.createElement("span");
+      nome.textContent = `${c.canal}${c.quando ? " — salvo em " + c.quando : ""}`;
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn btn-secundario btn-compacto"; b.textContent = "Esquecer";
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        await chamar("/api/foco-live/esquecer", "POST", { canal: c.canal });
+        listarSalvos();
+      });
+      linha.append(nome, b);
+      caixa.append(linha);
+    });
   }
 
   async function lerEstado() {
@@ -209,8 +307,10 @@
       st.img = img;
       desenhar();
     };
-    img.onerror = () => { if (!st.img) q('[data-foco="vazio"]').textContent = "Não consegui mostrar o quadro do corte."; };
-    img.src = "/api/foco/quadro?caminho=" + encodeURIComponent(st.corte.caminho) + "&t=" + t + "&v=" + Date.now();
+    img.onerror = () => { if (!st.img) q('[data-foco="vazio"]').textContent = "Não consegui mostrar o quadro."; };
+    img.src = st.live
+      ? "/api/foco-live/quadro?sessao=" + encodeURIComponent(st.live.sessao) + "&v=" + Date.now()
+      : "/api/foco/quadro?caminho=" + encodeURIComponent(st.corte.caminho) + "&t=" + t + "&v=" + Date.now();
   }
 
   function escala() {
@@ -310,6 +410,7 @@
   async function refazer(automatico) {
     const meu = st;
     if (!meu) return;
+    if (meu.live) return responderLive(automatico);
     botoes(false);
     const arred = (c) => c.map((v) => Math.round(v / 2) * 2);
     const r = automatico
@@ -335,5 +436,11 @@
     }
   }
 
-  window.CorteLiveFoco = { abrir };
+  window.CorteLiveFoco = { abrir, abrirLive, listarSalvos };
+  const comecar = () => {
+    vigiarLives();
+    listarSalvos();
+    document.getElementById("aba-btn-config")?.addEventListener("click", listarSalvos);
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", comecar); else comecar();
 })();

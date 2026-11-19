@@ -17,6 +17,26 @@ from cortelive.cofre import criptografar_bytes, descriptografar_bytes, dpapi_dis
 
 MODELO = "gpt-4.1-mini-2025-04-14"
 
+# Modelos da conexão "Minha conta ChatGPT" (Codex). Custo = preço de API equivalente por hora de live
+# (~136 leituras/h, medido em 3 lives em 19/11/2026). ajuste_nota soma à nota do modelo (teto 10) para manter os
+# filtros de nota: calibrado nas mesmas 3 lives, o Luna deu 7 cortes nota 7+ contra 5 do Sol 6.2, então 0.
+MODELOS_CODEX = {
+    "gpt-6-luna": {"rotulo": "GPT-6 Luna", "custo_hora": "~US$ 0,09/h", "ajuste_nota": 0},
+    "gpt-6.1-terra": {"rotulo": "GPT-6.1 Terra", "custo_hora": "~US$ 0,50/h", "ajuste_nota": 0},
+    "gpt-6.2-sol": {"rotulo": "GPT-6.2 Sol", "custo_hora": "~US$ 0,90/h", "ajuste_nota": 0},
+}
+MODELO_CODEX_PADRAO = "gpt-6-luna"
+
+
+def modelo_codex(atual):
+    m = atual.get("modelo")
+    return m if m in MODELOS_CODEX else MODELO_CODEX_PADRAO
+
+
+def ajuste_nota(atual):
+    """Quanto somar à nota do GPT na seleção (só na conexão ChatGPT, conforme o modelo)."""
+    return MODELOS_CODEX[modelo_codex(atual)]["ajuste_nota"] if atual.get("modo") == "chatgpt" else 0
+
 
 class FalhaGPT(ValueError):
     pass
@@ -97,9 +117,10 @@ def localizar_codex():
 def conectar(acao, corpo, env):
     env = {k: v for k, v in env.items() if k not in ("OPENAI_API_KEY", "CODEX_API_KEY")}
     if acao == "status":
-        modo = ler()["modo"]
+        atual = ler()
+        modo = atual["modo"]
         estado = {"api": "salva", "local": "local"}.get(modo) or sessao(localizar_codex(), env)
-        return {"modo": modo, "estado": estado}
+        return {"modo": modo, "estado": estado, **({"modelo": modelo_codex(atual)} if modo == "chatgpt" else {})}
     if acao == "conectar":
         modo = corpo.get("modo")
         if modo == "local":
@@ -114,6 +135,9 @@ def conectar(acao, corpo, env):
             return {"modo": modo, "estado": "salva"}
         if modo != "chatgpt":
             raise FalhaGPT("Escolha uma forma de conexão.")
+        modelo = corpo.get("modelo", MODELO_CODEX_PADRAO)
+        if modelo not in MODELOS_CODEX:
+            raise FalhaGPT("Escolha um modelo do GPT da lista.")
         cli = localizar_codex()
         estado = sessao(cli, env)
         if estado == "desconectado":
@@ -122,8 +146,8 @@ def conectar(acao, corpo, env):
                              creationflags=subprocess.CREATE_NO_WINDOW)
             return {"modo": modo, "estado": "aguardando"}
         if estado == "conectado":
-            salvar({"modo": modo})
-        return {"modo": modo, "estado": estado}
+            salvar({"modo": modo, "modelo": modelo})
+        return {"modo": modo, "estado": estado, "modelo": modelo}
     raise FalhaGPT("Operação GPT desconhecida.")
 
 
@@ -142,7 +166,7 @@ def _consultar(atual, instrucao, contexto):
         destino = Path(pasta) / "decisao.txt"
         resultado = subprocess.run(
             [cli, "exec", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check",
-             "--sandbox", "read-only", "--disable", "shell_tool", "-m", "gpt-6.2-sol",
+             "--sandbox", "read-only", "--disable", "shell_tool", "-m", modelo_codex(atual),
              "-c", 'model_reasoning_effort="low"', "-c", 'approval_policy="never"',
              "--output-last-message", str(destino), "-"],
             cwd=pasta, env=env, input=instrucao + "\n\n" + contexto, encoding="utf-8", errors="replace",
@@ -319,7 +343,8 @@ class Juiz:
             fs[0]["s"] - ant["e"] >= 0.6 and momento._lim(ant["w"]) not in momento.SOLTAS
             and not ant["w"].rstrip().endswith(","))
         self._pedido = {"fila": fila, "t0": time.monotonic(), "fs": fs, "disponivel": disponivel, "abre0": abre0,
-                        "min": duracao_min, "alvo": alvo, "max": duracao_max, "modo": atual["modo"]}
+                        "min": duracao_min, "alvo": alvo, "max": duracao_max, "modo": atual["modo"],
+                        "ajuste_nota": ajuste_nota(atual)}
         return self._colher(min_ini, final, espera=self.prazo)
 
     def _colher(self, min_ini, final, espera=0.0):
@@ -349,6 +374,7 @@ class Juiz:
             return None
         if not (0 <= primeiro <= pico <= ultimo < len(fs) and 0 <= nota <= 10):
             return None
+        nota = min(10, nota + pedido.get("ajuste_nota", 0))
         # frase completa: o início recua até a frase que abre; o fim avança até a frase que fecha
         def recua_ok(i):
             return i > 0 and fs[i - 1]["s"] >= min_ini and fs[i]["s"] - fs[i - 1]["e"] < BUR_S

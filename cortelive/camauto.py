@@ -37,18 +37,24 @@ def lidas():
 VERSAO_DET = 13
 
 
-def salvar(canal, cam, origem):
+def salvar(canal, cam, origem, sessao=None):
     d = lidas()
     d[canal.lower()] = {"cam": list(cam) if cam else None, "origem": origem}
     if origem == "automática":
         d[canal.lower()]["det"] = VERSAO_DET
+        d[canal.lower()]["sessao"] = sessao
     ARQ.parent.mkdir(parents=True, exist_ok=True)
     ARQ.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def da_memoria(canal):
+def da_memoria(canal, sessao=None):
+    """Cam guardada do canal. A automática só vale para a MESMA sessão (live/rodada): o layout muda de uma live para
+    outra e, em link de vídeo gravado, o 'canal' é o código do vídeo; a 1.0.15 reaproveitava a cam de uma rodada de
+    teste anterior do VOD do gabepeixe (19/11/2026) e o corte da live só de câmera saiu com a parede em cima.
+    A marcada à mão vale sempre (e é conferida em cada corte, render.rever_cam)."""
     m = lidas().get(canal.lower())
-    if m and m.get("origem") == "automática" and m.get("det") != VERSAO_DET:
+    if m and m.get("origem") == "automática" and (m.get("det") != VERSAO_DET or not sessao
+                                                  or m.get("sessao") != sessao):
         return None
     return m
 

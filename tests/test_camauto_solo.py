@@ -52,5 +52,6 @@ def test_memoria_automatica_de_detector_antigo_e_refeita(tmp_path, monkeypatch):
         ' "fulano": {"cam": [1, 2, 300, 200], "origem": "marcada"}}', encoding="utf-8")
     assert camauto.da_memoria("brino") is None          # detecção de versão antiga: procura de novo
     assert camauto.da_memoria("fulano")["cam"] == [1, 2, 300, 200]   # marcada à mão vale sempre
-    camauto.salvar("brino", (10, 20, 300, 200), "automática")
-    assert camauto.da_memoria("brino")["cam"] == [10, 20, 300, 200]  # a nova detecção vale
+    camauto.salvar("brino", (10, 20, 300, 200), "automática", "live 1")
+    assert camauto.da_memoria("brino", "live 1")["cam"] == [10, 20, 300, 200]  # a nova detecção vale na mesma live
+    assert camauto.da_memoria("brino", "live 2") is None                        # e não passa para a próxima

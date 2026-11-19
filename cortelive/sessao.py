@@ -247,7 +247,7 @@ class Sessao:
         if args.cam:
             cam, cam_status = (tuple(int(v) for v in args.cam.split(",")) if isinstance(args.cam, str) else tuple(args.cam)), "informada"
         else:
-            mem = camauto.da_memoria(canal)
+            mem = camauto.da_memoria(canal, pasta.name)
             if mem:
                 cam, cam_status = (tuple(mem["cam"]) if mem["cam"] else None), f"memória ({mem['origem']})"
             elif not cfg["detectar_cam"]:
@@ -423,7 +423,8 @@ class Sessao:
                                           "faixa_cor": cfg.get("faixa_cor", "vermelha"),
                                           "recuo_sem_cam": cfg.get("recuo_sem_cam"),
                                           # v1.0.16: cam automática é conferida em cada corte (render.rever_cam)
-                                          "conferir_cam": cam_status == "detectada" or "automática" in cam_status},
+                                          # memória (de outra live) também: a cam pode ter mudado de lugar
+                                          "conferir_cam": cam_status != "informada"},
                                          ensure_ascii=False), encoding="utf-8")
             self._job_atual["fase"] = "fila_render"
             try:
@@ -725,7 +726,7 @@ class Sessao:
                     log.debug(f"camauto: {e}")
                     cam = None
                 cam_status = "detectada" if cam else "não achada"
-                camauto.salvar(canal, cam, "automática")
+                camauto.salvar(canal, cam, "automática", pasta.name)
                 with cap.lock:
                     cap.presos -= {i for i, s in cap.segs.items() if Path(s.arquivo) in {a for _, a in amostras_cam}}
                 log.info(f"Cam do streamer: {'achei em ' + ','.join(map(str, cam)) if cam else ('confiança baixa (' + camauto.ULTIMO.get('motivo', '?') + ') — usando o enquadramento definido pelo modelo de corte')}"

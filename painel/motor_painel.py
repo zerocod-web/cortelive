@@ -303,7 +303,7 @@ class ApiPainel:
                 finally:
                     temporario.unlink(missing_ok=True)
         if "originais_dias" in alteracoes:
-            self.limpar_originais(forcar=True)      # prazo menor vale na hora
+            self.limpeza_originais_em = 0.0          # o prazo novo vale na próxima listagem dos cortes
         return config_postagem(self.raiz)
 
     def drive(self, acao, metodo, corpo):

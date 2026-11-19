@@ -899,7 +899,8 @@
     } catch (_) {}
   }
 
-  async function salvarConfigCorte() {
+  // Salva só o campo que mudou: assim um seletor ainda não carregado nunca grava um valor que não foi escolhido.
+  async function salvarConfigCorte(evento) {
     if (salvandoPreferencias) return;
     salvandoPreferencias = true;
     const seletor = el("sel-duracao-minima");
@@ -908,7 +909,8 @@
     dias.disabled = true;
     let resp = null;
     try {
-      resp = await api("/api/config-postagem", "POST", { duracao_minima_modo: seletor.value, originais_dias: Number(dias.value) });
+      const corpo = evento?.target === dias ? { originais_dias: Number(dias.value) } : { duracao_minima_modo: seletor.value };
+      resp = await api("/api/config-postagem", "POST", corpo);
     } finally {
       salvandoPreferencias = false;
       seletor.disabled = false;

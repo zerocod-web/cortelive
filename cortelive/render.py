@@ -840,6 +840,7 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     if modo != "auto" and modo not in MODOS:
         raise ValueError(f"Modo de corte desconhecido: {modo}")
     motivo_modo = None
+    cam_entrada = None
     if foco and modo in ("tela-cheia", "fundo-desfocado"):
         foco = None          # marcação de câmera/gameplay só vale no Câmera + jogo
     if modo == "camera-jogo" and not foco:
@@ -864,6 +865,7 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
                  jogo={"x": jx / sw, "y": jy / sh, "w": jw / sw, "h": jh / sh}, jogo_vista=0.0, _foco_manual=foco)
         caiu = False
     else:
+        cam_entrada = tuple(cam) if cam is not None else None
         if conferir_cam and cam is not None:
             try:
                 m0 = carregar("modelo", modelo)
@@ -884,10 +886,14 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
         jx_, jy_, jw2, jh2, cobrir = janela_jogo_cheia(sw, sh, W_, hj_, cam)
         m = dict(m, jogo={"x": jx_ / sw, "y": 0.0, "w": jw2 / sw, "h": 1.0}, jogo_vista=0.0, _jogo_cheio=True,
                  _cobrir_cam=cobrir)
-    if m["tipo"] == "cam-em-cima" and modo == "auto" and not foco and cam is not None:
+    # a conferência da cam (rever_cam) pode largar a caixa de uma live só de câmera (pessoa fora do quadro, rosto
+    # virado): a caixa que veio da detecção da live ainda diz que não há jogo separado
+    cam_regra = cam if cam is not None else (cam_entrada if modo == "auto" and not foco else None)
+    if m["tipo"] == "cam-em-cima" and modo == "auto" and not foco and cam_regra is not None:
         try:
             nw_, nh_, jx_, jy_, _ = _jogo_janela(m, sw, sh)
-            motivo_modo = sem_jogo_separado(tuple(cam), (jx_, jy_, nw_, nh_), sw, sh)
+            motivo_modo = sem_jogo_separado(tuple(cam_regra), (jx_, jy_, nw_, nh_) if cam is not None else None,
+                                            sw, sh)
         except Exception:
             motivo_modo = None
         if motivo_modo:

@@ -437,6 +437,23 @@
               <span id="contador-cortes-total" class="contador-pilula">0 cortes</span>
             </div>
 
+            <div id="filtro-notas" class="filtro-notas" role="group" aria-labelledby="filtro-notas-rotulo" hidden>
+              <span id="filtro-notas-rotulo" class="filtro-notas-rotulo">Nota do GPT</span>
+              <div class="filtro-notas-atalhos">
+                <button type="button" class="filtro-chip" data-filtro="todas" aria-pressed="true">Todas</button>
+                <button type="button" class="filtro-chip" data-filtro="8-10" aria-pressed="false">8 ou mais</button>
+                <button type="button" class="filtro-chip" data-filtro="6-10" aria-pressed="false">6 a 10</button>
+                <button type="button" class="filtro-chip" data-filtro="0-5" aria-pressed="false">5 ou menos</button>
+              </div>
+              <div class="filtro-notas-faixa">
+                <label for="filtro-nota-min">De</label>
+                <select id="filtro-nota-min" class="filtro-nota-select"></select>
+                <label for="filtro-nota-max">até</label>
+                <select id="filtro-nota-max" class="filtro-nota-select"></select>
+              </div>
+              <button type="button" id="btn-excluir-filtrados" class="btn btn-perigo btn-compacto" hidden>Excluir os cortes filtrados</button>
+            </div>
+
             <p id="feedback-corte" class="ajuda-campo" role="status" hidden></p>
 
             <div id="estado-sem-cortes" class="painel-card vazio-card">
@@ -445,6 +462,7 @@
               <p>Os vídeos aparecem aqui à medida que o CorteLive encontra e corta os melhores momentos.</p>
             </div>
 
+            <p id="filtro-sem-cortes" class="filtro-vazio" role="status" hidden></p>
             <div id="lista-cortes" class="grade-cortes" hidden></div>
           </section>
         </div>

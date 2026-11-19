@@ -198,7 +198,30 @@ class ApiPainel:
                             (meta.parent / nome).unlink(missing_ok=True)
                         except OSError:
                             pass
+            if corpo.get("rejeitado"):
+                self.anotar_rejeitado(video, dados, corpo.get("origem"))
         return {"mensagem": "O MP4 do corte foi enviado à Lixeira."}
+
+    def anotar_rejeitado(self, video, dados, origem):
+        """Corte que o Gabriel não quis (botão "Não quero" ou exclusão pelo filtro de nota): uma linha em
+        rejeitados.jsonl, para ajustar a nota do GPT no futuro. Falha aqui nunca impede a exclusão."""
+        from cortelive import pastas
+
+        linha = {
+            "quando": datetime.now().isoformat(timespec="seconds"),
+            "origem": origem if origem in ("nao_quero", "filtro_nota") else "nao_quero",
+            "live": video.parent.name, "canal": pastas.canal_da_pasta(video.parent.name),
+            "arquivo": video.name, "titulo": dados.get("titulo_sugerido"),
+            "inicio_na_live": dados.get("inicio_na_live"), "fim_na_live": dados.get("fim_na_live"),
+            "inicio_hms": dados.get("inicio_hms"), "fim_hms": dados.get("fim_hms"),
+            "duracao": dados.get("duracao"), "nota_juiz": dados.get("nota_juiz"), "juiz": dados.get("juiz"),
+            "pontuacao": dados.get("pontuacao"), "motivo": dados.get("motivo"),
+        }
+        try:
+            with open(self.pasta_cortes() / "rejeitados.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(linha, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
 
     def foco(self, acao, url, corpo):
         """Editor de foco do corte: estado, quadro (JPEG), refazer com a marcação, voltar ao automático, baixar."""

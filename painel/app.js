@@ -693,17 +693,19 @@
     }
     destino.append(feedback);
 
+    // "Não quero" (v1.0.17): some na hora, com Desfazer por alguns segundos; depois vai à Lixeira do Windows.
     const btnExcluir = document.createElement("button");
     btnExcluir.type = "button";
-    btnExcluir.className = "btn btn-secundario btn-compacto";
-    btnExcluir.textContent = "Excluir";
+    btnExcluir.className = "btn btn-secundario btn-compacto btn-nao-quero";
+    btnExcluir.innerHTML = `
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/>
+      </svg>
+      <span>Não quero</span>
+    `;
     btnExcluir.dataset.acaoDestino = "excluir";
-    btnExcluir.setAttribute("aria-label", "Excluir corte " + titulo);
-    btnExcluir.addEventListener("click", () => {
-      if (window.confirm(`Enviar o MP4 do corte “${titulo}” à Lixeira do Windows?`)) {
-        alterarDestinoCorte(c, btnExcluir, feedback, "/api/cortes/excluir", {}, "A exclusão está indisponível nesta versão.");
-      }
-    });
+    btnExcluir.setAttribute("aria-label", "Não quero o corte " + titulo + " (vai para a Lixeira)");
+    btnExcluir.addEventListener("click", () => naoQuero(c));
     const btnFoco = document.createElement("button");
     btnFoco.type = "button";
     btnFoco.className = "btn btn-secundario btn-compacto";
@@ -773,18 +775,223 @@
     if (restaurarFoco) atualizado?.querySelector(`[data-acao-destino="${botao.dataset.acaoDestino}"]`)?.focus();
   }
 
+  // Filtro de nota do GPT e exclusão em lote (v1.0.17, pedido do Gabriel).
+  // "Todas" mostra também os cortes sem nota; uma faixa mostra só os cortes com nota nessa faixa.
+  const filtroNota = { todas: true, min: 0, max: 10 };
+  let ultimaListaCortes = [];
+  let excluindoLote = false;
+
+  function notaDoCorte(c) {
+    return Number.isInteger(c.nota_juiz) && c.nota_juiz >= 0 && c.nota_juiz <= 10 ? c.nota_juiz : null;
+  }
+
+  function passaNoFiltro(c) {
+    if (filtroNota.todas) return true;
+    const nota = notaDoCorte(c);
+    return nota !== null && nota >= filtroNota.min && nota <= filtroNota.max;
+  }
+
+  function textoFaixa() {
+    return filtroNota.min === filtroNota.max ? `nota ${filtroNota.min}` : `nota de ${filtroNota.min} a ${filtroNota.max}`;
+  }
+
+  function aplicarFiltroNotas(novo) {
+    Object.assign(filtroNota, novo);
+    if (filtroNota.min > filtroNota.max) [filtroNota.min, filtroNota.max] = [filtroNota.max, filtroNota.min];
+    el("filtro-nota-min").value = String(filtroNota.min);
+    el("filtro-nota-max").value = String(filtroNota.max);
+    el("filtro-notas").querySelectorAll(".filtro-chip").forEach((chip) => {
+      const [min, max] = chip.dataset.filtro === "todas" ? [] : chip.dataset.filtro.split("-").map(Number);
+      const ativo = chip.dataset.filtro === "todas" ? filtroNota.todas
+        : !filtroNota.todas && min === filtroNota.min && max === filtroNota.max;
+      chip.setAttribute("aria-pressed", String(ativo));
+    });
+    try {
+      localStorage.setItem("cortelive_filtro_nota", JSON.stringify(filtroNota));
+    } catch (_) {}
+    assinaturaCortes = "";
+    atualizarListaCortes(estadoAtual?.cortes || ultimaListaCortes);
+  }
+
+  function iniciarFiltroNotas() {
+    for (const id of ["filtro-nota-min", "filtro-nota-max"]) {
+      const sel = el(id);
+      for (let n = 0; n <= 10; n += 1) {
+        const opcao = document.createElement("option");
+        opcao.value = String(n);
+        opcao.textContent = String(n);
+        sel.appendChild(opcao);
+      }
+      sel.addEventListener("change", () => aplicarFiltroNotas({
+        todas: false, min: Number(el("filtro-nota-min").value), max: Number(el("filtro-nota-max").value),
+      }));
+    }
+    el("filtro-notas").querySelectorAll(".filtro-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        if (chip.dataset.filtro === "todas") return aplicarFiltroNotas({ todas: true, min: 0, max: 10 });
+        const [min, max] = chip.dataset.filtro.split("-").map(Number);
+        aplicarFiltroNotas({ todas: false, min, max });
+      });
+    });
+    el("btn-excluir-filtrados").addEventListener("click", excluirFiltrados);
+    let salvo = null;
+    try {
+      salvo = JSON.parse(localStorage.getItem("cortelive_filtro_nota") || "null");
+    } catch (_) {}
+    const valido = (n) => Number.isInteger(n) && n >= 0 && n <= 10;
+    aplicarFiltroNotas(salvo && valido(salvo.min) && valido(salvo.max)
+      ? { todas: salvo.todas !== false, min: salvo.min, max: salvo.max } : { todas: true, min: 0, max: 10 });
+  }
+
+  function atualizarBarraFiltro(totalTodos, filtrados) {
+    el("filtro-notas").hidden = totalTodos === 0;
+    const botao = el("btn-excluir-filtrados");
+    const n = filtrados.length;
+    botao.hidden = filtroNota.todas || (n === 0 && !excluindoLote);
+    botao.disabled = excluindoLote;
+    if (!excluindoLote) botao.textContent = n === 1 ? "Excluir o corte filtrado" : `Excluir os ${n} cortes filtrados`;
+    const vazioFiltro = el("filtro-sem-cortes");
+    vazioFiltro.hidden = totalTodos === 0 || n > 0;
+    vazioFiltro.textContent = `Nenhum corte com ${textoFaixa()}.`;
+  }
+
+  // "Não quero": o corte some da lista na hora e só vai à Lixeira depois de PRAZO_DESFAZER_MS.
+  // Se o painel fechar antes, o corte fica (nunca apaga sem querer).
+  const PRAZO_DESFAZER_MS = 7000;
+  const naoQueroPendentes = new Map();   // caminho -> { corte, timer }
+
+  function avisoDesfazer() {
+    let aviso = el("aviso-desfazer");
+    if (aviso) return aviso;
+    aviso = document.createElement("div");
+    aviso.id = "aviso-desfazer";
+    aviso.className = "aviso-desfazer";
+    aviso.setAttribute("role", "status");
+    aviso.hidden = true;
+    const texto = document.createElement("span");
+    texto.className = "aviso-desfazer-texto";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn btn-secundario btn-compacto";
+    btn.textContent = "Desfazer";
+    btn.addEventListener("click", desfazerNaoQuero);
+    aviso.append(texto, btn);
+    document.body.append(aviso);
+    return aviso;
+  }
+
+  function mostrarAvisoDesfazer() {
+    const aviso = avisoDesfazer();
+    const n = Array.from(naoQueroPendentes.values()).filter((p) => !p.enviando).length;
+    aviso.hidden = n === 0;
+    if (n === 0) return;
+    aviso.querySelector(".aviso-desfazer-texto").textContent =
+      n === 1 ? "Corte retirado. Ele vai para a Lixeira em instantes." : `${n} cortes retirados. Eles vão para a Lixeira em instantes.`;
+  }
+
+  function naoQuero(corte) {
+    if (naoQueroPendentes.has(corte.caminho) || acoesDestinoAtivas.has(corte.caminho)) return;
+    const timer = setTimeout(() => confirmarNaoQuero(corte.caminho), PRAZO_DESFAZER_MS);
+    naoQueroPendentes.set(corte.caminho, { corte, timer });
+    assinaturaCortes = "";
+    atualizarListaCortes(estadoAtual?.cortes || ultimaListaCortes);
+    mostrarAvisoDesfazer();
+    avisoDesfazer().querySelector("button").focus();
+  }
+
+  function desfazerNaoQuero() {
+    for (const [caminho, p] of naoQueroPendentes) {
+      if (p.enviando) continue;        // já foi para a Lixeira: restaurar por lá
+      clearTimeout(p.timer);
+      naoQueroPendentes.delete(caminho);
+    }
+    assinaturaCortes = "";
+    atualizarListaCortes(estadoAtual?.cortes || ultimaListaCortes);
+    mostrarAvisoDesfazer();
+    feedbackAcao(el("feedback-corte"), "Corte devolvido à lista.");
+  }
+
+  async function confirmarNaoQuero(caminho) {
+    const pendente = naoQueroPendentes.get(caminho);
+    if (!pendente || pendente.enviando) return;
+    pendente.enviando = true;          // continua fora da lista até a Lixeira responder
+    mostrarAvisoDesfazer();
+    acoesDestinoAtivas.add(caminho);
+    const res = await api("/api/cortes/excluir", "POST", { caminho, rejeitado: true, origem: "nao_quero" });
+    acoesDestinoAtivas.delete(caminho);
+    naoQueroPendentes.delete(caminho);
+    mostrarAvisoDesfazer();
+    versaoEstadoCortes += 1;
+    if (res.ok === true) {
+      if (estadoAtual?.cortes) estadoAtual.cortes = estadoAtual.cortes.filter((item) => item.caminho !== caminho);
+      ultimaListaCortes = ultimaListaCortes.filter((item) => item.caminho !== caminho);
+    } else {
+      feedbackAcao(el("feedback-corte"), erroDestino(res, "A exclusão está indisponível nesta versão."), true);
+    }
+    assinaturaCortes = "";
+    atualizarListaCortes(estadoAtual?.cortes || ultimaListaCortes);
+  }
+
+  async function excluirFiltrados() {
+    if (excluindoLote || filtroNota.todas) return;
+    const alvo = ultimaListaCortes.filter(passaNoFiltro)
+      .filter((c) => !acoesDestinoAtivas.has(c.caminho) && !naoQueroPendentes.has(c.caminho));
+    const n = alvo.length;
+    if (!n) return;
+    const quantos = n === 1 ? "1 corte" : `${n} cortes`;
+    if (!window.confirm(`Excluir ${quantos} com ${textoFaixa()}?\n\nOs vídeos vão para a Lixeira do Windows. Para desfazer, restaure-os pela Lixeira.`)) return;
+
+    excluindoLote = true;
+    const botao = el("btn-excluir-filtrados");
+    botao.disabled = true;
+    alvo.forEach((c) => acoesDestinoAtivas.add(c.caminho));
+    el("lista-cortes").querySelectorAll(".corte-card").forEach((card) => {
+      if (acoesDestinoAtivas.has(card.dataset.caminho)) {
+        card.querySelectorAll("[data-acao-destino]").forEach((controle) => { controle.disabled = true; });
+      }
+    });
+    let enviados = 0;
+    const falhas = [];
+    for (const [i, c] of alvo.entries()) {
+      botao.textContent = `Excluindo ${i + 1} de ${n}…`;
+      const res = await api("/api/cortes/excluir", "POST", { caminho: c.caminho, rejeitado: true, origem: "filtro_nota" });
+      acoesDestinoAtivas.delete(c.caminho);
+      versaoEstadoCortes += 1;
+      if (res.ok === true) {
+        enviados += 1;
+        if (estadoAtual?.cortes) estadoAtual.cortes = estadoAtual.cortes.filter((item) => item.caminho !== c.caminho);
+        ultimaListaCortes = ultimaListaCortes.filter((item) => item.caminho !== c.caminho);
+      } else {
+        falhas.push(erroDestino(res, "A exclusão está indisponível nesta versão."));
+      }
+    }
+    excluindoLote = false;
+    assinaturaCortes = "";
+    atualizarListaCortes(estadoAtual?.cortes || ultimaListaCortes);
+    const ok = enviados === 1 ? "1 corte enviado à Lixeira do Windows" : `${enviados} cortes enviados à Lixeira do Windows`;
+    feedbackAcao(el("feedback-corte"), falhas.length
+      ? `${ok}. ${falhas.length === 1 ? "1 não pôde" : falhas.length + " não puderam"} ser excluídos: ${falhas[0]}`
+      : `${ok}. Para desfazer, restaure pela Lixeira.`, falhas.length > 0);
+  }
+
   function atualizarListaCortes(cortes) {
-    const lista = Array.isArray(cortes) ? cortes : [];
+    const recebidos = Array.isArray(cortes) ? cortes : [];
+    ultimaListaCortes = recebidos;
+    const todos = recebidos.filter((c) => !naoQueroPendentes.has(c.caminho));
+    const lista = todos.filter(passaNoFiltro);
     const total = lista.length;
-    el("contador-cortes-total").textContent = total === 1 ? "1 corte" : `${total} cortes`;
+    el("contador-cortes-total").textContent = filtroNota.todas
+      ? (total === 1 ? "1 corte" : `${total} cortes`)
+      : `${total} de ${todos.length} ${todos.length === 1 ? "corte" : "cortes"}`;
+    atualizarBarraFiltro(todos.length, lista);
 
     const vazio = el("estado-sem-cortes");
     const grade = el("lista-cortes");
-    const novaAssinatura = JSON.stringify([total, lista]);
+    const novaAssinatura = JSON.stringify([total, lista, filtroNota]);
     if (novaAssinatura === assinaturaCortes) return;
     assinaturaCortes = novaAssinatura;
 
-    vazio.hidden = total > 0;
+    vazio.hidden = todos.length > 0;
     grade.hidden = total === 0;
     if (!total) {
       grade.replaceChildren();
@@ -1233,6 +1440,7 @@
 
   document.addEventListener("DOMContentLoaded", async () => {
     iniciarTema();
+    iniciarFiltroNotas();
     registrarEventos();
 
     const params = new URLSearchParams(window.location.search);

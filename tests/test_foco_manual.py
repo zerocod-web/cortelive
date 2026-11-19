@@ -88,3 +88,15 @@ def test_painel_rotas_foco_existem():
     assert st == 404 and d["ok"] is False          # rota existe; o corte é que não
     st, d = api.responder("POST", "/api/foco/refazer", {"caminho": "nao_existe.mp4", "foco": {}})
     assert st == 404
+
+
+def test_memoria_automatica_so_vale_na_mesma_sessao(tmp_path, monkeypatch):
+    """Kick VOD gabepeixe 19/11/2026: a cam automática de uma rodada anterior era usada sem conferir."""
+    from cortelive import camauto
+    monkeypatch.setattr(camauto, "ARQ", tmp_path / "cams.json")
+    camauto.salvar("01a1f40d", (1238, 72, 414, 244), "automática", "sessao A")
+    assert camauto.da_memoria("01a1f40d", "sessao A")["cam"] == [1238, 72, 414, 244]
+    assert camauto.da_memoria("01a1f40d", "sessao B") is None
+    assert camauto.da_memoria("01a1f40d") is None
+    camauto.salvar("gaules", (0, 0, 400, 300), "marcada")
+    assert camauto.da_memoria("gaules", "qualquer")["cam"] == [0, 0, 400, 300]

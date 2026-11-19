@@ -38,7 +38,8 @@
   padding: 2px 8px; font-size: 12px; font-weight: 600; color: #fff; border-radius: 4px 4px 0 0; white-space: nowrap; }
 .foco-caixa[data-alvo="cam"] .foco-etiqueta { background: var(--foco-cam); }
 .foco-caixa[data-alvo="jogo"] .foco-etiqueta { background: var(--foco-jogo); color: #06262d; }
-.foco-caixa[data-ativa="false"] { opacity: 0.6; }
+.foco-caixa[data-ativa="false"] { opacity: 0.6; cursor: crosshair; }
+.foco-caixa[data-ativa="false"] .foco-alca { display: none; }
 .foco-alca { position: absolute; right: -9px; bottom: -9px; width: 18px; height: 18px; border-radius: 50%;
   background: #fff; border: 2px solid rgba(0, 0, 0, 0.6); cursor: nwse-resize; }
 

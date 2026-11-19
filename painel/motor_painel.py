@@ -235,6 +235,7 @@ class ApiPainel:
     def foco(self, acao, url, corpo):
         """Editor de foco do corte: estado, quadro (JPEG), refazer com a marcação, voltar ao automático, baixar."""
         from painel import foco
+        os.environ["PATH"] = self.ambiente()["PATH"]      # ffmpeg/ffprobe da instalação (quadro e tamanho)
         q = parse_qs(url.query)
         texto = q.get("caminho", [""])[0] if acao in ("estado", "quadro") else campo(corpo, "caminho")
         video = self.dentro_dos_cortes(texto)
@@ -254,7 +255,8 @@ class ApiPainel:
                     raise ErroApi(400, "Marque a área da câmera e a da gameplay antes de refazer.")
                 pedido = {k: [int(round(float(v))) for v in pedido[k]] for k in ("cam", "jogo")
                           if isinstance(pedido.get(k), list) and len(pedido[k]) == 4}
-            return foco.iniciar(video, acao, pedido, self.ambiente(), self.raiz)
+            return foco.iniciar(video, acao, pedido, self.ambiente(), self.raiz,
+                                self.python if self.python.is_file() else None)
         except foco.ErroFoco as erro:
             raise ErroApi(400, str(erro)) from None
 

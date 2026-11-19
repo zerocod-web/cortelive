@@ -82,7 +82,10 @@ def proporcoes():
 def estado(video):
     meta, d = _meta(video)
     st = _ler(_status_arq(meta))
-    if st.get("estado") in ("baixando", "renderizando") and time.time() - st.get("t", 0) > 900:
+    parado = time.time() - st.get("t", 0)
+    if st.get("estado") in ("baixando", "renderizando") and (
+            parado > 900 or (st.get("mensagem") == "Começando…" and parado > 30)):
+        # o processo à parte não chegou a começar (30 s) ou morreu no meio (15 min)
         st = {"estado": "erro", "mensagem": "O trabalho anterior parou sem terminar. Tente de novo."}
     loc = fonte_local(video)
     out = {"foco": d.get("foco"), "cam_auto": d.get("cam"), "duracao": d.get("duracao"),
@@ -112,7 +115,7 @@ def quadro(video, t=0.0, largura=960):
     return p.stdout
 
 
-def iniciar(video, acao, foco=None, ambiente=None, raiz=None):
+def iniciar(video, acao, foco=None, ambiente=None, raiz=None, python=None):
     """Começa (em outro processo) 'baixar', 'refazer' (com foco) ou 'automatico'. Volta na hora."""
     if acao not in ("baixar", "refazer", "automatico"):
         raise ErroFoco("Ação inválida.")
@@ -134,9 +137,11 @@ def iniciar(video, acao, foco=None, ambiente=None, raiz=None):
     fl = 0
     if os.name == "nt":
         fl = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen([sys.executable, "-X", "utf8", "-m", "painel.foco", str(video), acao], cwd=str(raiz),
-                     env=ambiente or os.environ.copy(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL, creationflags=fl, close_fds=True)
+    # saída do processo num log ao lado do corte: se ele morrer antes de gravar o estado, o motivo fica lá
+    with open(meta.with_name(meta.stem + ".foco.log"), "ab") as log:
+        subprocess.Popen([str(python or sys.executable), "-X", "utf8", "-m", "painel.foco", str(video), acao],
+                         cwd=str(raiz), env=ambiente or os.environ.copy(), stdin=subprocess.DEVNULL, stdout=log,
+                         stderr=log, creationflags=fl, close_fds=True)
     return {"mensagem": "Começou. O corte será refeito em alguns segundos."}
 
 

@@ -817,8 +817,13 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
     aviso = None
     try:
         if ass_pronto:
-            if Path(ass_pronto).resolve() != ass.resolve():
-                shutil.copyfile(ass_pronto, ass)
+            # legenda de um corte antigo: mesma fala e tempos; só a altura acompanha a faixa do layout novo
+            txt = Path(ass_pronto).read_text(encoding="utf-8")
+            if m.get("tipo") == "cam-em-cima" and m.get("legenda_na_emenda", True):
+                y = (m["_faixa"]["centro"] if (m.get("_faixa") or {}).get("modo") == "rasgada"
+                     else m.get("altura_cam", 640) + m.get("legenda_desvio_emenda", 40))
+                txt = re.sub(r"\\an5\\pos\((\d+),\d+\)", lambda g: f"\\an5\\pos({g.group(1)},{y})", txt)
+            ass.write_text(txt, encoding="utf-8")
         else:
             gerar_ass(pal, inicio, fim, est, m, ass)
     except Exception as e:

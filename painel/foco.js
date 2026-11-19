@@ -266,11 +266,12 @@
     const palco = q('[data-foco="palco"]');
     const r = palco.getBoundingClientRect(), k = escala();
     const px = (ev.clientX - r.left) / k, py = (ev.clientY - r.top) / k;
-    const alvoCaixa = ev.target.closest(".foco-caixa");
-    if (alvoCaixa) escolherAlvo(alvoCaixa.dataset.alvo);
+    // só a caixa escolhida (Câmera ou Gameplay) responde: arrastar em cima da outra desenha a escolhida
+    const naCaixa = ev.target.closest(".foco-caixa");
     const alvo = st.alvo;
+    const daAtiva = naCaixa && naCaixa.dataset.alvo === alvo;
     const ini = st.caixas[alvo].slice();
-    const modo = ev.target.dataset.alca ? "tamanho" : alvoCaixa ? "mover" : "desenhar";
+    const modo = daAtiva && ev.target.dataset.alca ? "tamanho" : daAtiva ? "mover" : "desenhar";
     palco.setPointerCapture(ev.pointerId);
     const mover = (e2) => {
       const qx = (e2.clientX - r.left) / k, qy = (e2.clientY - r.top) / k;

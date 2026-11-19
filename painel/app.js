@@ -1093,10 +1093,28 @@
       return;
     }
     const n = r.rejeitados;
-    status.textContent = r.ativo
-      ? `Aprendendo com ${n} ${n === 1 ? "corte rejeitado" : "cortes rejeitados"}.`
-      : `Aprendendo com ${n} ${n === 1 ? "corte rejeitado" : "cortes rejeitados"}. Começa a ajustar as notas a partir de ${r.minimo}.`;
+    const qtd = `${n} ${n === 1 ? "corte rejeitado" : "cortes rejeitados"}`;
+    el("chk-aprendizado").checked = r.ligado !== false;
+    status.textContent = r.ligado === false
+      ? `Desligado: as notas do GPT ficam como vieram (${qtd} anotados).`
+      : r.ativo
+        ? `Ligado: aprendendo com ${qtd}.`
+        : `Ligado: aprendendo com ${qtd}. Começa a ajustar as notas a partir de ${r.minimo}.`;
     el("btn-zerar-aprendizado").disabled = n === 0;
+  }
+
+  async function ligarAprendizado() {
+    const chk = el("chk-aprendizado");
+    chk.disabled = true;
+    const r = await api("/api/aprendizado/ligar", "POST", { ligado: chk.checked });
+    chk.disabled = false;
+    if (r.ok === false) {
+      chk.checked = !chk.checked;
+      feedbackAcao(el("feedback-aprendizado"), r.erro || "Não foi possível salvar.", true);
+    } else {
+      feedbackAcao(el("feedback-aprendizado"), "");
+    }
+    await carregarAprendizado();
   }
 
   async function zerarAprendizado() {
@@ -1109,6 +1127,7 @@
   function iniciarTriagem() {
     el("btn-limpar-espaco").addEventListener("click", limparEspaco);
     el("btn-zerar-aprendizado").addEventListener("click", zerarAprendizado);
+    el("chk-aprendizado").addEventListener("change", ligarAprendizado);
     el("aba-btn-config")?.addEventListener("click", carregarAprendizado);
     carregarAprendizado();
     carregarEspaco();

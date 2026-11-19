@@ -26,8 +26,16 @@ def livre_gb(pasta) -> float:
     return shutil.disk_usage(p).free / GB
 
 
+def total_gb(pasta) -> float:
+    """Tamanho (GB) do disco da pasta."""
+    p = Path(pasta).resolve()
+    while not p.exists() and p.parent != p:
+        p = p.parent
+    return shutil.disk_usage(p).total / GB
+
+
 def limites(cfg) -> tuple[float, float]:
-    aviso = float(cfg.get("disco_aviso_gb", 10))
+    aviso = float(cfg.get("disco_aviso_gb", 30))
     critico = float(cfg.get("disco_critico_gb", 3))
     if critico > aviso:
         critico = aviso
@@ -44,7 +52,17 @@ def avaliar(pasta, cfg):
     if livre < critico:
         return "critico", livre, (f"Disco quase lotado: {txt} GB livres. Parei a gravação para não encher o disco; "
                                   f"seus cortes prontos estão salvos. Libere espaço e comece de novo.")
-    if livre < aviso:
+    # v1.0.17: pouco = menos de disco_aviso_gb (30) OU menos de disco_aviso_pct (10%) do disco; o critério da
+    # porcentagem nunca chama de pouco mais que disco_aviso_teto_gb (100 GB) livres (disco grande e meio vazio).
+    pct = float(cfg.get("disco_aviso_pct", 10))
+    teto = float(cfg.get("disco_aviso_teto_gb", 100))
+    pouco_pct = False
+    if pct > 0 and livre < teto:
+        try:
+            pouco_pct = livre < total_gb(pasta) * pct / 100
+        except OSError:
+            pouco_pct = False
+    if livre < aviso or pouco_pct:
         return "aviso", livre, f"Pouco espaço no disco: {txt} GB livres."
     return "ok", livre, ""
 

@@ -170,7 +170,7 @@ class ApiPainel:
                 "miniatura": "/api/miniatura?caminho=" + quote(str(video), safe=""),
                 "caminho": str(video), "pasta": str(video.parent),
                 "caminho_sem_legenda": str(sem_legenda) if sem_legenda else None,
-                "nome_arquivo": video.name, "canal": pastas.canal_da_pasta(video.parent.name),
+                "nome_arquivo": video.name, "canal": pastas.canal_legivel(video.parent),
                 "data_hora": datetime.fromtimestamp(mtime).strftime("%d/%m %H:%M"),
                 "inicio_hms": dados.get("momento_hms") or dados.get("inicio_hms"),
                 "motivo": dados.get("motivo"), "modelo": dados.get("modelo_usado") or dados.get("modelo"),
@@ -461,7 +461,7 @@ class ApiPainel:
         acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""),
                       ("gpt", "conectar"), ("drive", "enviar"), ("cortes", "excluir"),
                       ("foco", "refazer"), ("foco", "automatico"), ("foco", "baixar"),
-                      ("aprendizado", "zerar"), ("espaco", "limpar")}
+                      ("aprendizado", "zerar"), ("aprendizado", "ligar"), ("espaco", "limpar")}
         par = grupo, acao
         if len(acoes) > 1 or par not in consultas | acoes_post | {("config-postagem", ""), ("drive", "config")}:
             raise ErroApi(404, "Rota não encontrada.")
@@ -494,6 +494,10 @@ class ApiPainel:
                 return {"mensagem": "Aprendizado zerado. As próximas rejeições começam do zero."
                         if guardado else "Ainda não havia cortes rejeitados.", "guardado": guardado,
                         **aprendizado.status(self.pasta_cortes())}
+            if acao == "ligar":
+                if not isinstance(corpo.get("ligado"), bool):
+                    raise ErroApi(400, "Informe se o aprendizado fica ligado ou desligado.")
+                aprendizado.ligar(self.pasta_cortes(), corpo["ligado"])
             return aprendizado.status(self.pasta_cortes())
         if grupo == "espaco":
             from painel import espaco

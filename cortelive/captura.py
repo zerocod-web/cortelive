@@ -191,6 +191,13 @@ def canal_da_url(url: str) -> str:
         if "@" in u:
             return [p for p in partes if p.startswith("@")][0].lstrip("@")
         return "youtube_" + (url.split("v=")[-1][:11] if "v=" in url else partes[-1])
+    # link de vídeo gravado com o canal no caminho (kick.com/<canal>/videos/<id>): o canal, não o código do vídeo
+    for marca in ("videos", "video"):
+        if marca in partes:
+            i = partes.index(marca)
+            dono = partes[i - 1] if i >= 1 else ""
+            if dono and "." not in dono and ":" not in dono:
+                return dono
     return partes[-1] if partes else "live"
 
 

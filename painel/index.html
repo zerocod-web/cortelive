@@ -506,8 +506,15 @@
               <h2 id="titulo-aprendizado" class="titulo-secao">Aprender com o “Não quero”</h2>
               <p class="texto-apoio">Quando você tira um corte da lista, o CorteLive anota a nota que o GPT deu. Com pelo menos 15 cortes rejeitados, cortes parecidos com os que você costuma tirar (mesma faixa de nota, no mesmo canal quando há exemplos suficientes) perdem até 2 pontos; os parecidos com os que você mantém ganham até 2.</p>
             </div>
+            <label class="switch-linha" for="chk-aprendizado">
+              <div class="switch-textos">
+                <strong>Ajustar as notas pelo que eu rejeito</strong>
+                <span id="aprendizado-status" role="status">Carregando…</span>
+              </div>
+              <input id="chk-aprendizado" class="switch-input" type="checkbox" role="switch" checked>
+            </label>
             <div class="aprendizado-linha">
-              <p id="aprendizado-status" class="aprendizado-status" role="status">Carregando…</p>
+              <p class="ajuda-campo">Desligado, as rejeições continuam sendo anotadas; só as notas deixam de mudar.</p>
               <button id="btn-zerar-aprendizado" type="button" class="btn btn-secundario btn-compacto">Zerar o aprendizado</button>
             </div>
             <p id="feedback-aprendizado" class="ajuda-campo" role="status" hidden></p>

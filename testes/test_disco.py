@@ -8,12 +8,27 @@ from cortelive import disco  # noqa: E402
 CFG = {"disco_aviso_gb": 10, "disco_critico_gb": 3}
 
 
-def _livre(monkeypatch, gb):
+def _livre(monkeypatch, gb, total=10000):
     monkeypatch.setattr(disco, "livre_gb", lambda pasta: gb)
+    monkeypatch.setattr(disco, "total_gb", lambda pasta: total)
+
+
+def test_padrao_v117_30gb_ou_10_por_cento(monkeypatch, tmp_path):
+    """Print de 19/11/2026: 'Pouco espaço' com 376,9 GB livres (limiar forçado no teste). No padrão, não avisa."""
+    _livre(monkeypatch, 376.9, 931)
+    assert disco.avaliar(tmp_path, {})[0] == "ok"
+    _livre(monkeypatch, 29, 4000)
+    assert disco.avaliar(tmp_path, {})[0] == "aviso"          # menos de 30 GB
+    _livre(monkeypatch, 80, 1000)
+    assert disco.avaliar(tmp_path, {})[0] == "aviso"          # 8% do disco
+    _livre(monkeypatch, 150, 2000)
+    assert disco.avaliar(tmp_path, {})[0] == "ok"             # 7,5%, mas 150 GB não é pouco (teto 100)
+    _livre(monkeypatch, 2, 931)
+    assert disco.avaliar(tmp_path, {})[0] == "critico"
 
 
 def test_niveis(monkeypatch, tmp_path):
-    _livre(monkeypatch, 50)
+    _livre(monkeypatch, 50, 200)          # 25% do disco livre
     assert disco.avaliar(tmp_path, CFG)[0] == "ok"
     _livre(monkeypatch, 8.4)
     nv, livre, frase = disco.avaliar(tmp_path, CFG)

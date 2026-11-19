@@ -181,7 +181,7 @@
 
   const estadosGPT = {
     local: "Seleção local ativa.",
-    conectado: "Conta ChatGPT conectada ao ranking dos cortes.",
+    conectado: "Conta ChatGPT conectada à seleção dos cortes.",
     salva: "Chave da API OpenAI validada e salva neste Windows.",
     ausente: "Instale o Codex para Windows para conectar sua conta ChatGPT.",
     desconectado: "Entre com sua conta ChatGPT pelo botão Conectar.",
@@ -528,7 +528,7 @@
     el("texto-btn-parar").textContent = finalizando ? "FINALIZANDO CORTES…" : "PARAR SESSÃO";
     campoLink.disabled = encerrandoSessao;
     btnCortar.disabled = encerrandoSessao;
-    el("texto-btn-cortar").textContent = rodando ? "ADICIONAR LIVE" : "CORTAR";
+    el("texto-btn-cortar").textContent = rodando ? "ADICIONAR LINK" : "CORTAR";
     el("btn-escolher-video").disabled = encerrandoSessao;
     document.querySelectorAll('#form-cortar input[type="radio"]').forEach((r) => {
       r.disabled = rodando;
@@ -543,11 +543,11 @@
     if (!rodando) {
       pilula.classList.add("tally-parado");
       txtTally.textContent = sessao.erro ? "ERRO" : "PRONTO";
-      resumo.textContent = sessao.ultima_mensagem || "Cole o link da live abaixo e clique em Cortar.";
+      resumo.textContent = sessao.ultima_mensagem || "Cole o link da live ou do vídeo e clique em Cortar.";
       metricas.hidden = true;
     } else if (emTransmissao) {
       pilula.classList.add("tally-ao-vivo");
-      txtTally.textContent = "AO VIVO";
+      txtTally.textContent = aoVivoLives.length && aoVivoLives.every((lv) => lv.video_gravado) ? "PROCESSANDO VÍDEO" : "AO VIVO";
       resumo.textContent = montarResumoAoVivo(sessao, lives, ativas, aoVivoLives, cortesSessao, ultimoCorteHaS);
       metricas.hidden = false;
     } else {
@@ -642,6 +642,12 @@
 
     meta.appendChild(linhaCanal);
     meta.appendChild(h3);
+    if (Number.isInteger(c.nota_juiz) && c.nota_juiz >= 0 && c.nota_juiz <= 10) {
+      const notaGPT = document.createElement("p");
+      notaGPT.className = "ajuda-campo";
+      notaGPT.textContent = "Avaliado pelo GPT · " + c.nota_juiz + "/10";
+      meta.appendChild(notaGPT);
+    }
     topo.appendChild(slate);
     topo.appendChild(meta);
 
@@ -1301,7 +1307,7 @@
       const fonte = el("campo-link").value.trim();
       const erroEl = el("erro-campo-link");
       if (!fonte) {
-        erroEl.textContent = "Cole o link da live (Twitch, YouTube ou Kick) ou escolha um vídeo para começar.";
+        erroEl.textContent = "Cole o link da live ou do vídeo, ou escolha um arquivo do PC.";
         erroEl.hidden = false;
         el("campo-link").focus();
         return;

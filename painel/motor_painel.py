@@ -184,6 +184,9 @@ class ApiPainel:
         for mtime, video in sorted(candidatos, reverse=True)[:60]:
             meta = pastas.meta_do_video(video)
             dados = ler_json(meta) if meta else {}
+            nota_gpt = dados.get("nota_juiz")
+            if dados.get("juiz") not in ("api", "chatgpt") or type(nota_gpt) is not int or not 0 <= nota_gpt <= 10:
+                nota_gpt = None
             postagem = destino.estado_postado(video)
             sem_legenda = next((p for p in (
                 video.parent / pastas.SEM_LEGENDA / video.name,
@@ -192,6 +195,7 @@ class ApiPainel:
             itens.append({
                 "titulo": dados.get("titulo_sugerido") or video.stem.split(" - ", 2)[-1],
                 "duracao": dados.get("duracao"),
+                "nota_juiz": nota_gpt,
                 "miniatura": "/api/miniatura?caminho=" + quote(str(video), safe=""),
                 "caminho": str(video), "pasta": str(video.parent),
                 "caminho_sem_legenda": str(sem_legenda) if sem_legenda else None,

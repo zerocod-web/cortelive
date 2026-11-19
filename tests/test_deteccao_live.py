@@ -52,3 +52,67 @@ def test_linhas_do_motor_nao_se_misturam():
         [t.start() for t in ts]; [t.join() for t in ts]
     linhas = buf.getvalue().splitlines()
     assert len(linhas) == 800 and all(l.count("@@STATUS@@") == 1 for l in linhas)
+
+
+
+@pytest.mark.parametrize("url,status,gravado", [
+    ("https://www.youtube.com/watch?v=abc", "not_live", True),
+    ("https://youtu.be/abc", "was_live", True),
+    ("https://www.youtube.com/watch?v=abc", "is_live", False),
+    ("https://www.youtube.com/watch?v=abc", "is_upcoming", False),
+    ("https://www.twitch.tv/videos/123", None, True),
+    ("https://kick.com/canal/videos/123", None, True),
+    ("https://example.com/video.mp4?token=teste", None, True),
+    ("https://www.twitch.tv/canal", None, False),
+])
+def test_classifica_video_gravado_sem_tratar_live_como_video(monkeypatch, url, status, gravado):
+    from cortelive import captura
+
+    monkeypatch.setattr(captura, "_status_youtube", lambda _: status)
+    monkeypatch.setattr(captura, "_streamlink_aceita", lambda _: True)
+    monkeypatch.setattr(captura, "_bin", lambda nome: nome)
+    assert captura.classificar_link(url) == (gravado, None)
+
+
+@pytest.mark.parametrize("fim_normal", [True, False])
+def test_video_gravado_encerra_apos_uma_rodada(tmp_path, monkeypatch, fim_normal):
+    from cortelive import captura
+
+    cap = captura.Captura(tmp_path, url="https://example.com/video.mp4", video_gravado=True)
+    rodadas = []
+
+    def rodada(n):
+        assert not rodadas
+        rodadas.append(n)
+        cap._n = int(fim_normal)
+        cap.fim_live = 4.0 if fim_normal else 0.0
+        return fim_normal
+
+    monkeypatch.setattr(cap, "_rodada", rodada)
+    cap._laco()
+    assert rodadas == [1]
+    assert cap.motivo_fim == ("vídeo terminou" if fim_normal else cap.erro_fatal)
+    assert (cap.erro_fatal is None) is fim_normal
+
+
+
+def test_youtube_com_video_e_audio_separados_pode_ser_capturado(tmp_path, monkeypatch):
+    from cortelive import captura
+
+    chamadas = []
+    monkeypatch.setattr(captura, "_bin", lambda nome: nome)
+    monkeypatch.setattr(captura.subprocess, "Popen", lambda cmd, **opts: chamadas.append(cmd))
+    captura.Captura(tmp_path, url="https://youtu.be/x", video_gravado=True)._fonte()
+    comando, = chamadas
+    assert comando[comando.index("-f") + 1].endswith("/bv[height<=1080]+ba/bv+ba")
+
+
+def test_replay_em_processamento_separa_leitores_dash(tmp_path, monkeypatch):
+    from cortelive import captura
+
+    chamadas = []
+    monkeypatch.setattr(captura, "_bin", lambda nome: nome)
+    monkeypatch.setattr(captura.subprocess, "Popen", lambda cmd, **opts: chamadas.append(cmd))
+    captura.Captura(tmp_path, url="https://youtu.be/x", video_gravado=True, youtube_processando=True)._fonte()
+    comando, = chamadas
+    assert "cortelive.fonte_youtube" in comando

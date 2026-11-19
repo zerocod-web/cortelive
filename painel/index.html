@@ -243,7 +243,7 @@
                 <span class="tally-ponto" aria-hidden="true"></span>
                 <span id="texto-sinal-tally">PRONTO</span>
               </span>
-              <span id="resumo-status-ao-vivo" class="tally-resumo">Cole o link da live abaixo e clique em Cortar.</span>
+              <span id="resumo-status-ao-vivo" class="tally-resumo">Cole o link da live ou do vídeo e clique em Cortar.</span>
             </div>
             <div class="tally-metricas" id="metricas-sessao" hidden>
               <div class="metrica-item">
@@ -273,7 +273,7 @@
             <form id="form-cortar" novalidate>
               <div class="campo-grupo">
                 <div class="rotulo-linha">
-                  <label for="campo-link" class="campo-rotulo">Link da live</label>
+                  <label for="campo-link" class="campo-rotulo">Link da live ou do vídeo</label>
                   <button type="button" id="btn-escolher-video" class="btn-link-sutil" title="Selecionar um arquivo de vídeo .mp4 do computador para testar">
                     <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                       <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>
@@ -465,7 +465,7 @@
           <section class="painel-card contas-card" aria-labelledby="titulo-gpt">
             <div>
               <h2 id="titulo-gpt" class="titulo-secao">Conexão com GPT</h2>
-              <p class="texto-apoio">O GPT avalia trechos da transcrição e ajuda a escolher os melhores momentos. Quando a conta atinge o limite, o CorteLive continua cortando com a seleção local.</p>
+              <p class="texto-apoio">O GPT lê a transcrição e escolhe quais trechos viram corte, com início e fim. Se a conexão ficar indisponível, o CorteLive usa a seleção local.</p>
             </div>
             <form id="form-gpt" class="form-drive">
               <label for="modo-gpt" class="campo-rotulo">Forma de conexão</label>

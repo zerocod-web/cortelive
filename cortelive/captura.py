@@ -13,6 +13,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from . import log
 
@@ -45,8 +46,7 @@ MENSAGENS = {
     "offline": "Esse canal não está ao vivo agora (ou o nome do canal está errado). "
                "Vou conferir de novo sozinho a cada 30 segundos e começo a cortar quando a live começar.",
     "sem_internet": "Sem conexão com a internet (ou o site da live não respondeu). Vou tentar de novo sozinho.",
-    "video_gravado": "Esse link é de um vídeo gravado, não de uma live. Para cortar um vídeo pronto, "
-                     "baixe o vídeo e escolha o arquivo do PC.",
+    "leitor_video_ausente": "O leitor de vídeos não está instalado. Rode a instalação do CorteLive novamente.",
 }
 
 
@@ -69,10 +69,18 @@ def classificar_erro(texto: str):
 
 def e_video_gravado_pelo_link(url: str) -> bool:
     """Links que pelo formato só podem ser vídeo gravado (VOD/clipe), nunca live."""
-    u = url.lower()
-    if any(k in u for k in ("twitch.tv/videos/", "clips.twitch.tv/", "/clip/")):
+    link = urlsplit(url)
+    site = (link.hostname or "").removeprefix("www.")
+    caminho = link.path.lower()
+    if _arquivo_remoto(url):
         return True
-    return "kick.com/" in u and ("/videos/" in u or "/clips" in u or "clip=" in u)
+    if site in ("twitch.tv", "clips.twitch.tv"):
+        return site == "clips.twitch.tv" or caminho.startswith("/videos/") or "/clip/" in caminho
+    return site == "kick.com" and ("/videos/" in caminho or "/clips" in caminho or "clip=" in link.query)
+
+
+def _arquivo_remoto(url: str) -> bool:
+    return Path(urlsplit(url).path.lower()).suffix in {".mp4", ".mkv", ".mov", ".webm"}
 
 
 def _streamlink_aceita(url: str) -> bool:
@@ -99,17 +107,28 @@ def _status_youtube(url: str):
         return None
 
 
-def verificar_link(url: str):
-    """Antes de começar: devolve a mensagem de erro (link que nunca vai funcionar) ou None (pode tentar)."""
-    if not _streamlink_aceita(url):
-        return mensagem("link_invalido", url)
-    if e_video_gravado_pelo_link(url):
-        return mensagem("video_gravado", url)
-    u = url.lower()
-    if ("youtube.com/watch" in u or "youtu.be/" in u or "youtube.com/shorts/" in u) and \
-            _status_youtube(url) in ("not_live", "was_live", "post_live"):
-        return mensagem("video_gravado", url)
-    return None
+def classificar_link(url: str, *, status_extra=None):
+    """Devolve (é vídeo gravado, mensagem de erro ou None)."""
+    try:
+        link = urlsplit(url)
+        site = (link.hostname or "").removeprefix("www.")
+    except ValueError:
+        return False, mensagem("link_invalido", url)
+    if link.scheme not in ("http", "https") or not site:
+        return False, mensagem("link_invalido", url)
+    gravado = e_video_gravado_pelo_link(url)
+    if site in ("youtube.com", "m.youtube.com", "youtu.be"):
+        caminho = link.path.lower()
+        if caminho.startswith("/shorts/"):
+            gravado = True
+        elif site == "youtu.be" or caminho == "/watch" or caminho.startswith("/live/"):
+            status = _status_youtube(url)
+            if status_extra is not None:
+                status_extra["youtube"] = status
+            gravado = status in ("not_live", "was_live", "post_live")
+    if gravado:
+        return True, None if _bin("yt-dlp") else mensagem("leitor_video_ausente", url)
+    return False, None if _streamlink_aceita(url) else mensagem("link_invalido", url)
 
 
 _PADROES_ERRO = (
@@ -177,7 +196,7 @@ def canal_da_url(url: str) -> str:
 
 class Captura(threading.Thread):
     def __init__(self, pasta: Path, url=None, arquivo=None, seg_s=4, buffer_min=5, ao_chegar=None,
-                 travou_s=40, esperar_live_min=0, fim_apos_offline_min=10):
+                 travou_s=40, esperar_live_min=0, fim_apos_offline_min=10, video_gravado=False, youtube_processando=False):
         self.travou_s, self.esperar_min, self.fim_offline_min = travou_s, esperar_live_min, fim_apos_offline_min
         self.quedas = []            # [(tempo_live, segundos_fora)]
         self.emendas = []           # tempos da live onde a captura reconectou (conteúdo pula)
@@ -195,6 +214,8 @@ class Captura(threading.Thread):
         self.estado = "iniciando"
         self.pasta = pasta
         self.url, self.arquivo = normalizar_url(url) if url else url, arquivo
+        self.video_gravado = video_gravado
+        self.youtube_processando = youtube_processando
         self._esperou_live = False      # ficou aguardando a live abrir (mostra "Live iniciada" quando chegar)
         self.seg_s, self.buffer_s = seg_s, buffer_min * 60
         self.ao_chegar = ao_chegar
@@ -226,14 +247,21 @@ class Captura(threading.Thread):
         # é ele que diz se o canal está offline, sem internet ou se o link não é de live
         erros_fonte = getattr(self, "_erros_fonte", None)
         sl = _bin("streamlink")
-        if sl and not self._usar_ytdlp:
+        if self.youtube_processando:
+            cmd = [sys.executable, "-m", "cortelive.fonte_youtube", _bin("yt-dlp"), self.url, str(self.pasta)]
+            nome = "yt-dlp"
+        elif sl and not (self.video_gravado or self._usar_ytdlp):
             # best = a maior qualidade que a live oferece (1080p60 quando há);
             # antes pedia 720p60 primeiro e a cam ficava ampliada ~2,7x
             cmd = [sl, "--stdout", "--loglevel", "error", "--twitch-disable-ads",
                    "--hls-live-edge", "2", self.url, "best"]
             nome = "streamlink"
         else:
-            cmd = [_bin("yt-dlp"), "--no-warnings", "-f", "best[height<=1080]/best", "-o", "-", self.url]
+            formato = "best[height<=1080]/best"
+            if self.video_gravado and not _arquivo_remoto(self.url):
+                formato += "/bv[height<=1080]+ba/bv+ba"
+            cmd = [_bin("yt-dlp"), "--no-warnings", "--no-playlist", "-f",
+                   formato, "-o", "-", "--", self.url]
             nome = "yt-dlp"
         if os.name == "nt":
             # O intermediário entra no próprio Job antes de iniciar o downloader.
@@ -276,6 +304,16 @@ class Captura(threading.Thread):
             fim_normal = self._rodada(rodada)
             tipo_erro = self._tipo_erro
             recebeu = self._n > n_antes
+            if self.video_gravado:
+                if self.parar.is_set():
+                    self.motivo_fim = self.motivo_fim or "parado pelo usuário"
+                elif fim_normal and recebeu and self.fim_live > 0:
+                    self.motivo_fim = "vídeo terminou"
+                else:
+                    self.erro_fatal = "Não consegui ler o vídeo gravado. Confira se ele está disponível pelo link."
+                    self.motivo_fim = self.erro_fatal
+                    log.aviso(self.erro_fatal)
+                break
             # link que nenhum leitor aceita: para com a mensagem (o streamlink recusar ainda deixa o yt-dlp tentar)
             sem_reserva = self._nome_fonte == "yt-dlp" or not (_bin("yt-dlp") and _bin("streamlink"))
             if tipo_erro == "link_invalido" and not recebeu and sem_reserva:
@@ -365,7 +403,13 @@ class Captura(threading.Thread):
                         self._fonte_proc = fonte
                     if self.parar.is_set():
                         return False
-                    cmd, lista = self._ffmpeg_seg(rodada, "pipe:0")
+                    entrada = "pipe:0"
+                    extra = ("-re",) if self.video_gravado else ()
+                    if self.video_gravado and _arquivo_remoto(self.url):
+                        # O índice de alguns MP4 está no fim e exige busca mesmo vindo de um pipe.
+                        entrada = "cache:pipe:0"
+                        extra += ("-read_ahead_limit", "-1")
+                    cmd, lista = self._ffmpeg_seg(rodada, entrada, extra_in=extra)
                     ff = subprocess.Popen(cmd, stdin=fonte.stdout, stderr=erros, creationflags=_NO_WIN)
                     fonte.stdout.close()
                     with self._proc_lock:
@@ -373,7 +417,13 @@ class Captura(threading.Thread):
                     if self.parar.is_set():
                         return False
                     log.debug(f"rodada {rodada} via {nome}")
-                return self._acompanhar(ff, lista, rodada)
+                fim_normal = self._acompanhar(ff, lista, rodada)
+                if self.video_gravado and fim_normal and fonte is not None:
+                    try:
+                        return fonte.wait(timeout=5) == 0
+                    except subprocess.TimeoutExpired:
+                        return False
+                return fim_normal
             finally:
                 with self._proc_lock:
                     self._ff = None
@@ -436,6 +486,8 @@ class Captura(threading.Thread):
                             self.quedas.append((round(seg.ini, 1), round(fora, 1)))
                             self.emendas.append(seg.ini)     # conteúdo da live pula aqui
                             log.ok(f"Captura voltou sozinha ({fora:.0f} s fora).")
+                        elif self.video_gravado:
+                            log.ok("Vídeo gravado: recebendo e analisando o vídeo.")
                         elif not self.arquivo:
                             log.ok("Live iniciada — comecei a ver." if self._esperou_live else "Live online: recebendo vídeo.")
                         else:

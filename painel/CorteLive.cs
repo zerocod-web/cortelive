@@ -1634,6 +1634,10 @@ namespace CorteLivePainel
                                 item["titulo"] = Convert.ToString(meta["titulo_sugerido"]);
                             if (meta.ContainsKey("duracao") && meta["duracao"] != null)
                                 item["duracao"] = meta["duracao"];
+                            object juiz, notaGPT;
+                            if (meta.TryGetValue("juiz", out juiz) && ((juiz as string) == "api" || (juiz as string) == "chatgpt")
+                                && meta.TryGetValue("nota_juiz", out notaGPT) && notaGPT is int && (int)notaGPT >= 0 && (int)notaGPT <= 10)
+                                item["nota_juiz"] = notaGPT;
                             if (meta.ContainsKey("momento_hms") && meta["momento_hms"] != null)
                                 item["inicio_hms"] = Convert.ToString(meta["momento_hms"]);
                             else if (meta.ContainsKey("inicio_hms") && meta["inicio_hms"] != null)
@@ -1983,7 +1987,7 @@ namespace CorteLivePainel
         private static string IniciarCorte(string fonteBruta, string modelo, string legenda, string minutos = null)
         {
             List<string> fontes = SepararFontes(fonteBruta);
-            if (fontes.Count == 0) return "Informe o link da live ou escolha um arquivo de vídeo.";
+            if (fontes.Count == 0) return "Informe o link da live ou do vídeo, ou escolha um arquivo do PC.";
 
             string mod = string.IsNullOrWhiteSpace(modelo) ? "cam-em-cima" : modelo.Trim();
             string leg = string.IsNullOrWhiteSpace(legenda) ? "opus" : legenda.Trim();
@@ -2209,6 +2213,7 @@ namespace CorteLivePainel
                                 item["estado"] = lv2.ContainsKey("estado") && lv2["estado"] != null ? Convert.ToString(lv2["estado"]) : "";
                                 item["cortes"] = lv2.ContainsKey("cortes") && lv2["cortes"] != null ? Convert.ToInt32(lv2["cortes"]) : 0;
                                 item["pode_parar"] = lv2.ContainsKey("pode_parar") && lv2["pode_parar"] is bool && (bool)lv2["pode_parar"];
+                                item["video_gravado"] = ValorBool(lv2, "video_gravado");
                                 item["live_s"] = lv2.ContainsKey("live_s") && lv2["live_s"] != null ? Convert.ToDouble(lv2["live_s"]) : 0.0;
                                 item["atraso_transcricao_s"] = lv2.ContainsKey("atraso_transcricao_s") && lv2["atraso_transcricao_s"] != null
                                     ? (object)Convert.ToDouble(lv2["atraso_transcricao_s"]) : null;

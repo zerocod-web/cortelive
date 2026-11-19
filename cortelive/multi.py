@@ -215,7 +215,8 @@ class Supervisor:
                 live_s = st.get("live_s") or 0
                 if live_s > lv._live_s:
                     lv._live_s, lv._t_avanco = live_s, agora
-                elif estado == "ao vivo" and agora - lv._t_avanco > self.travou_s and not lv.encerrar:
+                elif (estado == "ao vivo" and agora - lv._t_avanco > self.travou_s
+                      and not lv.encerrar and not st.get("video_gravado")):
                     self.evento(f"! {lv.canal} travada ({self.travou_s} s sem avançar): reiniciando só ela")
                     lv.s.parar()
                     self.velhas.append(lv.s)
@@ -226,7 +227,7 @@ class Supervisor:
             lv.fechar_execucao()
             if lv.encerrar:
                 lv.terminou = True
-            elif not self.repetir:
+            elif not self.repetir or st.get("video_gravado"):
                 lv.terminou = True
             elif estado == "erro" or lv.derrubada:
                 espera = ESPERA_REINICIO[min(lv.reinicios, len(ESPERA_REINICIO) - 1)]

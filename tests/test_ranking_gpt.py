@@ -68,3 +68,41 @@ def test_api_chave_e_ranking(monkeypatch, tmp_path):
     decisao, = escolher(monkeypatch, gpt.Juiz(print).avaliar)
     assert decisao["sinais"]["nota_gpt"] == 9
     assert len(chamadas) == 2
+
+
+
+@pytest.mark.parametrize("juiz,nota,mostrada", [
+    ("chatgpt", 0, 0), ("api", 8, 8), ("heurística", None, None),
+    ("heurística", 8, None), ("chatgpt", "8", None), ("api", 11, None),
+])
+def test_lista_cortes_exibe_somente_nota_gpt_valida(tmp_path, juiz, nota, mostrada):
+    import json
+    from painel.motor_painel import ApiPainel
+
+    pasta = tmp_path / "cortes" / "sessao"
+    (pasta / "_interno").mkdir(parents=True)
+    (pasta / "corte.mp4").touch()
+    meta = {"arquivo": "corte.mp4", "juiz": juiz, "nota_juiz": nota}
+    (pasta / "_interno" / "corte.json").write_text(json.dumps(meta), encoding="utf-8")
+    corte, = ApiPainel(tmp_path).listar_cortes()
+    assert corte["nota_juiz"] == mostrada
+
+
+
+def test_gpt_escolhe_o_trecho_sem_notas_do_seletor_local(monkeypatch):
+    monkeypatch.setattr(gpt, "ler", lambda: {"modo": "chatgpt"})
+    palavras = [{"w": "gancho" if i == 0 else "fala.", "s": float(i), "e": i + 0.4} for i in range(80)]
+    pedidos = []
+
+    def responder(atual, instrucao, contexto):
+        pedidos.append(contexto)
+        return '{"primeiro":0,"ultimo":15,"momento":8,"nota":9}'
+
+    monkeypatch.setattr(gpt, "_consultar", responder, raising=False)
+    juiz = gpt.Juiz(print)
+    modo, corte = juiz.selecionar(palavras, 66, 0, 61, 90)
+    assert modo == "gpt"
+    assert corte["sinais"] == {"nota_gpt": 9, "juiz": "chatgpt"}
+    assert corte["janela"]["fim"] - corte["janela"]["ini"] >= 61
+    assert "gancho" in pedidos[0]
+    assert juiz.selecionar(palavras, 70, 0, 61, 90) == ("gpt", None)

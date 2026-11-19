@@ -30,6 +30,7 @@ class Sessao:
                                          detalhado=detalhado, duracao_min=None, duracao_max=None, modelo=None,
                                          legenda=None, saida=None, sem_chat=False)
         self.args = args
+        self.video_gravado = False
         self.cfg_extra = cfg or {}
         self.terminal = terminal
         self.ao_status = ao_status
@@ -93,6 +94,7 @@ class Sessao:
         if estado not in ("encerrada", "erro") and cap is not None:
             estado = cap.estado
         return {"canal": self.args.canal, "pasta": str(self.pasta) if self.pasta else None, "estado": estado,
+                "video_gravado": self.video_gravado,
                 "fonte": self.args.url or (str(self.args.arquivo) if self.args.arquivo else None),
                 "cortes": len(self._res), "falhas": len(self._falhas),
                 "cortes_descartados_parada": self._descartados_parada,
@@ -204,9 +206,10 @@ class Sessao:
         for tipo, nome in (("modelo", cfg["modelo"]), ("legenda", cfg["legenda"])):
             if nome not in render.listar(tipo):
                 raise RuntimeError(f"{tipo} '{nome}' não existe. Opções: {', '.join(render.listar(tipo))}")
+        status_fonte = {}
         if args.url and not args.arquivo:
-            # link que nunca vai funcionar (digitado errado, vídeo gravado): avisa já, antes de carregar a fala
-            problema = captura.verificar_link(args.url)
+            url = captura.normalizar_url(args.url)
+            self.video_gravado, problema = captura.classificar_link(url, status_extra=status_fonte)
             if problema:
                 raise RuntimeError(problema)
         canal = args.canal or (Path(args.arquivo).stem if args.arquivo else captura.canal_da_url(args.url))
@@ -258,11 +261,13 @@ class Sessao:
         fila = queue.Queue()
         cap = captura.Captura(buf, url=args.url, arquivo=args.arquivo, seg_s=cfg["segmento_s"],
                               buffer_min=cfg["buffer_min"], ao_chegar=fila.put, travou_s=cfg["travou_captura_s"],
-                              esperar_live_min=cfg["esperar_live_min"], fim_apos_offline_min=cfg["fim_apos_offline_min"])
+                              esperar_live_min=cfg["esperar_live_min"], fim_apos_offline_min=cfg["fim_apos_offline_min"],
+                              video_gravado=self.video_gravado,
+                              youtube_processando=status_fonte.get("youtube") == "post_live")
         fl = fala.Fala(tr)
         sin = momento.Sinais(cfg)
         chat = None
-        if args.url and "twitch.tv" in args.url and cfg["usar_chat"]:
+        if args.url and not self.video_gravado and "twitch.tv" in args.url and cfg["usar_chat"]:
             chat = momento.ChatTwitch(captura.canal_da_url(args.url), sin, lambda: cap.fim_live)
             chat.start()
 
@@ -507,7 +512,8 @@ class Sessao:
             cap.acabou.set()
         else:
             cap.start()
-        log.info("Acompanhando a live." + (" Para parar: Ctrl+C." if self.terminal else ""))
+        mensagem_fonte = "Analisando o vídeo gravado." if self.video_gravado else "Acompanhando a live."
+        log.info(mensagem_fonte + (" Para parar: Ctrl+C." if self.terminal else ""))
 
         from .gpt import Juiz
         juiz = Juiz(log.aviso)
@@ -515,8 +521,66 @@ class Sessao:
         hist_notas = {}
         quentes_titulo = list(cfg["palavras_quentes"]) + list(cfg.get("palavras_apoio", []))
 
+        def aceitar(dec, notas=None):
+            s, nota, mot, sinais, j = dec["pico"], dec["nota"], dec["mot"], dec["sinais"], dec["janela"]
+            partes = j.get("partes") or [j]
+            preparados = []
+            for idx, jj in enumerate(partes):
+                ini, fim = jj["ini"], jj["fim"]
+                if notas is not None:
+                    aa = max(0.0, ini - 1)
+                    aud = fl.audio_trecho(aa, fim + 1)
+                    ini = momento.ajustar_no_vale(ini, aud, aa, limites=jj["lim_ini"])
+                    fim = momento.ajustar_no_vale(fim, aud, aa, limites=jj["lim_fim"])
+                segs = cap.trecho(ini, fim)
+                if not segs or segs[0].ini > ini + 0.5 or segs[-1].fim < fim - 0.5:
+                    log.aviso(f"Momento em {_hms(s)} caiu num buraco da captura; pulado.")
+                    return False
+                preparados.append((ini, fim, segs))
+            if dec["substitui"]:     # clímax muito mais forte que o corte ainda esperando render: troca
+                with lk:
+                    velho = pendentes.pop() if pendentes else None
+                if velho:
+                    cap.prender(velho["segs"], False)
+                    log.info(f"Momento forte em {_hms(s)} (nota {nota:.1f}) substitui o corte em fila de "
+                             f"{_hms(velho['evento'])} (nota {velho['nota']:.1f}).")
+            antes_fim = sel.ultimo_fim
+            for idx, (ini, fim, segs) in enumerate(preparados):
+                pal = fl.palavras_entre(ini, fim)
+                motivos = mot
+                if notas is not None:
+                    motivos = [m for k in range(int(ini), int(fim)) if k in notas
+                               and notas[k][0] >= cfg["limiar_nota"] * 0.6 for m in notas[k][1]] or mot
+                titulo = momento.titulo_heuristico(
+                    " ".join(w["w"] for w in pal), motivos, pal, s, quentes_titulo)
+                if len(preparados) > 1:      # contexto longo demais para um corte: Parte 1 / Parte 2 (título e legenda do post)
+                    titulo = f"{titulo[:56].rstrip()} - Parte {idx + 1}"
+                motivo = "; ".join(dict.fromkeys(motivos))
+                seg_ev = next((x for x in segs if x.ini <= s < x.fim), segs[-1])
+                dec["fim"] = fim
+                cap.prender(segs, True)
+                log.info(f"Momento bom em {_hms(s)} ({', '.join(dict.fromkeys(mot))}). Cortando {_hms(ini)}–{_hms(fim)}"
+                         f"{f' (parte {idx + 1} de {len(preparados)})' if len(preparados) > 1 else ''}…")
+                enfileirar({"ini": ini, "fim": fim, "evento": float(s), "segs": segs, "palavras": pal, "nota": nota,
+                            "sinais": sinais, "motivos": list(dict.fromkeys(motivos)), "ultimo_fim_antes": antes_fim,
+                            "titulo": titulo, "motivo": motivo, "chegou_evento": seg_ev.chegou, "decidido": time.time()})
+            return True
+
         def avaliar(final=False):
             disponivel = fl.feito_ate
+            min_ini = max(0.0, sel.ultimo_fim + cfg["intervalo_min_entre_cortes"], max(cap.emendas, default=-1.0) + 0.3)
+            anterior = juiz.revisado_ate
+            modo_selecao, decisao = juiz.selecionar(
+                fl.palavras, disponivel, min_ini, momento.duracao_minima(cfg), momento.duracao_maxima(cfg), final)
+            if modo_selecao == "gpt":
+                if juiz.revisado_ate > anterior:
+                    log.debug(f"GPT revisou a transcrição até {_hms(juiz.revisado_ate)}: "
+                              + ("escolheu um corte." if decisao else "sem corte nesta janela."))
+                if decisao and aceitar(decisao):
+                    sel.ultimo_fim = decisao["fim"]
+                    sel.ultima_nota = decisao["nota"]
+                return
+            sel.avaliado_ate = max(sel.avaliado_ate, juiz.revisado_ate - cfg["depois_do_momento"] - 2)
             limite = disponivel if final else disponivel - cfg["depois_do_momento"] - 2
             a0 = sel.avaliado_ate
             if limite - a0 < 1:
@@ -545,51 +609,8 @@ class Sessao:
                 with lk:
                     return (pendentes[-1]["nota"], pendentes[-1]["ultimo_fim_antes"]) if pendentes else None
 
-            def aceitar(dec):
-                s, nota, mot, sinais, j = dec["pico"], dec["nota"], dec["mot"], dec["sinais"], dec["janela"]
-                partes = j.get("partes") or [j]
-                preparados = []
-                for idx, jj in enumerate(partes):
-                    ini, fim = jj["ini"], jj["fim"]
-                    aa = max(0.0, ini - 1)
-                    aud = fl.audio_trecho(aa, fim + 1)
-                    # corte só em silêncio: dentro da pausa entre palavras (nunca dentro de uma palavra)
-                    ini = momento.ajustar_no_vale(ini, aud, aa, limites=jj["lim_ini"])
-                    fim = momento.ajustar_no_vale(fim, aud, aa, limites=jj["lim_fim"])
-                    segs = cap.trecho(ini, fim)
-                    if not segs or segs[0].ini > ini + 0.5 or segs[-1].fim < fim - 0.5:
-                        log.aviso(f"Momento em {_hms(s)} caiu num buraco da captura; pulado.")
-                        return False
-                    preparados.append((ini, fim, segs))
-                if dec["substitui"]:     # clímax muito mais forte que o corte ainda esperando render: troca
-                    with lk:
-                        velho = pendentes.pop() if pendentes else None
-                    if velho:
-                        cap.prender(velho["segs"], False)
-                        log.info(f"Momento forte em {_hms(s)} (nota {nota:.1f}) substitui o corte em fila de "
-                                 f"{_hms(velho['evento'])} (nota {velho['nota']:.1f}).")
-                antes_fim = sel.ultimo_fim
-                for idx, (ini, fim, segs) in enumerate(preparados):
-                    pal = fl.palavras_entre(ini, fim)
-                    motivos = [m for k in range(int(ini), int(fim)) if k in notas
-                               and notas[k][0] >= cfg["limiar_nota"] * 0.6 for m in notas[k][1]] or mot
-                    titulo = momento.titulo_heuristico(
-                        " ".join(w["w"] for w in pal), motivos, pal, s, quentes_titulo)
-                    if len(preparados) > 1:      # contexto longo demais para um corte: Parte 1 / Parte 2 (título e legenda do post)
-                        titulo = f"{titulo[:56].rstrip()} - Parte {idx + 1}"
-                    motivo = "; ".join(dict.fromkeys(motivos))
-                    seg_ev = next((x for x in segs if x.ini <= s < x.fim), segs[-1])
-                    dec["fim"] = fim
-                    cap.prender(segs, True)
-                    log.info(f"Momento bom em {_hms(s)} ({', '.join(dict.fromkeys(mot))}). Cortando {_hms(ini)}–{_hms(fim)}"
-                             f"{f' (parte {idx + 1} de {len(preparados)})' if len(preparados) > 1 else ''}…")
-                    enfileirar({"ini": ini, "fim": fim, "evento": float(s), "segs": segs, "palavras": pal, "nota": nota,
-                                "sinais": sinais, "motivos": list(dict.fromkeys(motivos)), "ultimo_fim_antes": antes_fim,
-                                "titulo": titulo, "motivo": motivo, "chegou_evento": seg_ev.chegou, "decidido": time.time()})
-                return True
-
-            sel.passo(notas, fl.palavras, disponivel, limite, notas_ate, limiar, list(cap.emendas), aceitar,
-                      pendente, final, juiz=juiz.avaliar)
+            sel.passo(notas, fl.palavras, disponivel, limite, notas_ate, limiar, list(cap.emendas),
+                      lambda decisao: aceitar(decisao, notas), pendente, final)
 
         exe = cf.ThreadPoolExecutor(max_workers=1, initializer=log.usar, initargs=(log.atual(),))
         reinicios_fala = [0]

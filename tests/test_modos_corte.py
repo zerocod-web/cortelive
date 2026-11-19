@@ -163,3 +163,11 @@ def test_original_guarda_so_o_trecho_com_folga(video, tmp_path):
                                 o["arquivo"]], capture_output=True, text=True).stdout)
     assert 5.8 <= dur <= 6.3
     assert render._probe(o["arquivo"])[:2] == (1280, 720) and eval(render._probe(o["arquivo"])[2]) == 30
+
+
+def test_auto_vale_mesmo_quando_a_conferencia_larga_a_cam(video, tmp_path, monkeypatch):
+    # live só de câmera com a pessoa fora do quadro: rever_cam devolve None; a caixa da live ainda manda
+    monkeypatch.setattr(render, "rever_cam", lambda *a, **k: (None, "cam sem rosto"))
+    r = render.render_corte(str(video), 2.0, 5.0, [], "cam-em-cima", "opus", (0, 0, 1280, 720), str(tmp_path),
+                            "corte_003", recuo_sem_cam=[], conferir_cam=True)
+    assert r["modo"] == "fundo-desfocado" and r["modo_motivo"] == "live só de câmera"

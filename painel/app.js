@@ -1311,7 +1311,8 @@
     }));
   }
 
-  async function salvarConfigCorte() {
+  // Salva só o campo que mudou: assim um seletor ainda não carregado nunca grava um valor que não foi escolhido.
+  async function salvarConfigCorte(evento) {
     if (salvandoPreferencias) return;
     salvandoPreferencias = true;
     const seletor = el("sel-duracao-minima");
@@ -1323,13 +1324,17 @@
     dias.disabled = true;
     let resp = null;
     try {
-      // faixa única 0–10 sem pasta = configuração de sempre: grava lista vazia
-      const faixas = lerFaixas().filter((f) => !(f.de === 0 && f.ate === 10 && !f.pasta));
-      resp = await api("/api/config-postagem", "POST", {
-        duracao_minima_modo: seletor.value, quantidade_cortes: quantidade.value,
-        apagar_ate_nota: Number.parseInt(apagar.value, 10), faixas_nota: faixas,
-        originais_dias: Number(dias.value),
-      });
+      // Salva só o grupo que mudou: um seletor ainda não carregado nunca grava um valor que não foi escolhido.
+      const alvo = evento?.target;
+      let corpo;
+      if (alvo === dias) corpo = { originais_dias: Number(dias.value) };
+      else if (alvo === seletor) corpo = { duracao_minima_modo: seletor.value };
+      else {
+        // nota: Quantidade de cortes, apagar por nota e pastas por nota (faixa única 0–10 sem pasta = lista vazia)
+        const faixas = lerFaixas().filter((f) => !(f.de === 0 && f.ate === 10 && !f.pasta));
+        corpo = { quantidade_cortes: quantidade.value, apagar_ate_nota: Number.parseInt(apagar.value, 10), faixas_nota: faixas };
+      }
+      resp = await api("/api/config-postagem", "POST", corpo);
     } finally {
       salvandoPreferencias = false;
       seletor.disabled = false;

@@ -34,12 +34,13 @@ def _nota(v):
 class Base:
     exemplos: list = field(default_factory=list)      # (canal, nota_original, peso, rejeitado: bool)
     n_rejeitados: int = 0
+    pasta: Path | None = None
 
     @classmethod
     def carregar(cls, pasta_cortes, agora=None) -> "Base":
         pasta = Path(pasta_cortes)
         agora = time.time() if agora is None else agora
-        b = cls()
+        b = cls(pasta=pasta)
         rejeitados_arq = set()
         try:
             linhas = (pasta / ARQUIVO).read_text(encoding="utf-8").splitlines()
@@ -111,6 +112,8 @@ class Base:
         n = _nota((sinais or {}).get("nota_gpt"))
         if n is None or "nota_gpt_original" in sinais:
             return sinais
+        if self.pasta is not None and not ligado(self.pasta):   # desligado nas configurações: nota como veio
+            return sinais
         delta, porque = self.ajuste(canal, n)
         if not delta:
             return sinais
@@ -118,10 +121,27 @@ class Base:
                 "ajuste_aprendizado": {"delta": delta, "motivo": porque}}
 
 
+CHAVE = "aprendizado.json"   # {"ligado": false} na pasta de cortes; sem arquivo = ligado (padrão)
+
+
+def ligado(pasta_cortes) -> bool:
+    """Interruptor das configurações. Lido a cada corte novo, então vale na hora, também numa live em andamento."""
+    try:
+        return json.loads((Path(pasta_cortes) / CHAVE).read_text(encoding="utf-8")).get("ligado", True) is not False
+    except (OSError, ValueError, AttributeError):
+        return True
+
+
+def ligar(pasta_cortes, sim: bool):
+    arq = Path(pasta_cortes) / CHAVE
+    arq.parent.mkdir(parents=True, exist_ok=True)
+    arq.write_text(json.dumps({"ligado": bool(sim)}), encoding="utf-8")
+
+
 def status(pasta_cortes) -> dict:
     b = Base.carregar(pasta_cortes)
     return {"rejeitados": b.n_rejeitados, "minimo": MIN_REJEITADOS, "ativo": b.n_rejeitados >= MIN_REJEITADOS,
-            "max_ajuste": MAX_AJUSTE}
+            "max_ajuste": MAX_AJUSTE, "ligado": ligado(pasta_cortes)}
 
 
 def zerar(pasta_cortes) -> str | None:

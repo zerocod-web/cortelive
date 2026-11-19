@@ -130,3 +130,40 @@ def test_rotas_aprendizado_e_espaco(tmp_path, monkeypatch):
     assert st == 200 and d["lixeira"] == {"itens": 1, "bytes": 1024 ** 3} and d["nivel"] in ("ok", "aviso", "critico")
     st, d = api.responder("POST", "/api/aprendizado/zerar", {})
     assert st == 200
+
+
+def test_interruptor_desligado_nao_ajusta_mas_continua_contando(tmp_path):
+    _rejeitar(tmp_path, "x", 3, 40)
+    _manter(tmp_path, "x", 9, 40)
+    assert aprendizado.ligado(tmp_path)                    # padrão: ligado
+    aprendizado.ligar(tmp_path, False)
+    b = aprendizado.Base.carregar(tmp_path)
+    s = {"nota_gpt": 3, "juiz": "chatgpt"}
+    assert b.aplicar("x", s) is s                          # nota como veio
+    st = aprendizado.status(tmp_path)
+    assert st["ligado"] is False and st["rejeitados"] == 40
+    aprendizado.ligar(tmp_path, True)
+    assert b.aplicar("x", s)["nota_gpt"] == 1              # religado: vale na hora (sem recarregar)
+
+
+def test_canal_legivel_troca_codigo_do_video(tmp_path):
+    from cortelive import captura, pastas
+    assert captura.canal_da_url("https://kick.com/gabepeixe/videos/01a1f40d-9408-7e8c-adea-818726f2907b") == "gabepeixe"
+    assert captura.canal_da_url("https://www.twitch.tv/videos/2932200023") == "2932200023"
+    assert captura.canal_da_url("https://www.twitch.tv/alanzoka") == "alanzoka"
+
+    def sessao(nome, dados):
+        p = tmp_path / f"2026-11-19 19h11 - {nome}"
+        (p / "_interno").mkdir(parents=True)
+        if dados is not None:
+            (p / "_interno" / "sessao.json").write_text(json.dumps(dados), encoding="utf-8")
+        return p
+
+    assert pastas.canal_legivel(sessao("coringa", None)) == "coringa"
+    uuid = "01a1f579-4968-758e-9a7d-85ed05f6c56f"
+    assert pastas.canal_legivel(sessao(uuid, {"fonte": f"https://kick.com/bkinho/videos/{uuid}"})) == "bkinho"
+    assert pastas.canal_legivel(sessao("2932200023", {"fonte": "https://www.twitch.tv/videos/2932200023"})) == "Vídeo da Twitch"
+    assert pastas.canal_legivel(sessao("youtube_czLjal_UA9Q", {"fonte": "https://youtube.com/watch?v=czLjal_UA9Q",
+                                                                "titulo": "GTA RP com a galera"})) == "GTA RP com a galera"
+    assert pastas.canal_legivel(sessao("01a1f4b1-55e8-7f55-b5c0-d46938964856", {"fonte": r"C:\videos\a.mkv"})) == "Vídeo local"
+    assert pastas.canal_legivel(sessao("01a1f4b1-55e8-7f55-b5c0-d46938964857", None)) == "Vídeo gravado"

@@ -78,7 +78,9 @@ destino_pasta = ""              # caminho completo da pasta sincronizada no comp
 # --- Espaço em disco e limpeza da gravação bruta ------------------------------------------------
 # Gravar live ocupa espaço (a captura guarda ~buffer_min minutos, o resto é apagado). O painel avisa
 # quando o disco da pasta de cortes tem pouco espaço e para a gravação com segurança antes de lotar.
-disco_aviso_gb = 10         # abaixo disso: "Pouco espaço no disco: X GB livres" (0 = desliga o vigia)
+disco_aviso_gb = 30         # abaixo disso: "Pouco espaço no disco: X GB livres" (0 = desliga o vigia)
+disco_aviso_pct = 10        # ou abaixo de 10% do disco (só quando sobram menos de disco_aviso_teto_gb)
+disco_aviso_teto_gb = 100   # com mais que isso livre nunca é "pouco espaço"
 disco_critico_gb = 3        # abaixo disso: para a gravação (cortes prontos ficam) e explica o motivo
 disco_checar_s = 15         # de quanto em quanto tempo olhar o disco durante a live
 limpar_bruto = true         # fim da live: apaga gravação bruta/temporários e fica só com os cortes finais

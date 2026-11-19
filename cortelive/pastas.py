@@ -103,6 +103,49 @@ def canal_da_pasta(nome_pasta: str) -> str:
     return nome_pasta
 
 
+# código de vídeo no lugar do nome do canal: VOD da Kick (uuid), da Twitch (número), YouTube (youtube_<id>)
+_RE_CODIGO = re.compile(r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4,12}|\d{6,}|youtube_[\w-]{6,})$",
+                        re.IGNORECASE)
+
+
+def parece_codigo(canal) -> bool:
+    return bool(_RE_CODIGO.match(str(canal or "").strip()))
+
+
+def canal_legivel(pasta_sessao) -> str:
+    """Nome para mostrar no painel. Lives de link de vídeo gravado (VOD) da 1.0.16 ficaram com o CÓDIGO do vídeo como
+    'canal' (ex.: 01a1f579-4968-758e-9a7d-85ed05f6c56f): aqui vira o canal tirado do link, o título do vídeo, ou um
+    nome pela origem ('Vídeo da Kick', 'Vídeo local'...)."""
+    pasta = Path(pasta_sessao)
+    canal = canal_da_pasta(pasta.name)
+    if not parece_codigo(canal):
+        return canal
+    s = {}
+    for arq in (pasta / INTERNO / "sessao.json", pasta / "sessao.json"):
+        try:
+            s = json.loads(arq.read_text(encoding="utf-8"))
+            break
+        except (OSError, ValueError):
+            continue
+    s = s if isinstance(s, dict) else {}
+    titulo = s.get("titulo_video") or s.get("titulo")
+    fonte = s.get("fonte") if isinstance(s.get("fonte"), str) else ""
+    if "://" in fonte:
+        from .captura import canal_da_url
+        do_link = canal_da_url(fonte)
+        if not parece_codigo(do_link):
+            return do_link
+        if isinstance(titulo, str) and titulo.strip():
+            return titulo.strip()[:60]
+        for site, nome in (("kick.com", "Kick"), ("twitch.tv", "Twitch"), ("youtu", "YouTube")):
+            if site in fonte:
+                return f"Vídeo da {nome}" if nome != "YouTube" else "Vídeo do YouTube"
+        return "Vídeo gravado"
+    if fonte:
+        return "Vídeo local"
+    return "Vídeo gravado"
+
+
 # ------------------------------------------------------------------ pastas
 def ocultar(p: Path) -> None:
     """Marca a pasta como oculta no Windows (no Linux/Mac o '_' no nome já basta)."""

@@ -1085,7 +1085,7 @@ namespace CorteLivePainel
                 rota == "/api/drive/enviar" || rota == "/api/cortes/excluir" ||
                 rota == "/api/enviar-erro" ||
                 // v1.0.17: aprendizado com o "Não quero" e aviso de espaço em disco
-                rota == "/api/aprendizado" || rota == "/api/aprendizado/zerar" ||
+                rota == "/api/aprendizado" || rota == "/api/aprendizado/zerar" || rota == "/api/aprendizado/ligar" ||
                 rota == "/api/espaco" || rota == "/api/espaco/limpar")
             {
                 // O envio manual aguarda a cópia integral na pasta sincronizada.

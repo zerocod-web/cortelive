@@ -1,4 +1,4 @@
-﻿"""Uma sessão de live: captura, fala, momento, cortes. Várias podem rodar ao mesmo tempo
+"""Uma sessão de live: captura, fala, momento, cortes. Várias podem rodar ao mesmo tempo
 (ver CONTRATO_MULTI.md); transcrição e render são compartilhados via servicos.py.
 
 Gerado a partir do antigo cli.rodar(); a lógica de cada etapa é a mesma.
@@ -196,7 +196,7 @@ class Sessao:
             self._avisar()
 
     def _executar(self):
-        from . import camauto, captura, destino, fala, momento, render, trecho, servicos
+        from . import camauto, captura, destino, fala, foco_live, momento, render, trecho, servicos
         args = self.args
 
         cfg = carregar_config(args)
@@ -473,7 +473,10 @@ class Sessao:
                                           "conferir_cam": cam_status != "informada",
                                           # v1.0.17: original leve do corte (2 s de folga), gravado na mesma vaga
                                           "original": (str((dint / f"{nome}_original.mkv").resolve())
-                                                       if cfg.get("guardar_trecho_corte", True) else None)},
+                                                       if cfg.get("guardar_trecho_corte", True) else None),
+                                          # foco confirmado/corrigido no começo da live (ou o salvo do canal)
+                                          "foco": (foco_live.foco_ativo(dint) if cfg["modelo"] == "cam-em-cima"
+                                                   and cam_status != "informada" else None)},
                                          ensure_ascii=False), encoding="utf-8")
             self._job_atual["fase"] = "fila_render"
             try:
@@ -571,6 +574,7 @@ class Sessao:
                 "modo_corte": r.get("modo"), "modo_motivo": r.get("modo_motivo"),
                 "cam": r["cam_usada"] if "cam_usada" in r else (list(cam) if cam else None),
                 "cam_revista": r.get("cam_revista"), "refazer": refazer, "encoder": r.get("encoder"),
+                "foco": r.get("foco_usado"),
                 "latencia_s": {"momento_ate_mp4": round(pronto - job["chegou_evento"], 1),
                                "decisao_ate_mp4": round(pronto - job["decidido"], 1),
                                "render": round(pronto - t0, 1)},
@@ -829,6 +833,39 @@ class Sessao:
                 log.info(f"Cam do streamer: {'achei em ' + ','.join(map(str, cam)) if cam else ('confiança baixa (' + camauto.ULTIMO.get('motivo', '?') + ') — usando o enquadramento definido pelo modelo de corte')}"
                          f" (guardado para o canal '{canal}')")
 
+        # foco da live conferido no começo (foco_live): grava o quadro + a proposta uma vez, quando a cam se resolve
+        foco_proposto, tentativas_foco = [False], [0]
+
+        def propor_foco(seg):
+            if foco_proposto[0] or cam_status == "informada" \
+                    or cfg["modelo"] != "cam-em-cima" or not cfg.get("conferir_foco_inicio", True):
+                return
+            if cam_status == "procurar" and not foco_live.salvo_do_canal(canal):
+                return          # sem foco salvo: espera a câmera automática para propor; com foco salvo, já no 1º pedaço
+            foco_proposto[0] = True
+            arq_seg = Path(seg.arquivo)
+            cap.prender([seg], True)
+
+            def trabalho():
+                try:
+                    d = foco_live.propor(dint, canal, arq_seg, cam, cfg["modelo"])
+                    if d["estado"] == "salvo":
+                        log.info(f"Foco da live: usando o foco salvo do canal '{canal}' (confira no painel).")
+                    else:
+                        log.info("Foco da live: confira a câmera e o jogo no painel (sem resposta, segue no automático).")
+                except Exception as e:
+                    log.debug(f"foco_live: {e}")
+                    tentativas_foco[0] += 1
+                    if tentativas_foco[0] < 3:
+                        foco_proposto[0] = False          # tenta de novo no próximo pedaço da live
+                    else:
+                        log.aviso("Não consegui preparar o quadro para conferir o foco; a live segue no automático.")
+                finally:
+                    with cap.lock:
+                        cap.presos -= {i for i, s in cap.segs.items() if Path(s.arquivo) == arq_seg}
+
+            threading.Thread(target=log.herdar(trabalho), daemon=True, name="foco_live").start()
+
         prox_disco = [0.0]
 
         def vigiar_disco():
@@ -869,6 +906,7 @@ class Sessao:
                     self._avisar()
                     sin.novo_audio(seg.ini, aud)
                     tentar_cam(seg)
+                    propor_foco(seg)
                     if not self._parar_ev.is_set() and (
                         seg.fim - fl.feito_ate >= sv.bloco_s or (fila.empty() and seg.fim - fl.feito_ate >= sv.bloco_s / 2)
                     ):

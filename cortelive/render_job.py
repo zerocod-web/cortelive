@@ -19,7 +19,7 @@ def main():
                                 job["legenda"], tuple(job["cam"]) if job["cam"] else None, job["saida_dir"],
                                 job["nome"], faixa=job.get("faixa_legenda"), faixa_cor=job.get("faixa_cor"),
                                 recuo_sem_cam=job.get("recuo_sem_cam"), conferir_cam=bool(job.get("conferir_cam")),
-                                modo=job.get("modo"))
+                                modo=job.get("modo"), foco=job.get("foco") or None)
         out = {"ok": True, **r}
         if job.get("original"):
             try:

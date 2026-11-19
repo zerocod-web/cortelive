@@ -1080,10 +1080,14 @@ namespace CorteLivePainel
 
             if (rota == "/api/drive/detectar" || rota == "/api/drive/config" ||
                 rota == "/api/drive/enviar" || rota == "/api/cortes/excluir" ||
-                rota == "/api/enviar-erro")
+                rota == "/api/enviar-erro" ||
+                // v1.0.17: aprendizado com o "Não quero" e aviso de espaço em disco
+                rota == "/api/aprendizado" || rota == "/api/aprendizado/zerar" ||
+                rota == "/api/espaco" || rota == "/api/espaco/limpar")
             {
                 // O envio manual aguarda a cópia integral na pasta sincronizada.
-                int prazoMs = rota == "/api/drive/enviar" && metodo == "POST" ? 15 * 60 * 1000 : rota == "/api/enviar-erro" ? 90000 : 30000;
+                int prazoMs = rota == "/api/drive/enviar" && metodo == "POST" ? 15 * 60 * 1000
+                    : rota == "/api/enviar-erro" || rota.StartsWith("/api/espaco", StringComparison.Ordinal) ? 90000 : 30000;
                 if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo, prazoMs))
                     EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
                 return;

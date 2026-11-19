@@ -71,6 +71,20 @@ class ErroApi(Exception):
         self.status = status
 
 
+def primeira_frase(texto, maximo=120):
+    """Primeira frase falada do corte (até o primeiro . ! ?), cortada em 'maximo' caracteres numa palavra inteira."""
+    if not isinstance(texto, str) or not texto.strip():
+        return None
+    texto = " ".join(texto.split())
+    for i, ch in enumerate(texto):
+        if ch in ".!?" and i >= 12:
+            texto = texto[:i + 1]
+            break
+    if len(texto) > maximo:
+        texto = texto[:maximo].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    return texto
+
+
 def campo(corpo, nome, padrao=""):
     valor = corpo.get(nome, padrao)
     if not isinstance(valor, str) or "\0" in valor:
@@ -167,6 +181,7 @@ class ApiPainel:
         for mtime, video in sorted(candidatos, reverse=True)[:60]:
             meta = pastas.meta_do_video(video)
             dados = ler_json(meta) if meta else {}
+            sinais = dados.get("sinais") if isinstance(dados.get("sinais"), dict) else {}
             nota_gpt = dados.get("nota_juiz")
             if dados.get("juiz") not in ("api", "chatgpt") or type(nota_gpt) is not int or not 0 <= nota_gpt <= 10:
                 nota_gpt = None
@@ -190,6 +205,12 @@ class ApiPainel:
                     isinstance((dados.get(k) or {}).get("video"), str)
                     and (meta.parent / Path(dados[k]["video"]).name).is_file() for k in ("refazer", "foco_fonte"))),
                 "destino": destino.estado_copia(video),
+                # v1.0.17: ver o corte sem abrir (primeira frase, prévia e ajuste da nota pelo aprendizado)
+                "frase": primeira_frase(dados.get("transcricao")),
+                "previa": "/api/miniatura?previa=1&caminho=" + quote(str(video), safe=""),
+                "ajuste_nota": sinais.get("ajuste_aprendizado") if nota_gpt is not None
+                and isinstance(sinais.get("ajuste_aprendizado"), dict) else None,
+                "nota_original": sinais.get("nota_gpt_original") if nota_gpt is not None else None,
             })
         return itens
 
@@ -237,6 +258,8 @@ class ApiPainel:
             "inicio_na_live": dados.get("inicio_na_live"), "fim_na_live": dados.get("fim_na_live"),
             "inicio_hms": dados.get("inicio_hms"), "fim_hms": dados.get("fim_hms"),
             "duracao": dados.get("duracao"), "nota_juiz": dados.get("nota_juiz"), "juiz": dados.get("juiz"),
+            "nota_gpt_original": (dados["sinais"].get("nota_gpt_original", dados.get("nota_juiz"))
+                                  if isinstance(dados.get("sinais"), dict) else dados.get("nota_juiz")),
             "pontuacao": dados.get("pontuacao"), "motivo": dados.get("motivo"),
         }
         try:
@@ -279,13 +302,23 @@ class ApiPainel:
         except foco.ErroFoco as erro:
             raise ErroApi(400, str(erro)) from None
 
-    def miniatura(self, video):
-        from cortelive import pastas
+    def miniatura(self, video, previa=False):
+        from cortelive import miniatura, pastas
 
+        sufixo = ".previa.jpg" if previa else ".jpg"
         for pasta in (pastas.interno_do_video(video), video.parent):
-            jpg = pasta / (video.stem + ".jpg")
+            jpg = pasta / (video.stem + sufixo)
             if jpg.is_file() and jpg.resolve().is_relative_to(self.pasta_cortes()):
                 return jpg.read_bytes()
+        # v1.0.17: corte antigo sem miniatura -> gera agora (quadro do meio + tira) e guarda em _interno
+        interno = pastas.interno_do_video(video)
+        if interno.name == pastas.INTERNO and interno.is_dir():
+            feito = miniatura.gerar(video, interno, video.stem, env=self.ambiente())
+            pronto = feito["previa" if previa else "jpg"]
+            if pronto and Path(pronto).is_file():
+                return Path(pronto).read_bytes()
+        if previa:
+            raise ErroApi(404, "Prévia indisponível.")
         processo = subprocess.run(
             ["ffmpeg", "-v", "error", "-ss", "1", "-i", str(video), "-frames:v", "1",
              "-vf", "scale=240:-2", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"],
@@ -492,10 +525,11 @@ class ApiPainel:
             return despachar_rota_dev(self, metodo, acoes, url, corpo)
         acao = acoes[0] if len(acoes) == 1 else ""
         consultas = {("cortes", ""), ("miniatura", ""), ("drive", "detectar"), ("gpt", "status"),
-                     ("foco", "estado"), ("foco", "quadro")}
+                     ("foco", "estado"), ("foco", "quadro"), ("aprendizado", ""), ("espaco", "")}
         acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""),
                       ("gpt", "conectar"), ("drive", "enviar"), ("cortes", "excluir"),
-                      ("foco", "refazer"), ("foco", "automatico"), ("foco", "baixar"), ("foco", "modo")}
+                      ("foco", "refazer"), ("foco", "automatico"), ("foco", "baixar"), ("foco", "modo"),
+                      ("aprendizado", "zerar"), ("espaco", "limpar")}
         par = grupo, acao
         if len(acoes) > 1 or par not in consultas | acoes_post | {("config-postagem", ""), ("drive", "config")}:
             raise ErroApi(404, "Rota não encontrada.")
@@ -519,8 +553,21 @@ class ApiPainel:
                 return self.excluir_corte(corpo)
             return {"cortes": self.listar_cortes()}
         if grupo == "miniatura":
-            texto = parse_qs(url.query).get("caminho", [""])[0]
-            return self.miniatura(self.dentro_dos_cortes(texto))
+            q = parse_qs(url.query)
+            return self.miniatura(self.dentro_dos_cortes(q.get("caminho", [""])[0]), q.get("previa", [""])[0] == "1")
+        if grupo == "aprendizado":
+            from cortelive import aprendizado
+            if acao == "zerar":
+                guardado = aprendizado.zerar(self.pasta_cortes())
+                return {"mensagem": "Aprendizado zerado. As próximas rejeições começam do zero."
+                        if guardado else "Ainda não havia cortes rejeitados.", "guardado": guardado,
+                        **aprendizado.status(self.pasta_cortes())}
+            return aprendizado.status(self.pasta_cortes())
+        if grupo == "espaco":
+            from painel import espaco
+            if acao == "limpar":
+                return espaco.limpar(self.pasta_cortes(), self.config_motor(), corpo)
+            return espaco.estado(self.pasta_cortes(), self.config_motor())
         if grupo == "historico":
             return self.apagar_historico(corpo)
         if grupo == "enviar-erro":

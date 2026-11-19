@@ -437,6 +437,14 @@
               <span id="contador-cortes-total" class="contador-pilula">0 cortes</span>
             </div>
 
+            <div id="aviso-espaco" class="aviso-espaco" role="status" hidden>
+              <div class="aviso-espaco-textos">
+                <strong id="aviso-espaco-titulo">Pouco espaço no disco</strong>
+                <span id="aviso-espaco-detalhe"></span>
+              </div>
+              <button id="btn-limpar-espaco" type="button" class="btn btn-primario btn-compacto">Liberar espaço</button>
+            </div>
+
             <div id="filtro-notas" class="filtro-notas" role="group" aria-labelledby="filtro-notas-rotulo" hidden>
               <span id="filtro-notas-rotulo" class="filtro-notas-rotulo">Nota do GPT</span>
               <div class="filtro-notas-atalhos">
@@ -531,6 +539,18 @@
               </label>
             </div>
             <p id="feedback-cortes-longos" class="ajuda-campo" role="status" hidden></p>
+          </section>
+
+          <section class="painel-card contas-card" aria-labelledby="titulo-aprendizado">
+            <div>
+              <h2 id="titulo-aprendizado" class="titulo-secao">Aprender com o “Não quero”</h2>
+              <p class="texto-apoio">Quando você tira um corte da lista, o CorteLive anota a nota que o GPT deu. Com pelo menos 15 cortes rejeitados, cortes parecidos com os que você costuma tirar (mesma faixa de nota, no mesmo canal quando há exemplos suficientes) perdem até 2 pontos; os parecidos com os que você mantém ganham até 2.</p>
+            </div>
+            <div class="aprendizado-linha">
+              <p id="aprendizado-status" class="aprendizado-status" role="status">Carregando…</p>
+              <button id="btn-zerar-aprendizado" type="button" class="btn btn-secundario btn-compacto">Zerar o aprendizado</button>
+            </div>
+            <p id="feedback-aprendizado" class="ajuda-campo" role="status" hidden></p>
           </section>
 
           <section class="painel-card contas-card" aria-labelledby="titulo-gpt">

@@ -424,6 +424,12 @@ def duracao_maxima(cfg):
     return dmax
 
 
+def espera_fala_s(cfg):
+    """Quanto de fala depois do pico o seletor espera antes de desistir de um momento (0 = decide na hora: Livre)."""
+    m = modo_piso(cfg)
+    return m + 6.0 if m > 0 else 0.0
+
+
 def cfg_degrau(cfg, t):
     """Cópia do cfg para tentar o degrau t da escada: corte de t até (próximo degrau - 0,5 s); o último vai a 90 s."""
     prox = [x for x in ESCADA_PISOS if x > t]
@@ -474,7 +480,7 @@ def dividir_em_partes(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e
     return out
 
 
-def _score_ini(a, b, gap, t, hook):
+def _score_ini(a, b, gap, t, hook, alvo=8.0):
     sc = 0.0
     term = a is None or _terminal(a["w"])
     sc += 3.5 if term else 0.0
@@ -494,7 +500,7 @@ def _score_ini(a, b, gap, t, hook):
     if gap < 0.15:
         sc -= 6.0
     sc += hook * 1.5
-    sc -= 0.08 * abs((t - b["s"]) - 8.0)
+    sc -= 0.08 * abs((t - b["s"]) - alvo)
     return sc
 
 
@@ -530,6 +536,10 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
     dep_min = cfg.get("depois_min", 7.0)
     bur, bur_pos = cfg.get("buraco_max_s", 2.8), cfg.get("cauda_max_s", 2.0)
     soft = duracao_minima(cfg)
+    # corte de 30/45/61 s: pausa de jogo (quem joga fica uns segundos calado) não corta o contexto de antes do pico;
+    # o início mira ~30% do mínimo antes do pico (61 s -> ~18 s de contexto) em vez de 8 s
+    bur_ini = max(bur, cfg.get("buraco_contexto_s", 6.0)) if longo else bur
+    alvo_antes = max(8.0, 0.3 * soft) if longo else 8.0
     P = [w for w in palavras if w["e"] > t - 60 and w["s"] < t + max(60.0, depois + 12.0)]
     hi = min(fim_disponivel, max_fim)
 
@@ -538,7 +548,7 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
     piso = max(t - amax, min_ini, 0.0)
     if antes:
         i = len(antes) - 1
-        while i > 0 and antes[i]["s"] - antes[i - 1]["e"] < bur:
+        while i > 0 and antes[i]["s"] - antes[i - 1]["e"] < bur_ini:
             i -= 1
         piso = max(piso, antes[i]["s"] - 0.5)
 
@@ -558,7 +568,7 @@ def escolher_janela(t, palavras, fim_disponivel, cfg, min_ini=-1e9, max_fim=1e9)
         hook = 0.0
         if any(("?" in w["w"] or "!" in w["w"]) for w in P[k:k + 8] if w["s"] < b["s"] + 3.0):
             hook = 1.0
-        cand.append((_score_ini(a, b, gap, t, hook), a, b, gap))
+        cand.append((_score_ini(a, b, gap, t, hook, alvo_antes), a, b, gap))
     ini, lim_ini = None, None
     cand = [c for c in cand if c[2]["s"] - min(0.3, c[3] * 0.4) >= min_ini]
     if cand:
@@ -788,6 +798,7 @@ class Seletor:
                 self.avaliado_ate = max(self.avaliado_ate, r[1])
                 return
             _, pk, nota, fim_cl = r
+            inicio_busca, bloqueado_antes = cur, getattr(self, "bloqueado_ate", -1e9)
             self.bloqueado_ate = fim_cl
             cur = fim_cl + 1
             mot, sinais = notas[pk][1], notas[pk][2]
@@ -798,6 +809,12 @@ class Seletor:
             j, porque, subst = self.planejar(pk, nota, sinais, palavras, disponivel, emendas, final,
                                              pendente() if pendente else None)
             if j is None:
+                if not final and disponivel < pk + espera_fala_s(self.cfg):
+                    # o mínimo (30/45/61 s) ainda não cabe só porque a fala de depois do pico não chegou:
+                    # o momento volta a ser avaliado no próximo passo, em vez de ser perdido
+                    self.bloqueado_ate = bloqueado_antes
+                    self.avaliado_ate = max(self.avaliado_ate, inicio_busca)
+                    return
                 continue
             dec = {"pico": pk, "nota": nota, "mot": mot, "sinais": sinais, "janela": j, "substitui": subst}
             if aceitar(dec):

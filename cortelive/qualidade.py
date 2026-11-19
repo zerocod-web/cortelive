@@ -9,7 +9,7 @@ Escalas: GPT dá nota de 0 a 10; o seletor local soma sinais (volume, risada, pa
 NIVEIS = {
     "melhores":    {"gpt": 8, "local": 3.0, "por_hora": 4},
     "equilibrado": {"gpt": 7, "local": 2.5, "por_hora": 8},
-    "mais":        {"gpt": 5, "local": 0.0, "por_hora": 20},
+    "mais":        {"gpt": 6, "local": 0.0, "por_hora": 20},     # nota 6 é o mínimo absoluto (Gabriel, 19/11)
 }
 PADRAO = "equilibrado"
 # nota de "Só os melhores": passa mesmo com a janela de 15 min cheia (nunca acima do teto por hora)

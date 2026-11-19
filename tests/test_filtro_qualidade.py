@@ -16,7 +16,7 @@ def test_padrao_e_equilibrado():
 @pytest.mark.parametrize("nivel,juiz,nota,ok", [
     ("equilibrado", "gpt", 6, False), ("equilibrado", "gpt", 7, True),
     ("melhores", "gpt", 7, False), ("melhores", "gpt", 8, True),
-    ("mais", "gpt", 5, True), ("mais", "gpt", 4, False),
+    ("mais", "gpt", 6, True), ("mais", "gpt", 5, False),
     ("equilibrado", "local", 2.4, False), ("equilibrado", "local", 2.6, True),
     ("mais", "local", 1.0, True),
 ])

@@ -527,7 +527,8 @@ class Sessao:
             preparados = []
             for idx, jj in enumerate(partes):
                 ini, fim = jj["ini"], jj["fim"]
-                if notas is not None:
+                # corte só em silêncio (dentro da pausa entre palavras), também quando o GPT escolheu o trecho
+                if notas is not None or jj.get("lim_ini") or jj.get("lim_fim"):
                     aa = max(0.0, ini - 1)
                     aud = fl.audio_trecho(aa, fim + 1)
                     ini = momento.ajustar_no_vale(ini, aud, aa, limites=jj["lim_ini"])
@@ -570,8 +571,14 @@ class Sessao:
             disponivel = fl.feito_ate
             min_ini = max(0.0, sel.ultimo_fim + cfg["intervalo_min_entre_cortes"], max(cap.emendas, default=-1.0) + 0.3)
             anterior = juiz.revisado_ate
+            def marcas(a, b):
+                """Risada, grito e chat por segundo, para o GPT ver o que a fala sozinha não mostra."""
+                ns = sin.notas(max(0.0, a), b, fl.palavras_entre(a - 2, b))
+                return {s: v[1] for s, v in ns.items() if v[1] and v[0] >= cfg["limiar_nota"] * 0.6}
+
             modo_selecao, decisao = juiz.selecionar(
-                fl.palavras, disponivel, min_ini, momento.duracao_minima(cfg), momento.duracao_maxima(cfg), final)
+                fl.palavras, disponivel, min_ini, momento.duracao_minima(cfg), momento.duracao_maxima(cfg), final,
+                alvo_min=cfg["duracao_min"], marcas=marcas)
             if modo_selecao == "gpt":
                 if juiz.revisado_ate > anterior:
                     log.debug(f"GPT revisou a transcrição até {_hms(juiz.revisado_ate)}: "

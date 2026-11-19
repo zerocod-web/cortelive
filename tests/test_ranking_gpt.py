@@ -106,3 +106,134 @@ def test_gpt_escolhe_o_trecho_sem_notas_do_seletor_local(monkeypatch):
     assert corte["janela"]["fim"] - corte["janela"]["ini"] >= 61
     assert "gancho" in pedidos[0]
     assert juiz.selecionar(palavras, 70, 0, 61, 90) == ("gpt", None)
+
+
+def _fala(frases, inicio=0.0, pausa=0.7):
+    """Frases (texto) -> palavras com tempo: 0,4 s por palavra, 0,1 s entre palavras, 'pausa' entre frases."""
+    palavras, t = [], inicio
+    for frase in frases:
+        for w in frase.split():
+            palavras.append({"w": w, "s": round(t, 2), "e": round(t + 0.4, 2)})
+            t += 0.5
+        t += pausa
+    return palavras
+
+
+def _juiz(monkeypatch, resposta, pedidos=None, **kw):
+    monkeypatch.setattr(gpt, "ler", lambda: {"modo": "chatgpt"})
+
+    def responder(atual, instrucao, contexto):
+        if pedidos is not None:
+            pedidos.append(contexto)
+        return resposta(contexto) if callable(resposta) else resposta
+
+    monkeypatch.setattr(gpt, "_consultar", responder)
+    return gpt.Juiz(kw.pop("aviso", print), **kw)
+
+
+def _linha(contexto, trecho):
+    """ID da linha da transcrição enviada ao GPT que contém 'trecho'."""
+    return next(int(l.split()[0]) for l in contexto.splitlines() if trecho in l)
+
+
+def test_gpt_recebe_frases_e_o_corte_nao_comeca_no_meio_da_fala(monkeypatch):
+    # 'mas aí quando eu cheguei,' termina em vírgula: a frase só fecha em 'cara.'
+    frases = [f"assunto antigo número {i} encerrado." for i in range(8)] + [
+        "mas aí quando eu cheguei,", "o carro tinha sumido da garagem cara.", "Eu fiquei maluco!",
+        "Liguei pra polícia na hora.", "E o policial riu da minha cara!", "Que dia mano."] + \
+        [f"outra coisa qualquer número {i} aqui." for i in range(10)]
+    palavras = _fala(frases)
+    escolha = {}
+
+    def responder(contexto):
+        escolha["ctx"] = contexto
+        p = _linha(contexto, "o carro tinha sumido")
+        return f'{{"primeiro":{p},"ultimo":{_linha(contexto, "Que dia mano")},"momento":{p + 3},"nota":8}}'
+
+    juiz = _juiz(monkeypatch, responder)
+    modo, corte = juiz.selecionar(palavras, palavras[-1]["e"] + 1, 0, 6, 60, alvo_min=10)
+    assert modo == "gpt" and corte
+    inicio = next(w for w in palavras if w["w"] == "mas")
+    assert abs(corte["janela"]["ini"] - inicio["s"]) < 0.3        # recuou para o começo da frase
+    fim = next(w for w in palavras if w["w"] == "mano.")
+    assert abs(corte["janela"]["fim"] - fim["e"]) < 0.5
+    assert corte["janela"]["lim_ini"] and corte["janela"]["lim_fim"]   # o script corta no silêncio
+    # cada linha enviada é uma frase inteira, não um bloco de 4 s
+    assert any(l.endswith("o carro tinha sumido da garagem cara.") for l in escolha["ctx"].splitlines())
+
+
+def test_corte_curto_puxa_o_contexto_de_antes(monkeypatch):
+    frases = [f"contexto importante parte {i} da história." for i in range(12)] + \
+             ["E aí explodiu tudo!", "Kkkkk que isso."] + [f"depois veio {i} coisa." for i in range(6)]
+    palavras = _fala(frases)
+
+    def responder(contexto):
+        p = _linha(contexto, "E aí explodiu")
+        return f'{{"primeiro":{p},"ultimo":{p + 1},"momento":{p},"nota":9}}'
+
+    juiz = _juiz(monkeypatch, responder)
+    modo, corte = juiz.selecionar(palavras, palavras[-1]["e"] + 1, 0, 20, 60, alvo_min=30)
+    ini, fim = corte["janela"]["ini"], corte["janela"]["fim"]
+    assert fim - ini >= 30
+    fim_esperado = next(w for w in palavras if w["w"] == "isso.")["e"]
+    assert abs(fim - fim_esperado) < 0.5          # o fim continua na reação
+    assert ini < next(w for w in palavras if w["w"] == "explodiu")["s"] - 20
+
+
+def test_resposta_lenta_do_gpt_e_aproveitada_sem_cair_no_local(monkeypatch):
+    import threading
+    liberar = threading.Event()
+    palavras = _fala([f"frase completa número {i} aqui." for i in range(40)])
+
+    def responder(contexto):
+        liberar.wait(5)
+        return f'{{"primeiro":{_linha(contexto, "número 5 ")},"ultimo":{_linha(contexto, "número 20 ")},"momento":10,"nota":7}}'
+
+    avisos = []
+    juiz = _juiz(monkeypatch, responder, aviso=avisos.append, prazo=0.05)
+    disp = palavras[-1]["e"] + 1
+    assert juiz.selecionar(palavras, disp, 0, 20, 90) == ("gpt", None)    # ainda pensando: não decide nada
+    liberar.set()
+    import time
+    time.sleep(0.2)
+    modo, corte = juiz.selecionar(palavras, disp + 1, 0, 20, 90)
+    assert modo == "gpt" and corte and not avisos
+
+
+def test_resposta_com_cerca_de_codigo_e_texto_vira_corte(monkeypatch):
+    palavras = _fala([f"frase completa número {i} aqui." for i in range(40)])
+    juiz = _juiz(monkeypatch, lambda c: 'Claro:\n```json\n{"primeiro":2,"ultimo":12,"momento":5,"nota":7}\n```')
+    modo, corte = juiz.selecionar(palavras, palavras[-1]["e"] + 1, 0, 20, 90)
+    assert modo == "gpt" and corte
+
+
+def test_resposta_ilegivel_nao_desliga_o_gpt(monkeypatch):
+    palavras = _fala([f"frase completa número {i} aqui." for i in range(40)])
+    avisos = []
+    juiz = _juiz(monkeypatch, "não sei", aviso=avisos.append)
+    assert juiz.selecionar(palavras, palavras[-1]["e"] + 1, 0, 20, 90) == ("gpt", None)
+    assert not avisos and juiz.retomar == 0.0
+
+
+def test_marcas_de_risada_e_grito_vao_para_o_gpt(monkeypatch):
+    palavras = _fala([f"frase completa número {i} aqui." for i in range(40)])
+    pedidos = []
+    juiz = _juiz(monkeypatch, "null", pedidos)
+    alvo = int(palavras[50]["s"])
+    juiz.selecionar(palavras, palavras[-1]["e"] + 1, 0, 20, 90,
+                    marcas=lambda a, b: {alvo: ["risada", "volume alto (2.0x acima do normal)"]})
+    linha = next(l for l in pedidos[0].splitlines() if "[" in l.split("]", 1)[1])
+    assert "risada" in linha and "grito" in linha
+
+
+def test_corte_que_termina_na_borda_da_transcricao_espera_o_resto(monkeypatch):
+    palavras = _fala([f"frase completa número {i} aqui." for i in range(40)])
+
+    def responder(contexto):
+        ult = max(int(l.split()[0]) for l in contexto.splitlines())
+        return f'{{"primeiro":{ult - 10},"ultimo":{ult},"momento":{ult - 2},"nota":8}}'
+
+    juiz = _juiz(monkeypatch, responder)
+    assert juiz.selecionar(palavras, palavras[-1]["e"] + 0.5, 0, 20, 90) == ("gpt", None)
+    modo, corte = _juiz(monkeypatch, responder).selecionar(palavras, palavras[-1]["e"] + 0.5, 0, 20, 90, final=True)
+    assert corte is not None

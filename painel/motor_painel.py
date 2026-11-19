@@ -30,6 +30,8 @@ PARADA_APOS_S = 3600   # log sem mexer há 1 h = live terminada ou parada
 PADRAO_POSTAGEM = {"cortes_longos": False}
 DURACAO_MODOS = ("livre", "30", "45", "61")     # duração mínima dos cortes; padrão: mínimo 1 minuto (61 s)
 DURACAO_PADRAO = "61"
+QUANTIDADE_MODOS = ("melhores", "equilibrado", "mais")     # quantidade de cortes; padrão: equilibrado
+QUANTIDADE_PADRAO = "equilibrado"
 def ler_json(caminho: Path):
     try:
         dados = json.loads(caminho.read_text(encoding="utf-8-sig"))
@@ -52,6 +54,8 @@ def config_postagem(raiz: Path):
     modo = modo if modo in DURACAO_MODOS else DURACAO_PADRAO
     config["duracao_minima_modo"] = modo
     config["cortes_longos"] = modo != "livre"        # compatível com o interruptor antigo
+    qtd = str(dados.get("quantidade_cortes", QUANTIDADE_PADRAO))
+    config["quantidade_cortes"] = qtd if qtd in QUANTIDADE_MODOS else QUANTIDADE_PADRAO
     return config
 
 
@@ -247,10 +251,14 @@ class ApiPainel:
                 raise ErroApi(400, "Opção de duração inválida.")
             alteracoes["duracao_minima_modo"] = str(corpo["duracao_minima_modo"])
             alteracoes.pop("cortes_longos", None)
+        if "quantidade_cortes" in corpo:
+            if str(corpo["quantidade_cortes"]) not in QUANTIDADE_MODOS:
+                raise ErroApi(400, "Opção de quantidade de cortes inválida.")
+            alteracoes["quantidade_cortes"] = str(corpo["quantidade_cortes"])
         if not alteracoes:
             raise ErroApi(400, "Informe pelo menos uma opção.")
         for chave, valor in alteracoes.items():
-            if chave != "duracao_minima_modo" and not isinstance(valor, bool):
+            if chave not in ("duracao_minima_modo", "quantidade_cortes") and not isinstance(valor, bool):
                 raise ErroApi(400, f"Opção inválida: {chave}.")
         with self.trava_config:
             arq = self.raiz / "painel_config.json"

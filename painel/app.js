@@ -816,6 +816,7 @@
       const cfg = await api("/api/config-postagem");
       if (cfg.ok === false || salvandoPreferencias) return;
       el("sel-duracao-minima").value = ["livre", "30", "45", "61"].includes(String(cfg.duracao_minima_modo)) ? String(cfg.duracao_minima_modo) : "61";
+      el("sel-quantidade-cortes").value = ["melhores", "equilibrado", "mais"].includes(String(cfg.quantidade_cortes)) ? String(cfg.quantidade_cortes) : "equilibrado";
     } catch (_) {}
   }
 
@@ -823,13 +824,16 @@
     if (salvandoPreferencias) return;
     salvandoPreferencias = true;
     const seletor = el("sel-duracao-minima");
+    const quantidade = el("sel-quantidade-cortes");
     seletor.disabled = true;
+    quantidade.disabled = true;
     let resp = null;
     try {
-      resp = await api("/api/config-postagem", "POST", { duracao_minima_modo: seletor.value });
+      resp = await api("/api/config-postagem", "POST", { duracao_minima_modo: seletor.value, quantidade_cortes: quantidade.value });
     } finally {
       salvandoPreferencias = false;
       seletor.disabled = false;
+      quantidade.disabled = false;
     }
     if (resp?.ok === false) {
       mostrarAvisoSistema("Não foi possível salvar as preferências", resp.erro);
@@ -1145,6 +1149,7 @@
     });
 
     el("sel-duracao-minima").addEventListener("change", salvarConfigCorte);
+    el("sel-quantidade-cortes").addEventListener("change", salvarConfigCorte);
 
     window.addEventListener("beforeunload", (e) => {
       if (

@@ -537,6 +537,18 @@ class Sessao:
         from .gpt import Juiz
         juiz = Juiz(log.aviso)
         sel = momento.Seletor(cfg)
+        from .qualidade import Filtro, NOMES
+        filtro = Filtro(cfg)
+        descartado_ate = [0.0]           # fim do último trecho do GPT recusado pelo filtro
+        log.info(f"Quantidade de cortes: {NOMES[filtro.nivel]} (nota mínima GPT {filtro.piso['gpt']:g}, "
+                 f"até {filtro.por_hora} cortes por hora de live).")
+
+        def filtrar(dec, juiz_nome):
+            """Corte de nota baixa ou acima do teto por hora não é gerado nem renderizado."""
+            ok, porque = filtro.avaliar(dec["nota"], juiz_nome, dec["pico"])
+            if not ok:
+                log.info(f"Momento em {_hms(dec['pico'])} não vira corte: {porque}.")
+            return ok
         hist_notas = {}
         quentes_titulo = list(cfg["palavras_quentes"]) + list(cfg.get("palavras_apoio", []))
 
@@ -588,7 +600,8 @@ class Sessao:
 
         def avaliar(final=False):
             disponivel = fl.feito_ate
-            min_ini = max(0.0, sel.ultimo_fim + cfg["intervalo_min_entre_cortes"], max(cap.emendas, default=-1.0) + 0.3)
+            min_ini = max(0.0, sel.ultimo_fim + cfg["intervalo_min_entre_cortes"], max(cap.emendas, default=-1.0) + 0.3,
+                          descartado_ate[0])
             anterior = juiz.revisado_ate
             def marcas(a, b):
                 """Risada, grito e chat por segundo, para o GPT ver o que a fala sozinha não mostra."""
@@ -602,7 +615,10 @@ class Sessao:
                 if juiz.revisado_ate > anterior:
                     log.debug(f"GPT revisou a transcrição até {_hms(juiz.revisado_ate)}: "
                               + ("escolheu um corte." if decisao else "sem corte nesta janela."))
-                if decisao and aceitar(decisao):
+                if decisao and not filtrar(decisao, "gpt"):
+                    descartado_ate[0] = max(descartado_ate[0], decisao["janela"]["fim"])   # não volta a sugerir
+                elif decisao and aceitar(decisao):
+                    filtro.registrar(decisao["pico"])
                     sel.ultimo_fim = decisao["fim"]
                     sel.ultima_nota = decisao["nota"]
                 return
@@ -636,7 +652,8 @@ class Sessao:
                     return (pendentes[-1]["nota"], pendentes[-1]["ultimo_fim_antes"]) if pendentes else None
 
             sel.passo(notas, fl.palavras, disponivel, limite, notas_ate, limiar, list(cap.emendas),
-                      lambda decisao: aceitar(decisao, notas), pendente, final)
+                      lambda decisao: filtrar(decisao, "local") and aceitar(decisao, notas)
+                      and (filtro.registrar(decisao["pico"]) or True), pendente, final)
 
         exe = cf.ThreadPoolExecutor(max_workers=1, initializer=log.usar, initargs=(log.atual(),))
         reinicios_fala = [0]

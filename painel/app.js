@@ -704,7 +704,13 @@
         alterarDestinoCorte(c, btnExcluir, feedback, "/api/cortes/excluir", {}, "A exclusão está indisponível nesta versão.");
       }
     });
-    acoes.append(btnVideo, btnPasta, btnDrive, btnExcluir);
+    const btnFoco = document.createElement("button");
+    btnFoco.type = "button";
+    btnFoco.className = "btn btn-secundario btn-compacto";
+    btnFoco.textContent = "Ajustar foco";
+    btnFoco.setAttribute("aria-label", "Ajustar câmera e gameplay do corte " + titulo);
+    btnFoco.addEventListener("click", () => window.CorteLiveFoco?.abrir(c));
+    acoes.append(btnVideo, btnPasta, btnFoco, btnDrive, btnExcluir);
 
     card.append(topo, acoes, destino);
     if (acoesDestinoAtivas.has(c.caminho)) {

@@ -182,7 +182,43 @@ class ApiPainel:
                 lixeira.reciclar(video)
             except (OSError, subprocess.SubprocessError):
                 raise ErroApi(409, "Não foi possível enviar o corte à Lixeira. Confira se ele está em uso e se a unidade tem Lixeira.") from None
+            if meta:   # trecho bruto guardado para o editor de foco (v1.0.16): só serve com o MP4
+                for chave in ("refazer", "foco_fonte"):
+                    nome = (dados.get(chave) or {}).get("video")
+                    if nome and Path(nome).name == nome and nome.lower().endswith(".mkv"):
+                        try:
+                            (meta.parent / nome).unlink(missing_ok=True)
+                        except OSError:
+                            pass
         return {"mensagem": "O MP4 do corte foi enviado à Lixeira."}
+
+    def foco(self, acao, url, corpo):
+        """Editor de foco do corte: estado, quadro (JPEG), refazer com a marcação, voltar ao automático, baixar."""
+        from painel import foco
+        os.environ["PATH"] = self.ambiente()["PATH"]      # ffmpeg/ffprobe da instalação (quadro e tamanho)
+        q = parse_qs(url.query)
+        texto = q.get("caminho", [""])[0] if acao in ("estado", "quadro") else campo(corpo, "caminho")
+        video = self.dentro_dos_cortes(texto)
+        try:
+            if acao == "estado":
+                return foco.estado(video)
+            if acao == "quadro":
+                try:
+                    t = float(q.get("t", ["0"])[0])
+                except ValueError:
+                    t = 0.0
+                return foco.quadro(video, t)
+            pedido = None
+            if acao == "refazer":
+                pedido = corpo.get("foco")
+                if not isinstance(pedido, dict):
+                    raise ErroApi(400, "Marque a área da câmera e a da gameplay antes de refazer.")
+                pedido = {k: [int(round(float(v))) for v in pedido[k]] for k in ("cam", "jogo")
+                          if isinstance(pedido.get(k), list) and len(pedido[k]) == 4}
+            return foco.iniciar(video, acao, pedido, self.ambiente(), self.raiz,
+                                self.python if self.python.is_file() else None)
+        except foco.ErroFoco as erro:
+            raise ErroApi(400, str(erro)) from None
 
     def miniatura(self, video):
         from cortelive import pastas
@@ -364,9 +400,11 @@ class ApiPainel:
         if grupo == "dev":
             return despachar_rota_dev(self, metodo, acoes, url, corpo)
         acao = acoes[0] if len(acoes) == 1 else ""
-        consultas = {("cortes", ""), ("miniatura", ""), ("drive", "detectar"), ("gpt", "status")}
+        consultas = {("cortes", ""), ("miniatura", ""), ("drive", "detectar"), ("gpt", "status"),
+                     ("foco", "estado"), ("foco", "quadro")}
         acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""),
-                      ("gpt", "conectar"), ("drive", "enviar"), ("cortes", "excluir")}
+                      ("gpt", "conectar"), ("drive", "enviar"), ("cortes", "excluir"),
+                      ("foco", "refazer"), ("foco", "automatico"), ("foco", "baixar")}
         par = grupo, acao
         if len(acoes) > 1 or par not in consultas | acoes_post | {("config-postagem", ""), ("drive", "config")}:
             raise ErroApi(404, "Rota não encontrada.")
@@ -383,6 +421,8 @@ class ApiPainel:
                 raise ErroApi(400, str(erro)) from None
         if grupo == "drive":
             return self.drive(acao, metodo, corpo)
+        if grupo == "foco":
+            return self.foco(acao, url, corpo)
         if grupo == "cortes":
             if acao == "excluir":
                 return self.excluir_corte(corpo)

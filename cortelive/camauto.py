@@ -681,8 +681,13 @@ def ajustar_proporcao(cam, rosto, w, h, prop, bordas=None, topo_px=None):
 
 def detectar(arquivos, prop=1080 / 640):
     """arquivos: 6+ segmentos espalhados em 1–2 min. -> (x,y,w,h) ou None (confiança baixa)."""
+    return detectar_imgs([i for i in (_quadro(a) for a in arquivos) if i is not None], prop)
+
+
+def detectar_imgs(imgs, prop=1080 / 640):
+    """Mesma detecção de detectar(), a partir de quadros já lidos (BGR). Usada também para rever a cam dentro de
+    cada corte (render.rever_cam)."""
     global ULTIMO
-    imgs = [i for i in (_quadro(a) for a in arquivos) if i is not None]
     ULTIMO = {"quadros": len(imgs)}
     if len(imgs) < 3:
         ULTIMO["motivo"] = "poucos quadros"

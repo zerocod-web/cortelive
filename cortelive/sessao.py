@@ -421,26 +421,33 @@ class Sessao:
                                           "cam": list(cam) if cam else None, "saida_dir": str(dint.resolve()),
                                           "nome": nome, "faixa_legenda": cfg.get("faixa_legenda", "rasgada"),
                                           "faixa_cor": cfg.get("faixa_cor", "vermelha"),
-                                          "recuo_sem_cam": cfg.get("recuo_sem_cam")},
+                                          "recuo_sem_cam": cfg.get("recuo_sem_cam"),
+                                          # v1.0.16: cam automática é conferida em cada corte (render.rever_cam)
+                                          "conferir_cam": cam_status == "detectada" or "automática" in cam_status},
                                          ensure_ascii=False), encoding="utf-8")
             self._job_atual["fase"] = "fila_render"
             try:
                 rc = servicos.render().executar(_rodar_render_proc, pedido)
             except _CorteDescartado:
+                bruto.unlink(missing_ok=True)
                 pedido.unlink(missing_ok=True)
                 res_arq.unlink(missing_ok=True)
                 _limpar_parciais_corte(nome)
                 raise
             except subprocess.TimeoutExpired:
+                bruto.unlink(missing_ok=True)
                 _limpar_parciais_corte(nome)
                 raise RuntimeError(f"render passou de {cfg['travou_render_s']} s (watchdog cancelou)")
-            finally:
+            except BaseException:
                 bruto.unlink(missing_ok=True)
+                raise
             if not res_arq.exists():
+                bruto.unlink(missing_ok=True)
                 raise RuntimeError(f"render morreu sem resposta (código {rc})")
             r = json.loads(res_arq.read_text(encoding="utf-8"))
             pedido.unlink(missing_ok=True); res_arq.unlink(missing_ok=True)
             if not r.get("ok"):
+                bruto.unlink(missing_ok=True)
                 log.debug(r.get("trace", ""))
                 raise RuntimeError(r.get("erro", "erro desconhecido no render"))
             if r.get("caiu_sem_cam"):
@@ -465,6 +472,22 @@ class Sessao:
             if r.get("ass") and Path(r["ass"]).exists():
                 ass = dint / f"{legivel}.ass"
                 os.replace(r["ass"], ass)
+            # v1.0.16: o trecho bruto do corte fica guardado ao lado do .json para o editor de foco do painel refazer
+            # o corte (marcar câmera e gameplay à mão). Sai junto quando o corte vai para a Lixeira.
+            refazer = None
+            if cfg.get("guardar_trecho_corte", True):
+                try:
+                    os.replace(bruto, dint / f"{legivel}.mkv")
+                    refazer = {"video": f"{legivel}.mkv", "inicio": round(ini - base, 3), "fim": round(fim - base, 3),
+                               "palavras": pal_rel, "modelo": cfg["modelo"], "legenda": cfg["legenda"],
+                               "faixa_legenda": cfg.get("faixa_legenda", "rasgada"),
+                               "faixa_cor": cfg.get("faixa_cor", "vermelha"),
+                               "recuo_sem_cam": cfg.get("recuo_sem_cam"), "nome": nome}
+                except OSError:
+                    refazer = None
+            bruto.unlink(missing_ok=True)
+            if r.get("cam_revista"):
+                log.info(f"{legivel}: {r['cam_revista']}")
             info = {
                 "arquivo": final.name, "nome_interno": nome,
                 "sem_legenda": f"{pastas.SEM_LEGENDA}/{sem_leg.name}" if sem_leg else None,
@@ -477,7 +500,8 @@ class Sessao:
                 "sinais": job["sinais"], "motivos": job["motivos"],
                 "titulo_sugerido": job["titulo"], "motivo": job["motivo"],
                 "modelo": cfg["modelo"], "modelo_usado": r.get("modelo"), "estilo_legenda": cfg["legenda"],
-                "cam": list(cam) if cam else None, "encoder": r.get("encoder"),
+                "cam": r["cam_usada"] if "cam_usada" in r else (list(cam) if cam else None),
+                "cam_revista": r.get("cam_revista"), "refazer": refazer, "encoder": r.get("encoder"),
                 "latencia_s": {"momento_ate_mp4": round(pronto - job["chegou_evento"], 1),
                                "decisao_ate_mp4": round(pronto - job["decidido"], 1),
                                "render": round(pronto - t0, 1)},

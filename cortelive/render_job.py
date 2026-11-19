@@ -16,7 +16,7 @@ def main():
         r = render.render_corte(job["video"], job["inicio"], job["fim"], job["palavras"], job["modelo"],
                                 job["legenda"], tuple(job["cam"]) if job["cam"] else None, job["saida_dir"],
                                 job["nome"], faixa=job.get("faixa_legenda"), faixa_cor=job.get("faixa_cor"),
-                                recuo_sem_cam=job.get("recuo_sem_cam"))
+                                recuo_sem_cam=job.get("recuo_sem_cam"), conferir_cam=bool(job.get("conferir_cam")))
         out = {"ok": True, **r}
     except BaseException as e:
         out = {"ok": False, "erro": str(e)[-1500:], "trace": traceback.format_exc()[-3000:]}

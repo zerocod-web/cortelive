@@ -482,6 +482,21 @@
                   <option value="mais">Mais cortes</option>
                 </select>
               </label>
+              <label class="switch-linha" for="num-apagar-nota">
+                <div class="switch-textos">
+                  <strong>Apagar cortes com nota baixa</strong>
+                  <span>Corte com essa nota ou menos não é feito nem aparece na lista. A Quantidade de cortes sugere um valor; você pode trocar (nota de 0 a 10, dada pelo GPT)</span>
+                </div>
+                <span class="nota-apagar-linha">nota <input type="number" id="num-apagar-nota" class="campo-select campo-nota" min="0" max="10" step="1" inputmode="numeric"> ou menos</span>
+              </label>
+              <div class="switch-linha faixas-linha">
+                <div class="switch-textos">
+                  <strong>Pastas por nota</strong>
+                  <span>Cada faixa de nota vai para a pasta que você escolher (dentro dela, uma subpasta por live). Sem pasta escolhida, fica só na pasta de sempre. O corte continua também na lista do CorteLive</span>
+                </div>
+                <div id="faixas-nota" class="faixas-nota"></div>
+                <button type="button" id="btn-adicionar-faixa" class="btn btn-secundario btn-compacto">Adicionar faixa</button>
+              </div>
             </div>
             <p id="feedback-cortes-longos" class="ajuda-campo" role="status" hidden></p>
           </section>

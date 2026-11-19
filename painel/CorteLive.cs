@@ -1037,6 +1037,13 @@ namespace CorteLivePainel
                 return;
             }
 
+            // Pastas por nota (Configurações): janela do Windows para escolher a pasta de uma faixa
+            if (rota == "/api/escolher-pasta" && metodo == "POST")
+            {
+                EnviarJson(ns, 200, new { ok = true, caminho = EscolherPastaDialogo() ?? "" });
+                return;
+            }
+
             // Miniatura e lista de cortes via motor_painel.py --api-local quando disponível
             if (rota == "/api/miniatura" && metodo == "GET")
             {
@@ -2225,6 +2232,29 @@ namespace CorteLivePainel
                         string tv = Path.Combine(Raiz, "teste_video");
                         if (Directory.Exists(tv)) dlg.InitialDirectory = tv;
                         if (dlg.ShowDialog() == DialogResult.OK) selecionado = dlg.FileName;
+                    }
+                }
+                catch { }
+            });
+            sta.SetApartmentState(ApartmentState.STA);
+            sta.Start();
+            sta.Join();
+            return selecionado;
+        }
+
+        private static string EscolherPastaDialogo()
+        {
+            if (Headless) return "";
+            string selecionado = "";
+            Thread sta = new Thread(delegate()
+            {
+                try
+                {
+                    using (FolderBrowserDialog dlg = new FolderBrowserDialog())
+                    {
+                        dlg.Description = "Escolher a pasta para os cortes desta faixa de nota";
+                        dlg.ShowNewFolderButton = true;
+                        if (dlg.ShowDialog() == DialogResult.OK) selecionado = dlg.SelectedPath;
                     }
                 }
                 catch { }

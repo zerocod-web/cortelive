@@ -817,7 +817,51 @@
       if (cfg.ok === false || salvandoPreferencias) return;
       el("sel-duracao-minima").value = ["livre", "30", "45", "61"].includes(String(cfg.duracao_minima_modo)) ? String(cfg.duracao_minima_modo) : "61";
       el("sel-quantidade-cortes").value = ["melhores", "equilibrado", "mais"].includes(String(cfg.quantidade_cortes)) ? String(cfg.quantidade_cortes) : "equilibrado";
+      el("num-apagar-nota").value = Number.isInteger(cfg.apagar_ate_nota) ? cfg.apagar_ate_nota : 6;
+      desenharFaixas(Array.isArray(cfg.faixas_nota) ? cfg.faixas_nota : []);
     } catch (_) {}
+  }
+
+  // Pastas por nota: sem faixa configurada, mostra uma faixa 0–10 na pasta de sempre (nada muda)
+  const SUGESTAO_APAGAR = { melhores: 7, equilibrado: 6, mais: 5 };
+  function desenharFaixas(faixas) {
+    const caixa = el("faixas-nota");
+    caixa.textContent = "";
+    (faixas.length ? faixas : [{ de: 0, ate: 10, pasta: "" }]).forEach((f) => {
+      const linha = document.createElement("div");
+      linha.className = "faixa-nota";
+      const num = (classe, valor) => {
+        const i = document.createElement("input");
+        i.type = "number"; i.min = "0"; i.max = "10"; i.step = "1";
+        i.className = `campo-select campo-nota ${classe}`; i.value = valor;
+        i.addEventListener("change", salvarConfigCorte);
+        return i;
+      };
+      const pasta = document.createElement("span");
+      pasta.className = "faixa-pasta";
+      pasta.dataset.pasta = f.pasta || "";
+      pasta.textContent = f.pasta || "Pasta de sempre";
+      pasta.title = pasta.textContent;
+      const escolher = document.createElement("button");
+      escolher.type = "button"; escolher.className = "btn btn-secundario btn-compacto"; escolher.textContent = "Escolher pasta";
+      escolher.addEventListener("click", async () => {
+        const res = await api("/api/escolher-pasta", "POST", {});
+        if (res?.caminho) { pasta.dataset.pasta = res.caminho; pasta.textContent = res.caminho; pasta.title = res.caminho; await salvarConfigCorte(); }
+      });
+      const remover = document.createElement("button");
+      remover.type = "button"; remover.className = "btn btn-secundario btn-compacto"; remover.textContent = "Remover";
+      remover.addEventListener("click", async () => { linha.remove(); await salvarConfigCorte(); });
+      linha.append("Nota", num("faixa-de", f.de), "a", num("faixa-ate", f.ate), pasta, escolher, remover);
+      caixa.append(linha);
+    });
+  }
+
+  function lerFaixas() {
+    return [...el("faixas-nota").querySelectorAll(".faixa-nota")].map((l) => ({
+      de: Number.parseInt(l.querySelector(".faixa-de").value, 10),
+      ate: Number.parseInt(l.querySelector(".faixa-ate").value, 10),
+      pasta: l.querySelector(".faixa-pasta").dataset.pasta || "",
+    }));
   }
 
   async function salvarConfigCorte() {
@@ -825,11 +869,17 @@
     salvandoPreferencias = true;
     const seletor = el("sel-duracao-minima");
     const quantidade = el("sel-quantidade-cortes");
+    const apagar = el("num-apagar-nota");
     seletor.disabled = true;
     quantidade.disabled = true;
     let resp = null;
     try {
-      resp = await api("/api/config-postagem", "POST", { duracao_minima_modo: seletor.value, quantidade_cortes: quantidade.value });
+      // faixa única 0–10 sem pasta = configuração de sempre: grava lista vazia
+      const faixas = lerFaixas().filter((f) => !(f.de === 0 && f.ate === 10 && !f.pasta));
+      resp = await api("/api/config-postagem", "POST", {
+        duracao_minima_modo: seletor.value, quantidade_cortes: quantidade.value,
+        apagar_ate_nota: Number.parseInt(apagar.value, 10), faixas_nota: faixas,
+      });
     } finally {
       salvandoPreferencias = false;
       seletor.disabled = false;
@@ -1149,7 +1199,16 @@
     });
 
     el("sel-duracao-minima").addEventListener("change", salvarConfigCorte);
-    el("sel-quantidade-cortes").addEventListener("change", salvarConfigCorte);
+    el("sel-quantidade-cortes").addEventListener("change", () => {
+      el("num-apagar-nota").value = SUGESTAO_APAGAR[el("sel-quantidade-cortes").value] ?? 6;   // só sugere
+      salvarConfigCorte();
+    });
+    el("num-apagar-nota").addEventListener("change", salvarConfigCorte);
+    el("btn-adicionar-faixa").addEventListener("click", () => {
+      const faixas = lerFaixas();
+      faixas.push({ de: 0, ate: 10, pasta: "" });
+      desenharFaixas(faixas);
+    });
 
     window.addEventListener("beforeunload", (e) => {
       if (

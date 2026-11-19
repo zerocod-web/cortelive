@@ -63,3 +63,41 @@ def test_painel_guarda_a_quantidade_de_cortes(tmp_path):
     assert json.loads((tmp_path / "painel_config.json").read_text(encoding="utf-8"))["quantidade_cortes"] == "melhores"
     with pytest.raises(motor.ErroApi):
         api.postagem("POST", {"quantidade_cortes": "tudo"})
+
+
+def test_nota_para_apagar_digitada_manda_no_piso():
+    f = qualidade.Filtro({"quantidade_cortes": "equilibrado", "apagar_ate_nota": 5})
+    assert not f.avaliar(5, "gpt", 0.0)[0]
+    assert f.avaliar(6, "gpt", 0.0)[0]
+    assert qualidade.apagar_ate({"quantidade_cortes": "melhores"}) == 7      # sem número: sugestão do nível
+    assert qualidade.apagar_ate({"apagar_ate_nota": "x"}) == 6
+
+
+def test_corte_vai_para_a_pasta_da_sua_faixa(tmp_path, monkeypatch):
+    from cortelive import destino
+    monkeypatch.setattr(destino, "subpasta_da_live", lambda v: "2026-11-19 19h10 - canal")
+    video = tmp_path / "cortes" / "corte.mp4"
+    video.parent.mkdir()
+    video.write_bytes(b"mp4")
+    baixa, alta = tmp_path / "ruins", tmp_path / "bons"
+    cfg = {"faixas_nota": [{"de": 0, "ate": 5, "pasta": str(baixa)}, {"de": 6, "ate": 10, "pasta": str(alta)}]}
+    assert qualidade.enviar_para_faixa(video, 7, cfg) == alta / "2026-11-19 19h10 - canal" / "corte.mp4"
+    assert qualidade.enviar_para_faixa(video, 3, cfg) == baixa / "2026-11-19 19h10 - canal" / "corte.mp4"
+    assert video.is_file()                                           # continua na pasta de sempre (lista)
+    assert qualidade.enviar_para_faixa(video, 7, {}) is None         # sem faixa: nada muda
+    assert qualidade.pasta_da_faixa(7, {"faixas_nota": [{"de": 0, "ate": 10, "pasta": ""}]}) == ""
+
+
+def test_painel_guarda_nota_para_apagar_e_faixas(tmp_path):
+    motor = _motor()
+    api = motor.ApiPainel(tmp_path)
+    cfg = motor.config_postagem(tmp_path)
+    assert cfg["apagar_ate_nota"] == 6 and cfg["faixas_nota"] == []
+    faixas = [{"de": 0, "ate": 5, "pasta": str(tmp_path / "x")}, {"de": 6, "ate": 10, "pasta": ""}]
+    r = api.postagem("POST", {"apagar_ate_nota": 5, "faixas_nota": faixas})
+    assert r["apagar_ate_nota"] == 5 and r["faixas_nota"] == faixas
+    for ruim in ({"apagar_ate_nota": 11}, {"apagar_ate_nota": True},
+                 {"faixas_nota": [{"de": 7, "ate": 3, "pasta": ""}]},
+                 {"faixas_nota": [{"de": 0, "ate": 10, "pasta": "relativa"}]}):
+        with pytest.raises(motor.ErroApi):
+            api.postagem("POST", ruim)

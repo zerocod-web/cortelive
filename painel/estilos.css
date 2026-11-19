@@ -1819,3 +1819,11 @@ a:focus-visible,
 .faixa-alerta .btn-enviar-erro { flex: none; }
 .erro-compacto .erro-botoes { margin-left: auto; }
 .campo-select{min-width:11rem;padding:.5rem .6rem;border-radius:8px;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;font:inherit}
+/* Pastas por nota e nota mínima (Configurações) */
+.nota-apagar-linha{display:inline-flex;align-items:center;gap:.4rem;white-space:nowrap}
+.campo-nota{min-width:0;width:4.2rem;text-align:center}
+.faixas-linha{grid-column:1/-1;flex-wrap:wrap;align-items:flex-start}
+.faixas-linha .switch-textos{flex:1 1 20rem}
+.faixas-nota{display:flex;flex-direction:column;gap:.45rem;flex:1 1 100%}
+.faixa-nota{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}
+.faixa-nota .faixa-pasta{flex:1 1 14rem;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}

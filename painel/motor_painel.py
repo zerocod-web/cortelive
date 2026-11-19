@@ -56,6 +56,10 @@ def config_postagem(raiz: Path):
     config["cortes_longos"] = modo != "livre"        # compatível com o interruptor antigo
     qtd = str(dados.get("quantidade_cortes", QUANTIDADE_PADRAO))
     config["quantidade_cortes"] = qtd if qtd in QUANTIDADE_MODOS else QUANTIDADE_PADRAO
+    from cortelive import qualidade
+    config["apagar_ate_nota"] = qualidade.apagar_ate({**dados, "quantidade_cortes": config["quantidade_cortes"]})
+    faixas = dados.get("faixas_nota")
+    config["faixas_nota"] = faixas if qualidade.faixas_validas(faixas) else []
     return config
 
 
@@ -255,10 +259,27 @@ class ApiPainel:
             if str(corpo["quantidade_cortes"]) not in QUANTIDADE_MODOS:
                 raise ErroApi(400, "Opção de quantidade de cortes inválida.")
             alteracoes["quantidade_cortes"] = str(corpo["quantidade_cortes"])
+        from cortelive import qualidade
+        if "apagar_ate_nota" in corpo:
+            x = corpo["apagar_ate_nota"]
+            if isinstance(x, bool) or not isinstance(x, int) or not 0 <= x <= 10:
+                raise ErroApi(400, "A nota para apagar cortes vai de 0 a 10.")
+            alteracoes["apagar_ate_nota"] = x
+        if "faixas_nota" in corpo:
+            faixas = corpo["faixas_nota"]
+            if not qualidade.faixas_validas(faixas):
+                raise ErroApi(400, "Faixas de nota inválidas: cada faixa vai de 0 a 10, com o início menor ou igual ao fim.")
+            for f in faixas:
+                p = (f.get("pasta") or "").strip()
+                if p and not Path(p).is_absolute():
+                    raise ErroApi(400, f"Use o caminho completo da pasta (botão Escolher pasta): {p}")
+            alteracoes["faixas_nota"] = [{"de": f["de"], "ate": f["ate"], "pasta": (f.get("pasta") or "").strip()}
+                                         for f in faixas]
         if not alteracoes:
             raise ErroApi(400, "Informe pelo menos uma opção.")
         for chave, valor in alteracoes.items():
-            if chave not in ("duracao_minima_modo", "quantidade_cortes") and not isinstance(valor, bool):
+            if chave not in ("duracao_minima_modo", "quantidade_cortes", "apagar_ate_nota", "faixas_nota") \
+                    and not isinstance(valor, bool):
                 raise ErroApi(400, f"Opção inválida: {chave}.")
         with self.trava_config:
             arq = self.raiz / "painel_config.json"

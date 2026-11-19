@@ -508,6 +508,15 @@ class Sessao:
                                "render": round(pronto - t0, 1)},
                 "transcricao": " ".join(w["w"] for w in job["palavras"]),
             }
+            if info["nota_juiz"] is not None:     # pastas por nota (Configurações); sem faixa = pasta de sempre
+                try:
+                    from .qualidade import enviar_para_faixa
+                    na_faixa = enviar_para_faixa(final, info["nota_juiz"], cfg)
+                    if na_faixa:
+                        info["pasta_faixa"] = str(na_faixa)
+                        log.info(f"{final.name}: nota {info['nota_juiz']}, salvo na pasta da faixa {na_faixa.parent}")
+                except OSError as e:
+                    log.aviso(f"Não consegui pôr {final.name} na pasta da faixa de nota: {e}")
             (dint / f"{legivel}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
             self._ultimo_corte = final.name
             self._pronto_em = (time.time(), job["titulo"])
@@ -540,7 +549,7 @@ class Sessao:
         from .qualidade import Filtro, NOMES
         filtro = Filtro(cfg)
         descartado_ate = [0.0]           # fim do último trecho do GPT recusado pelo filtro
-        log.info(f"Quantidade de cortes: {NOMES[filtro.nivel]} (nota mínima GPT {filtro.piso['gpt']:g}, "
+        log.info(f"Quantidade de cortes: {NOMES[filtro.nivel]} (apaga nota {filtro.piso['gpt'] - 1:g} ou menos, "
                  f"até {filtro.por_hora} cortes por hora de live).")
 
         def filtrar(dec, juiz_nome):

@@ -164,6 +164,7 @@
     const porApi = el("modo-gpt").value === "api";
     el("opcoes-api").hidden = !porApi;
     el("ajuda-chatgpt").hidden = el("modo-gpt").value !== "chatgpt";
+    el("opcoes-chatgpt").hidden = el("modo-gpt").value !== "chatgpt";
     el("btn-gpt").textContent = el("modo-gpt").value === "local" ? "Usar seleção local" : "Conectar";
     el("chave-gpt").required = porApi;
     if (!porApi) el("chave-gpt").value = "";
@@ -185,6 +186,7 @@
     if (versao !== versaoFormGPT) return;
     if (res.ok) {
       el("modo-gpt").value = res.modo;
+      if (res.modelo) el("modelo-gpt").value = res.modelo;
       camposGPT();
     }
     feedbackAcao(el("estado-gpt"), res.erro || estadosGPT[res.estado], !res.ok);
@@ -197,15 +199,16 @@
     const chave = el("chave-gpt");
     const corpo = { modo: modo.value };
     if (modo.value === "api") corpo.chave = chave.value.trim();
+    if (modo.value === "chatgpt") corpo.modelo = el("modelo-gpt").value;
     const btn = el("btn-gpt");
-    btn.disabled = modo.disabled = chave.disabled = true;
+    btn.disabled = modo.disabled = chave.disabled = el("modelo-gpt").disabled = true;
     feedbackAcao(el("estado-gpt"), "Verificando conexão…");
     try {
       const res = await api("/api/gpt/conectar", "POST", corpo);
       feedbackAcao(el("estado-gpt"), res.erro || estadosGPT[res.estado], !res.ok);
       if (res.ok) chave.value = "";
     } finally {
-      btn.disabled = modo.disabled = chave.disabled = false;
+      btn.disabled = modo.disabled = chave.disabled = el("modelo-gpt").disabled = false;
     }
   }
 
@@ -1535,6 +1538,7 @@
     el("aba-btn-cortar").addEventListener("click", () => alternarAba("cortar"));
     el("aba-btn-config").addEventListener("click", () => alternarAba("config"));
     el("modo-gpt").addEventListener("change", () => { ++versaoFormGPT; camposGPT(); });
+    el("modelo-gpt").addEventListener("change", () => { ++versaoFormGPT; });
     el("chave-gpt").addEventListener("input", () => { ++versaoFormGPT; });
     el("form-gpt").addEventListener("submit", conectarGPT);
     document.querySelectorAll(".btn-enviar-erro").forEach((b) => b.addEventListener("click", enviarErroParaGabriel));

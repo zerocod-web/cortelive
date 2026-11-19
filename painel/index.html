@@ -581,6 +581,15 @@
                 <option value="api">Chave da API OpenAI</option>
               </select>
               <p id="ajuda-chatgpt" class="ajuda-campo">O CorteLive usa a sessão do Codex neste computador.</p>
+              <div id="opcoes-chatgpt" class="campo-grupo">
+                <label for="modelo-gpt" class="campo-rotulo">Modelo do GPT</label>
+                <select id="modelo-gpt" class="campo-select">
+                  <option value="gpt-6-luna">GPT-6 Luna (recomendado) · ~US$ 0,09 por hora de live</option>
+                  <option value="gpt-6.1-terra">GPT-6.1 Terra · ~US$ 0,50 por hora de live</option>
+                  <option value="gpt-6.2-sol">GPT-6.2 Sol · ~US$ 0,90 por hora de live</option>
+                </select>
+                <p class="ajuda-campo">Custo aproximado em preço de API. Na conta ChatGPT, o Luna gasta cerca de 1/4 do limite de uso do Sol.</p>
+              </div>
               <div id="opcoes-api" class="campo-grupo" hidden>
                 <label for="chave-gpt" class="campo-rotulo">Chave do projeto OpenAI</label>
                 <input id="chave-gpt" class="campo-texto" type="password" autocomplete="off" spellcheck="false" maxlength="512">

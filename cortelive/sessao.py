@@ -424,7 +424,10 @@ class Sessao:
                                           "recuo_sem_cam": cfg.get("recuo_sem_cam"),
                                           # v1.0.16: cam automática é conferida em cada corte (render.rever_cam)
                                           # memória (de outra live) também: a cam pode ter mudado de lugar
-                                          "conferir_cam": cam_status != "informada"},
+                                          "conferir_cam": cam_status != "informada",
+                                          # v1.0.17: original leve do corte (2 s de folga), gravado na mesma vaga
+                                          "original": (str((dint / f"{nome}_original.mkv").resolve())
+                                                       if cfg.get("guardar_trecho_corte", True) else None)},
                                          ensure_ascii=False), encoding="utf-8")
             self._job_atual["fase"] = "fila_render"
             try:
@@ -475,17 +478,35 @@ class Sessao:
                 os.replace(r["ass"], ass)
             # v1.0.16: o trecho bruto do corte fica guardado ao lado do .json para o editor de foco do painel refazer
             # o corte (marcar câmera e gameplay à mão). Sai junto quando o corte vai para a Lixeira.
+            # v1.0.17: em vez do trecho bruto inteiro (segmentos copiados), guarda o ORIGINAL leve do corte: só o corte
+            # com 2 s de folga, recodificado pela placa. Os tempos e as palavras passam para o tempo do original.
             refazer = None
+            orig = r.get("original") or {}
+            orig_arq = dint / f"{nome}_original.mkv"
             if cfg.get("guardar_trecho_corte", True):
+                comum = {"modelo": cfg["modelo"], "legenda": cfg["legenda"],
+                         "faixa_legenda": cfg.get("faixa_legenda", "rasgada"),
+                         "faixa_cor": cfg.get("faixa_cor", "vermelha"),
+                         "recuo_sem_cam": cfg.get("recuo_sem_cam"), "nome": nome}
                 try:
-                    os.replace(bruto, dint / f"{legivel}.mkv")
-                    refazer = {"video": f"{legivel}.mkv", "inicio": round(ini - base, 3), "fim": round(fim - base, 3),
-                               "palavras": pal_rel, "modelo": cfg["modelo"], "legenda": cfg["legenda"],
-                               "faixa_legenda": cfg.get("faixa_legenda", "rasgada"),
-                               "faixa_cor": cfg.get("faixa_cor", "vermelha"),
-                               "recuo_sem_cam": cfg.get("recuo_sem_cam"), "nome": nome}
+                    if orig and orig_arq.is_file():
+                        os.replace(orig_arq, dint / f"{legivel}.mkv")
+                        d0 = float(orig["deslocamento"])
+                        refazer = {"video": f"{legivel}.mkv", "inicio": orig["inicio"], "fim": orig["fim"],
+                                   "palavras": [dict(w, start=round(w["start"] - d0, 3), end=round(w["end"] - d0, 3))
+                                                for w in pal_rel],
+                                   "original_bytes": orig.get("bytes"), "original_encoder": orig.get("encoder"),
+                                   **comum}
+                    else:
+                        if r.get("original_erro"):
+                            log.aviso(f"{nome}: original leve não gravado ({r['original_erro'][:160]}); "
+                                      "guardei o trecho bruto.")
+                        os.replace(bruto, dint / f"{legivel}.mkv")
+                        refazer = {"video": f"{legivel}.mkv", "inicio": round(ini - base, 3),
+                                   "fim": round(fim - base, 3), "palavras": pal_rel, **comum}
                 except OSError:
                     refazer = None
+            orig_arq.unlink(missing_ok=True)
             bruto.unlink(missing_ok=True)
             if r.get("cam_revista"):
                 log.info(f"{legivel}: {r['cam_revista']}")
@@ -501,6 +522,7 @@ class Sessao:
                 "sinais": job["sinais"], "motivos": job["motivos"],
                 "titulo_sugerido": job["titulo"], "motivo": job["motivo"],
                 "modelo": cfg["modelo"], "modelo_usado": r.get("modelo"), "estilo_legenda": cfg["legenda"],
+                "modo_corte": r.get("modo"), "modo_motivo": r.get("modo_motivo"),
                 "cam": r["cam_usada"] if "cam_usada" in r else (list(cam) if cam else None),
                 "cam_revista": r.get("cam_revista"), "refazer": refazer, "encoder": r.get("encoder"),
                 "latencia_s": {"momento_ate_mp4": round(pronto - job["chegou_evento"], 1),

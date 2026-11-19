@@ -60,6 +60,8 @@ def config_postagem(raiz: Path):
     config["apagar_ate_nota"] = qualidade.apagar_ate({**dados, "quantidade_cortes": config["quantidade_cortes"]})
     faixas = dados.get("faixas_nota")
     config["faixas_nota"] = faixas if qualidade.faixas_validas(faixas) else []
+    from cortelive import original
+    config["originais_dias"] = original.dias_config(dados)
     return config
 
 
@@ -84,6 +86,7 @@ class ApiPainel:
         self.python = self.raiz / ".venv" / "Scripts" / "python.exe"
         self.trava_config = threading.Lock()
         self.trava_exclusao = threading.Lock()
+        self.limpeza_originais_em = 0.0
 
     def ambiente(self):
         env = os.environ.copy()
@@ -122,9 +125,24 @@ class ApiPainel:
             raise ErroApi(404, "Vídeo não encontrado.")
         return caminho
 
+    def limpar_originais(self, forcar=False):
+        """Apaga os originais de corte vencidos (prazo das configurações). No máximo a cada 10 min."""
+        from cortelive import original
+        agora = time.time()
+        if not forcar and agora - self.limpeza_originais_em < 600:
+            return 0, 0
+        self.limpeza_originais_em = agora
+        try:
+            dias = original.dias_config(ler_config_postagem(self.raiz))
+            return original.limpar_vencidos(self.pasta_cortes(), dias, agora)
+        except (OSError, ErroApi):
+            return 0, 0
+
     def listar_cortes(self):
         from cortelive import destino, pastas
+        from painel import foco
 
+        self.limpar_originais()
         pasta = self.pasta_cortes()
         candidatos = []
         for diretorio, subpastas, arquivos in os.walk(pasta):
@@ -167,6 +185,10 @@ class ApiPainel:
                 "data_hora": datetime.fromtimestamp(mtime).strftime("%d/%m %H:%M"),
                 "inicio_hms": dados.get("momento_hms") or dados.get("inicio_hms"),
                 "motivo": dados.get("motivo"), "modelo": dados.get("modelo_usado") or dados.get("modelo"),
+                "modo": foco.modo_atual(dados) if meta else None,
+                "tem_original": bool(meta and any(
+                    isinstance((dados.get(k) or {}).get("video"), str)
+                    and (meta.parent / Path(dados[k]["video"]).name).is_file() for k in ("refazer", "foco_fonte"))),
                 "destino": destino.estado_copia(video),
             })
         return itens
@@ -240,6 +262,12 @@ class ApiPainel:
                     t = 0.0
                 return foco.quadro(video, t)
             pedido = None
+            if acao == "modo":
+                modo = corpo.get("modo")
+                if modo not in foco.MODOS:
+                    raise ErroApi(400, "Escolha o modo do corte: Câmera + jogo, Tela cheia ou Fundo desfocado.")
+                return foco.iniciar(video, "modo", None, self.ambiente(), self.raiz,
+                                    self.python if self.python.is_file() else None, modo=modo)
             if acao == "refazer":
                 pedido = corpo.get("foco")
                 if not isinstance(pedido, dict):
@@ -273,6 +301,15 @@ class ApiPainel:
         if metodo == "GET":
             return config_postagem(self.raiz)
         alteracoes = {k: corpo[k] for k in PADRAO_POSTAGEM if k in corpo}
+        if "originais_dias" in corpo:
+            from cortelive import original
+            try:
+                dias = int(corpo["originais_dias"])
+            except (TypeError, ValueError):
+                dias = -1
+            if isinstance(corpo["originais_dias"], bool) or dias not in original.DIAS_OPCOES:
+                raise ErroApi(400, "Prazo inválido para apagar os originais.")
+            alteracoes["originais_dias"] = dias
         if "duracao_minima_modo" in corpo:
             if str(corpo["duracao_minima_modo"]) not in DURACAO_MODOS:
                 raise ErroApi(400, "Opção de duração inválida.")
@@ -301,8 +338,8 @@ class ApiPainel:
         if not alteracoes:
             raise ErroApi(400, "Informe pelo menos uma opção.")
         for chave, valor in alteracoes.items():
-            if chave not in ("duracao_minima_modo", "quantidade_cortes", "apagar_ate_nota", "faixas_nota") \
-                    and not isinstance(valor, bool):
+            if chave not in ("duracao_minima_modo", "quantidade_cortes", "apagar_ate_nota", "faixas_nota",
+                             "originais_dias") and not isinstance(valor, bool):
                 raise ErroApi(400, f"Opção inválida: {chave}.")
         with self.trava_config:
             arq = self.raiz / "painel_config.json"
@@ -317,7 +354,9 @@ class ApiPainel:
                     temporario.replace(arq)
                 finally:
                     temporario.unlink(missing_ok=True)
-            return config_postagem(self.raiz)
+        if "originais_dias" in alteracoes:
+            self.limpar_originais(forcar=True)      # prazo menor vale na hora
+        return config_postagem(self.raiz)
 
     def drive(self, acao, metodo, corpo):
         from cortelive import destino
@@ -456,7 +495,7 @@ class ApiPainel:
                      ("foco", "estado"), ("foco", "quadro")}
         acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""),
                       ("gpt", "conectar"), ("drive", "enviar"), ("cortes", "excluir"),
-                      ("foco", "refazer"), ("foco", "automatico"), ("foco", "baixar")}
+                      ("foco", "refazer"), ("foco", "automatico"), ("foco", "baixar"), ("foco", "modo")}
         par = grupo, acao
         if len(acoes) > 1 or par not in consultas | acoes_post | {("config-postagem", ""), ("drive", "config")}:
             raise ErroApi(404, "Rota não encontrada.")

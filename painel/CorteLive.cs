@@ -1069,9 +1069,9 @@ namespace CorteLivePainel
                 return;
             }
 
-            // Editor de foco do corte (v1.0.16): estado, quadro (JPEG) e refazer/automático/baixar (começam em segundo plano)
+            // Editor de foco do corte (v1.0.16) e modo do corte (v1.0.17): estado, quadro (JPEG) e refazer/automático/baixar/modo (começam em segundo plano)
             if (rota == "/api/foco/estado" || rota == "/api/foco/quadro" || rota == "/api/foco/refazer" ||
-                rota == "/api/foco/automatico" || rota == "/api/foco/baixar")
+                rota == "/api/foco/automatico" || rota == "/api/foco/baixar" || rota == "/api/foco/modo")
             {
                 if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo, 30000))
                     EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });

@@ -572,6 +572,91 @@ def _probe(video):
 
 RECUO_PADRAO = ["jogo-fundo-desfocado", "jogo-tela-cheia-crop"]   # Fundo desfocado, depois Tela cheia
 
+# v1.0.17: modo de cada corte. O painel troca o modo de um corte pronto; "auto" é o padrão da live.
+MODOS = {"camera-jogo": "cam-em-cima", "tela-cheia": "jogo-tela-cheia-crop", "fundo-desfocado": "jogo-fundo-desfocado"}
+MODO_DO_TIPO = {"cam-em-cima": "camera-jogo", "crop": "tela-cheia", "fundo-desfocado": "fundo-desfocado"}
+NOMES_MODO = {"camera-jogo": "Câmera + jogo", "tela-cheia": "Tela cheia", "fundo-desfocado": "Fundo desfocado"}
+MODO_SEM_JOGO = "fundo-desfocado"   # live só de câmera: em vez da cara em cima e embaixo
+SO_CAM_AREA = 0.40                  # cam cobrindo 40%+ da tela = live só de câmera (o detector devolve a tela toda)
+MESMA_REGIAO = 0.35                 # 35%+ da janela do jogo dentro da caixa da cam = as duas metades mostram o mesmo
+
+
+def modo_do_tipo(tipo):
+    return MODO_DO_TIPO.get(tipo)
+
+
+def sem_jogo_separado(cam, jogo, sw, sh):
+    """Motivo (texto) quando o corte não tem gameplay separada da câmera, senão None.
+    cam e jogo: (x, y, w, h) em px do vídeo. 'Câmera + jogo' aí repetiria a cara em cima e embaixo."""
+    if not cam:
+        return None
+    x, y, w, h = cam
+    if w * h >= SO_CAM_AREA * sw * sh:
+        return "live só de câmera"
+    if jogo:
+        jx, jy, jw, jh = jogo
+        ix = max(0, min(x + w, jx + jw) - max(x, jx))
+        iy = max(0, min(y + h, jy + jh) - max(y, jy))
+        if jw * jh and ix * iy >= MESMA_REGIAO * jw * jh:
+            return "câmera e jogo mostram a mesma região"
+    return None
+
+
+def centro_tela_cheia(video, inicio, fim, sw, sh, cam=None):
+    """centro_x (0 a 1) do recorte 9:16 da Tela cheia: no rosto quando a live é só de câmera (ou não tem cam
+    marcada e há rosto fixo), senão no meio do jogo (fora da cam). Limitado para o recorte não sair da tela."""
+    meia = sh * 9 / 16 / 2 / sw
+    lim = lambda v: min(max(float(v), meia), 1 - meia)
+    so_cam = cam is not None and cam[2] * cam[3] >= SO_CAM_AREA * sw * sh
+    if cam is None or so_cam:
+        try:
+            from . import camauto
+            xs = []
+            for f in _quadros_do_trecho(video, inicio, fim, 8):
+                r = list(camauto.rostos(f))
+                if len(r):
+                    b = max(r, key=lambda b: b[2] * b[3])
+                    xs.append((b[0] + b[2] / 2) / f.shape[1])
+            if len(xs) >= 3:
+                return lim(sorted(xs)[len(xs) // 2])
+        except Exception:
+            pass
+        return 0.5
+    try:
+        x, _, w, _, _ = janela_jogo_cheia(sw, sh, 1080, 1280, cam)
+        return lim((x + w / 2) / sw)
+    except Exception:
+        return 0.5
+
+
+def _estilo_ass(e, modelo):
+    return (f"Style: Base,{e['fonte']},{e['tamanho']},{_cor(e['cor'])},{_cor(e['cor_destaque'])},"
+            f"{_cor(e['cor_contorno'])},{_cor('#000000', 0x60)},0,0,0,0,100,100,0,0,1,{e['contorno']},{e['sombra']},"
+            f"{e['alinhamento']},{modelo.get('legenda_margem_esq', 90)},{modelo.get('legenda_margem_dir', 160)},"
+            f"{modelo.get('legenda_margem_baixo', 300)},1")
+
+
+def _pos_legenda(m):
+    """Override de posição da legenda no cam-em-cima (centro da faixa); '' nos outros modos (vale a margem do estilo)."""
+    if m.get("tipo") != "cam-em-cima" or not m.get("legenda_na_emenda", True):
+        return ""
+    y = (m["_faixa"]["centro"] if (m.get("_faixa") or {}).get("modo") == "rasgada"
+         else m.get("altura_cam", 640) + m.get("legenda_desvio_emenda", 40))
+    return f"{{\\an5\\pos({m['largura'] // 2},{y})}}"
+
+
+def ass_para_modelo(txt, m, est=None):
+    """Legenda .ass de um corte antigo no layout novo: mesma fala e tempos; a posição (faixa ou margem) e o estilo
+    acompanham o modo. Trocar de Câmera + jogo para Fundo desfocado não deixa a legenda presa na antiga emenda."""
+    txt = re.sub(r"\{\\an5\\pos\(\d+,\d+\)\}", "", txt)
+    if est:
+        txt = re.sub(r"^Style: Base,.*$", lambda _g: _estilo_ass(est, m), txt, flags=re.M)
+    pos = _pos_legenda(m)
+    if pos:
+        txt = re.sub(r"^(Dialogue: (?:[^,]*,){9})", lambda g: g.group(1) + pos, txt, flags=re.M)
+    return txt
+
+
 
 def _modelo_efetivo(nome, cam, sw, sh, recuo=None):
     """Usa a câmera detectada quando disponível. Sem câmera, recuo=[] mantém o recorte do preset.
@@ -737,18 +822,36 @@ def enquadrar_cam(video, inicio, fim, m, sw, sh, visivel=None):
 def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: str, legenda: str,
                  cam: tuple | None, saida_dir: str, nome: str, encoder: str | None = None,
                  faixa: str | None = None, faixa_cor: str | None = None, faixa_variacao: int | None = None, recuo_sem_cam: list | None = None,
-                 conferir_cam: bool = False, foco: dict | None = None, ass_pronto: str | None = None) -> dict:
+                 conferir_cam: bool = False, foco: dict | None = None, ass_pronto: str | None = None,
+                 modo: str | None = None) -> dict:
     """Corte preciso [inicio, fim] do vídeo -> vertical 1080x1920 com e sem legenda, num passe só.
     palavras: [{w, start, end}] em tempo absoluto do vídeo. cam: (x, y, w, h) em px do vídeo fonte.
     faixa: 'rasgada' (padrão) | 'blur' | 'nenhuma' — o que fica atrás da legenda no cam-em-cima.
     faixa_variacao: qual rasgo usar; sem valor, alterna pelo número do corte no nome (corte_003 -> 3).
     conferir_cam: a cam veio da detecção automática; confere nos quadros do corte (rever_cam).
     foco: marcação manual do painel {'cam': [x,y,w,h], 'jogo': [x,y,w,h]} em px do vídeo; usada exatamente, fixa.
-    ass_pronto: legenda .ass já feita (refazer um corte antigo sem as palavras guardadas)."""
+    ass_pronto: legenda .ass já feita (refazer um corte antigo sem as palavras guardadas).
+    modo: None/'auto' (o modelo da live; sem gameplay separada da cam vira Fundo desfocado), 'camera-jogo',
+    'tela-cheia' ou 'fundo-desfocado' (escolha da pessoa no painel: vale exatamente, sem troca automática)."""
     out = Path(saida_dir); out.mkdir(parents=True, exist_ok=True)
     sw, sh, fps, tem_audio = _probe(video)
     cam_revista = None
-    if foco:
+    modo = (modo or "auto").lower()
+    if modo != "auto" and modo not in MODOS:
+        raise ValueError(f"Modo de corte desconhecido: {modo}")
+    motivo_modo = None
+    if foco and modo in ("tela-cheia", "fundo-desfocado"):
+        foco = None          # marcação de câmera/gameplay só vale no Câmera + jogo
+    if modo == "camera-jogo" and not foco:
+        if carregar("modelo", modelo)["tipo"] != "cam-em-cima":
+            modelo = MODOS["camera-jogo"]
+        recuo_sem_cam = []   # escolhido à mão: sem cam achada usa a caixa do modelo, não troca de modo
+    if modo in ("tela-cheia", "fundo-desfocado"):
+        m = carregar("modelo", MODOS[modo])
+        if modo == "tela-cheia":
+            m = dict(m, centro_x=centro_tela_cheia(video, inicio, fim, sw, sh, tuple(cam) if cam else None))
+        caiu = False
+    elif foco:
         foco = foco_valido(foco, sw, sh)
         if "cam" not in foco:
             raise ValueError("Marque a área da câmera.")
@@ -781,6 +884,15 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
         jx_, jy_, jw2, jh2, cobrir = janela_jogo_cheia(sw, sh, W_, hj_, cam)
         m = dict(m, jogo={"x": jx_ / sw, "y": 0.0, "w": jw2 / sw, "h": 1.0}, jogo_vista=0.0, _jogo_cheio=True,
                  _cobrir_cam=cobrir)
+    if m["tipo"] == "cam-em-cima" and modo == "auto" and not foco and cam is not None:
+        try:
+            nw_, nh_, jx_, jy_, _ = _jogo_janela(m, sw, sh)
+            motivo_modo = sem_jogo_separado(tuple(cam), (jx_, jy_, nw_, nh_), sw, sh)
+        except Exception:
+            motivo_modo = None
+        if motivo_modo:
+            m = carregar("modelo", MODOS[MODO_SEM_JOGO])
+            caiu = f"sem gameplay separada ({motivo_modo}): {NOMES_MODO[MODO_SEM_JOGO]} em vez da cara duplicada"
     if m["tipo"] == "cam-em-cima" and m.get("enquadrar_rosto", True) and not foco:
         visivel = None
         if (faixa or "rasgada").lower() not in ("blur", "nenhuma"):   # só a rasgada cobre a cam
@@ -819,11 +931,7 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
         if ass_pronto:
             # legenda de um corte antigo: mesma fala e tempos; só a altura acompanha a faixa do layout novo
             txt = Path(ass_pronto).read_text(encoding="utf-8")
-            if m.get("tipo") == "cam-em-cima" and m.get("legenda_na_emenda", True):
-                y = (m["_faixa"]["centro"] if (m.get("_faixa") or {}).get("modo") == "rasgada"
-                     else m.get("altura_cam", 640) + m.get("legenda_desvio_emenda", 40))
-                txt = re.sub(r"\\an5\\pos\((\d+),\d+\)", lambda g: f"\\an5\\pos({g.group(1)},{y})", txt)
-            ass.write_text(txt, encoding="utf-8")
+            ass.write_text(ass_para_modelo(txt, m, est), encoding="utf-8")
         else:
             gerar_ass(pal, inicio, fim, est, m, ass)
     except Exception as e:
@@ -869,7 +977,8 @@ def render_corte(video: str, inicio: float, fim: float, palavras: list, modelo: 
         ass.unlink(missing_ok=True)
     return {"mp4": str(mp4), "mp4_sem_legenda": None, "ass": None if aviso else str(ass), "encoder": enc,
             "legenda_ok": aviso is None, "aviso": aviso,
-            "modelo": m["tipo"], "caiu_sem_cam": caiu,
+            "modelo": m["tipo"], "caiu_sem_cam": caiu, "modo": modo_do_tipo(m["tipo"]), "modo_pedido": modo,
+            "modo_motivo": motivo_modo,
             "cam_usada": list(cam) if cam is not None else None, "cam_revista": cam_revista, "foco_manual": bool(foco),
             "faixa": (m.get("_faixa") or {}).get("modo", "blur" if m["tipo"] == "cam-em-cima" else None),
             "faixa_arquivo": arq_faixa.name if arq_faixa else None, "segundos": round(time.time() - t0, 1)}

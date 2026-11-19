@@ -1819,3 +1819,81 @@ a:focus-visible,
 .faixa-alerta .btn-enviar-erro { flex: none; }
 .erro-compacto .erro-botoes { margin-left: auto; }
 .campo-select{min-width:11rem;padding:.5rem .6rem;border-radius:8px;border:1px solid rgba(128,128,128,.4);background:transparent;color:inherit;font:inherit}
+
+/* Filtro de nota da lista de cortes (v1.0.17) */
+.filtro-notas {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--borda-sutil);
+  border-radius: 10px;
+  background: var(--mesa-painel);
+}
+.filtro-notas[hidden] { display: none; }
+.filtro-notas-rotulo {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--texto-terciario);
+}
+.filtro-notas-atalhos { display: flex; flex-wrap: wrap; gap: 6px; }
+.filtro-chip {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--borda-forte);
+  background: transparent;
+  color: var(--texto-secundario);
+  font: inherit;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color 150ms ease-out, border-color 150ms ease-out;
+}
+.filtro-chip:hover { background: var(--mesa-elevado); }
+.filtro-chip[aria-pressed="true"] {
+  background: var(--sinal-acao-fundo-suave);
+  border-color: var(--borda-destaque);
+  color: var(--texto-primario);
+  font-weight: 600;
+}
+.filtro-chip:focus-visible, .filtro-nota-select:focus-visible { outline: 2px solid var(--foco-anel); outline-offset: 2px; }
+.filtro-notas-faixa { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--texto-terciario); }
+.filtro-nota-select {
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--borda-forte);
+  background: var(--mesa-entrada);
+  color: var(--texto-primario);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+#btn-excluir-filtrados { margin-left: auto; }
+.filtro-vazio { margin: 0; padding: 16px 0; color: var(--texto-terciario); }
+@media (max-width: 560px) { #btn-excluir-filtrados { margin-left: 0; width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .filtro-chip { transition: none; } }
+
+/* "Não quero" com Desfazer (v1.0.17) */
+.aviso-desfazer {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--borda-forte);
+  border-radius: 12px;
+  background: var(--mesa-elevado);
+  color: var(--texto-primario);
+  box-shadow: var(--sombra-modal);
+  font-size: 0.9rem;
+}
+.aviso-desfazer[hidden] { display: none; }
+.btn-nao-quero { gap: 6px; }

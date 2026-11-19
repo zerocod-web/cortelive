@@ -471,6 +471,20 @@
                   <option value="61">Mínimo 1 minuto</option>
                 </select>
               </label>
+              <label class="switch-linha" for="sel-originais-dias">
+                <div class="switch-textos">
+                  <strong>Apagar originais depois de</strong>
+                  <span>Cada corte guarda um original leve (só o trecho dele, com 2 s de folga) para dar para trocar o modo ou ajustar o foco depois que a live acabou. Passado o prazo, o original é apagado e o corte continua na pasta</span>
+                </div>
+                <select id="sel-originais-dias" class="campo-select">
+                  <option value="1">1 dia</option>
+                  <option value="3">3 dias</option>
+                  <option value="7">7 dias</option>
+                  <option value="14">14 dias</option>
+                  <option value="30">30 dias</option>
+                  <option value="0">Nunca apagar</option>
+                </select>
+              </label>
             </div>
             <p id="feedback-cortes-longos" class="ajuda-campo" role="status" hidden></p>
           </section>

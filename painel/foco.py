@@ -1,9 +1,9 @@
-"""Editor de foco do corte (v1.0.16): o painel mostra um quadro do corte, a pessoa marca a área da CÂMERA e a da
+"""Editor de foco do corte (v1.0.16) e troca de modo do corte (v1.0.17): o painel mostra um quadro do corte, a pessoa marca a área da CÂMERA e a da
 GAMEPLAY e o corte é refeito com essa marcação, fixa. "Voltar ao automático" refaz sem a marcação.
 
 O render roda num processo à parte (python -m painel.foco <mp4> <acao>): o painel consulta o andamento pelo arquivo
 <stem>.foco.json ao lado do .json do corte. A fonte do corte é o trecho bruto guardado pela sessão (<stem>.mkv,
-cortes da 1.0.16 em diante); corte antigo de VOD (Kick/Twitch/YouTube) baixa só o trecho do corte pela URL da live.
+cortes da 1.0.16 em diante; da 1.0.17 em diante é o original leve, só o corte com 2 s de folga); corte antigo de VOD (Kick/Twitch/YouTube) baixa só o trecho do corte pela URL da live.
 """
 import json
 import os
@@ -14,6 +14,16 @@ import time
 from pathlib import Path
 
 FOLGA_VOD = 2.0          # segundos baixados antes e depois do corte quando a fonte é o VOD
+MODOS = ("camera-jogo", "tela-cheia", "fundo-desfocado")
+NOMES_MODO = {"camera-jogo": "Câmera + jogo", "tela-cheia": "Tela cheia", "fundo-desfocado": "Fundo desfocado"}
+MODO_DO_TIPO = {"cam-em-cima": "camera-jogo", "crop": "tela-cheia", "fundo-desfocado": "fundo-desfocado"}
+
+
+def modo_atual(d):
+    """Modo do corte pelo .json: o gravado (1.0.17+) ou deduzido do modelo usado (cortes antigos)."""
+    if d.get("modo_corte") in MODOS:
+        return d["modo_corte"]
+    return MODO_DO_TIPO.get(d.get("modelo_usado") or "") or ("camera-jogo" if d.get("cam") else None)
 
 
 class ErroFoco(Exception):
@@ -88,7 +98,7 @@ def estado(video):
         # o processo à parte não chegou a começar (30 s) ou morreu no meio (15 min)
         st = {"estado": "erro", "mensagem": "O trabalho anterior parou sem terminar. Tente de novo."}
     loc = fonte_local(video)
-    out = {"foco": d.get("foco"), "cam_auto": d.get("cam"), "duracao": d.get("duracao"),
+    out = {"foco": d.get("foco"), "cam_auto": d.get("cam"), "duracao": d.get("duracao"), "modo": modo_atual(d),
            "fonte_pronta": bool(loc), "pode_baixar": bool(url_vod(video)), "trabalho": st or None,
            "proporcoes": proporcoes(), "tamanho": None}
     if loc:
@@ -115,10 +125,12 @@ def quadro(video, t=0.0, largura=960):
     return p.stdout
 
 
-def iniciar(video, acao, foco=None, ambiente=None, raiz=None, python=None):
-    """Começa (em outro processo) 'baixar', 'refazer' (com foco) ou 'automatico'. Volta na hora."""
-    if acao not in ("baixar", "refazer", "automatico"):
+def iniciar(video, acao, foco=None, ambiente=None, raiz=None, python=None, modo=None):
+    """Começa (em outro processo) 'baixar', 'refazer' (com foco), 'automatico' ou 'modo' (com modo). Volta na hora."""
+    if acao not in ("baixar", "refazer", "automatico", "modo"):
         raise ErroFoco("Ação inválida.")
+    if acao == "modo" and modo not in MODOS:
+        raise ErroFoco("Escolha o modo do corte: Câmera + jogo, Tela cheia ou Fundo desfocado.")
     meta, d = _meta(video)
     st = _ler(_status_arq(meta))
     if st.get("estado") in ("baixando", "renderizando") and time.time() - st.get("t", 0) < 900:
@@ -127,12 +139,12 @@ def iniciar(video, acao, foco=None, ambiente=None, raiz=None, python=None):
         if not isinstance(foco, dict) or not foco.get("cam") or not foco.get("jogo"):
             raise ErroFoco("Marque a área da câmera e a da gameplay antes de refazer.")
     if not fonte_local(video) and not url_vod(video):
-        raise ErroFoco("O trecho bruto deste corte não foi guardado e a live não tem VOD para baixar. "
-                       "Os cortes feitos a partir desta versão já guardam o trecho.")
+        raise ErroFoco("O original deste corte não está mais no computador (foi apagado pelo prazo das "
+                       "configurações ou o corte é de uma versão antiga) e a live não tem VOD para baixar.")
     _gravar(_status_arq(meta), {"estado": "baixando" if not fonte_local(video) else "renderizando",
                                 "acao": acao, "t": time.time(), "mensagem": "Começando…"})
-    if foco is not None:
-        _gravar(_status_arq(meta).with_suffix(".pedido.json"), {"foco": foco})
+    if foco is not None or modo is not None:
+        _gravar(_status_arq(meta).with_suffix(".pedido.json"), {"foco": foco, "modo": modo})
     raiz = Path(raiz or Path(__file__).resolve().parent.parent)
     fl = 0
     if os.name == "nt":
@@ -174,7 +186,7 @@ def _baixar_trecho(video, meta, d):
     return d
 
 
-def _refazer(video, meta, d, foco):
+def _refazer(video, meta, d, foco, modo=None):
     from cortelive import render
     arq, ini, fim = fonte_local(video)
     r_ = d.get("refazer") or {}
@@ -193,7 +205,8 @@ def _refazer(video, meta, d, foco):
                                else (tuple(d["cam"]) if d.get("cam") else None)),
             str(trab), nome, faixa=r_.get("faixa_legenda"), faixa_cor=r_.get("faixa_cor"),
             recuo_sem_cam=r_.get("recuo_sem_cam"), conferir_cam=not foco, foco=foco,
-            ass_pronto=None if palavras else (str(ass_antigo) if ass_antigo and ass_antigo.is_file() else None))
+            ass_pronto=None if palavras else (str(ass_antigo) if ass_antigo and ass_antigo.is_file() else None),
+            modo="camera-jogo" if foco else (modo or "auto"))
         for tentativa in range(10):
             try:
                 os.replace(res["mp4"], video)
@@ -217,6 +230,8 @@ def _refazer(video, meta, d, foco):
         d["cam"] = res.get("cam_usada")
         d["cam_revista"] = res.get("cam_revista")
     d["modelo_usado"] = res.get("modelo")
+    d["modo_corte"] = res.get("modo")
+    d["modo_motivo"] = res.get("modo_motivo")
     d["encoder"] = res.get("encoder")
     d["foco_refeito_em"] = time.strftime("%Y-%m-%d %H:%M:%S")
     _gravar(meta, d)
@@ -228,7 +243,9 @@ def executar(video, acao):
     meta, d = _meta(video)
     st_arq = _status_arq(meta)
     ped = st_arq.with_suffix(".pedido.json")
-    foco = _ler(ped).get("foco") if acao == "refazer" else None
+    pedido = _ler(ped)
+    foco = pedido.get("foco") if acao == "refazer" else None
+    modo = pedido.get("modo") if acao == "modo" else None
     ped.unlink(missing_ok=True)
     try:
         if not fonte_local(video):
@@ -238,11 +255,17 @@ def executar(video, acao):
         if acao == "baixar":
             _gravar(st_arq, {"estado": "pronto", "acao": acao, "t": time.time(), "mensagem": "Trecho pronto."})
             return
-        _gravar(st_arq, {"estado": "renderizando", "acao": acao, "t": time.time(),
-                         "mensagem": "Refazendo o corte…"})
-        res = _refazer(video, meta, _ler(meta), foco)
-        msg = ("Corte refeito com o foco que você marcou." if foco else
-               "Corte refeito no automático." + (f" ({res['cam_revista']})" if res.get("cam_revista") else ""))
+        _gravar(st_arq, {"estado": "renderizando", "acao": acao, "t": time.time(), "modo": modo,
+                         "mensagem": f"Refazendo em {NOMES_MODO[modo]}…" if modo else "Refazendo o corte…"})
+        res = _refazer(video, meta, _ler(meta), foco, modo)
+        if modo:
+            msg = f"Corte refeito em {NOMES_MODO.get(res.get('modo'), NOMES_MODO[modo])}."
+        elif foco:
+            msg = "Corte refeito com o foco que você marcou."
+        else:
+            msg = "Corte refeito no automático." + (f" ({res['cam_revista']})" if res.get("cam_revista") else "")
+            if res.get("modo_motivo"):
+                msg += f" Sem gameplay separada: ficou em {NOMES_MODO.get(res.get('modo'), 'Fundo desfocado')}."
         _gravar(st_arq, {"estado": "pronto", "acao": acao, "t": time.time(), "mensagem": msg})
     except ErroFoco as e:
         _gravar(st_arq, {"estado": "erro", "acao": acao, "t": time.time(), "mensagem": str(e)})

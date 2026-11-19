@@ -640,6 +640,32 @@
     }
     topo.appendChild(slate);
     topo.appendChild(meta);
+    const idModo = "modo-" + Math.random().toString(36).slice(2, 10);
+    const linhaModo = document.createElement("div");
+    linhaModo.className = "corte-modo";
+    const rotuloModo = document.createElement("label");
+    rotuloModo.htmlFor = idModo;
+    rotuloModo.textContent = "Modo";
+    const selModo = document.createElement("select");
+    selModo.id = idModo;
+    selModo.className = "campo-select corte-modo-select";
+    selModo.dataset.acaoDestino = "modo";
+    if (!MODOS_CORTE.some(([v]) => v === c.modo)) {
+      const opc = new Option("Escolha o modo", "", true, true);
+      opc.disabled = true;
+      selModo.add(opc);
+    }
+    for (const [valor, nome] of MODOS_CORTE) selModo.add(new Option(nome, valor, false, valor === c.modo));
+    linhaModo.append(rotuloModo, selModo);
+    if (!c.tem_original) {
+      const semOriginal = document.createElement("span");
+      semOriginal.className = "corte-modo-aviso";
+      semOriginal.id = idModo + "-aviso";
+      semOriginal.textContent = "Sem o original guardado: só refaz se a live tiver VOD.";
+      selModo.setAttribute("aria-describedby", semOriginal.id);
+      linhaModo.append(semOriginal);
+    }
+    meta.appendChild(linhaModo);
 
     const acoes = document.createElement("div");
     acoes.className = "corte-acoes";
@@ -710,6 +736,7 @@
     btnFoco.textContent = "Ajustar foco";
     btnFoco.setAttribute("aria-label", "Ajustar câmera e gameplay do corte " + titulo);
     btnFoco.addEventListener("click", () => window.CorteLiveFoco?.abrir(c));
+    selModo.addEventListener("change", () => trocarModoCorte(c, selModo, feedback));
     acoes.append(btnVideo, btnPasta, btnFoco, btnDrive, btnExcluir);
 
     card.append(topo, acoes, destino);
@@ -717,6 +744,58 @@
       card.querySelectorAll("[data-acao-destino]").forEach((controle) => { controle.disabled = true; });
     }
     return card;
+  }
+
+  const MODOS_CORTE = [["camera-jogo", "Câmera + jogo"], ["tela-cheia", "Tela cheia"], ["fundo-desfocado", "Fundo desfocado"]];
+  const nomeModo = (v) => (MODOS_CORTE.find(([m]) => m === v) || [v, v])[1];
+
+  // Troca o modo de um corte pronto: o motor refaz o corte em segundo plano (a partir do original guardado) e o
+  // card mostra o andamento até terminar. Enquanto isso, as ações do card ficam travadas.
+  async function trocarModoCorte(corte, select, feedback) {
+    if (acoesDestinoAtivas.has(corte.caminho)) return;
+    const novo = select.value;
+    const anterior = corte.modo || "";
+    acoesDestinoAtivas.add(corte.caminho);
+    const card = select.closest(".corte-card");
+    const travar = (sim) => {
+      const atual = Array.from(el("lista-cortes").children).find((item) => item.dataset.caminho === corte.caminho) || card;
+      atual.querySelectorAll("[data-acao-destino]").forEach((controle) => { controle.disabled = sim; });
+      atual.setAttribute("aria-busy", sim ? "true" : "false");
+      return atual;
+    };
+    travar(true);
+    const t0 = Date.now();
+    const andamento = () => `Refazendo em ${nomeModo(novo)}… ${Math.round((Date.now() - t0) / 1000)} s`;
+    feedbackAcao(feedback, andamento());
+    const res = await api("/api/foco/modo", "POST", { caminho: corte.caminho, modo: novo });
+    let final = res;
+    if (res.ok !== false) {
+      for (;;) {
+        await new Promise((ok) => setTimeout(ok, 1500));
+        const e = await api("/api/foco/estado?caminho=" + encodeURIComponent(corte.caminho));
+        if (e.ok === false) { final = e; break; }
+        const tr = e.trabalho || {};
+        if (tr.estado === "erro") { final = { ok: false, erro: tr.mensagem }; break; }
+        if (tr.estado === "pronto") { final = { ok: true, mensagem: tr.mensagem, modo: e.modo }; break; }
+        feedbackAcao(feedback, tr.estado === "baixando" ? "Baixando o trecho do VOD…" : andamento());
+      }
+    }
+    acoesDestinoAtivas.delete(corte.caminho);
+    const atual = travar(false);
+    const fb = atual.querySelector("[data-feedback-destino]") || feedback;
+    if (final.ok === false) {
+      select.value = anterior;
+      feedbackAcao(fb, final.erro || "Não consegui refazer o corte. Tente de novo.", true);
+      return;
+    }
+    corte.modo = final.modo || novo;
+    if (estadoAtual?.cortes) {
+      estadoAtual.cortes = estadoAtual.cortes.map((item) => item.caminho === corte.caminho ? { ...item, modo: corte.modo } : item);
+    }
+    atual.querySelectorAll("img").forEach((im) => { im.src = im.src.replace(/&v=\d+$/, "") + "&v=" + Date.now(); });
+    const sel = atual.querySelector(".corte-modo-select");
+    if (sel) sel.value = corte.modo;
+    feedbackAcao(fb, final.mensagem || `Corte refeito em ${nomeModo(corte.modo)}.`);
   }
 
   const avisoDriveIndisponivel = "O envio para o Google Drive ainda não está disponível nesta versão. Você pode abrir a pasta do corte e copiá-lo manualmente.";
@@ -816,6 +895,7 @@
       const cfg = await api("/api/config-postagem");
       if (cfg.ok === false || salvandoPreferencias) return;
       el("sel-duracao-minima").value = ["livre", "30", "45", "61"].includes(String(cfg.duracao_minima_modo)) ? String(cfg.duracao_minima_modo) : "61";
+      el("sel-originais-dias").value = ["0", "1", "3", "7", "14", "30"].includes(String(cfg.originais_dias)) ? String(cfg.originais_dias) : "7";
     } catch (_) {}
   }
 
@@ -823,13 +903,16 @@
     if (salvandoPreferencias) return;
     salvandoPreferencias = true;
     const seletor = el("sel-duracao-minima");
+    const dias = el("sel-originais-dias");
     seletor.disabled = true;
+    dias.disabled = true;
     let resp = null;
     try {
-      resp = await api("/api/config-postagem", "POST", { duracao_minima_modo: seletor.value });
+      resp = await api("/api/config-postagem", "POST", { duracao_minima_modo: seletor.value, originais_dias: Number(dias.value) });
     } finally {
       salvandoPreferencias = false;
       seletor.disabled = false;
+      dias.disabled = false;
     }
     if (resp?.ok === false) {
       mostrarAvisoSistema("Não foi possível salvar as preferências", resp.erro);
@@ -1145,6 +1228,7 @@
     });
 
     el("sel-duracao-minima").addEventListener("change", salvarConfigCorte);
+    el("sel-originais-dias").addEventListener("change", salvarConfigCorte);
 
     window.addEventListener("beforeunload", (e) => {
       if (

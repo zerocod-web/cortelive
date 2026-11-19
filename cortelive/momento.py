@@ -775,7 +775,7 @@ class Seletor:
         return j, None, substitui
 
     def passo(self, notas, palavras, disponivel, limite, notas_ate, limiar, emendas, aceitar, pendente=None,
-              final=False):
+              final=False, juiz=None):
         """Um passo de avaliação. 'aceitar(decisao)->bool' faz o resto (áudio, fila); se aceitar, vira o último corte.
         'pendente()' -> (nota, ultimo_fim_antes) do corte ainda esperando render, ou None."""
         cur = max(self.avaliado_ate, getattr(self, "bloqueado_ate", -1e9) + 1)
@@ -791,6 +791,10 @@ class Seletor:
             self.bloqueado_ate = fim_cl
             cur = fim_cl + 1
             mot, sinais = notas[pk][1], notas[pk][2]
+            if juiz is not None:
+                nota, sinais = juiz(pk, nota, palavras, sinais)
+                if nota < limiar:
+                    continue
             j, porque, subst = self.planejar(pk, nota, sinais, palavras, disponivel, emendas, final,
                                              pendente() if pendente else None)
             if j is None:

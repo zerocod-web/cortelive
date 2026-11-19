@@ -1071,15 +1071,15 @@ namespace CorteLivePainel
             int idxQ = rota.IndexOf('?');
             if (idxQ >= 0) rota = rota.Substring(0, idxQ);
 
-            if (rota == "/api/codex/status" || rota == "/api/codex/iniciar")
+            if (rota == "/api/gpt/status" || rota == "/api/gpt/conectar")
             {
                 string host, origem;
                 string hostPainel = "127.0.0.1:" + Porta;
                 cabecalhos.TryGetValue("Host", out host);
                 cabecalhos.TryGetValue("Origin", out origem);
                 if (host != hostPainel || ((metodo == "POST" || origem != null) && origem != "http://" + hostPainel))
-                    EnviarJson(ns, 403, new { ok = false, erro = "Abra a conexão com Codex pelo painel do CorteLive." });
-                else if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo))
+                    EnviarJson(ns, 403, new { ok = false, erro = "Abra a conexão com GPT pelo painel do CorteLive." });
+                else if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo, 45000))
                     EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
                 return;
             }
@@ -1197,7 +1197,7 @@ namespace CorteLivePainel
             }
 
             if (rota == "/api/drive/detectar" || rota == "/api/drive/config" ||
-                rota == "/api/drive/enviar" || rota == "/api/cortes/postado" ||
+                rota == "/api/drive/enviar" || rota == "/api/cortes/postado" || rota == "/api/cortes/excluir" ||
                 rota == "/api/enviar-erro")
             {
                 // O envio manual aguarda a cópia integral na pasta sincronizada.

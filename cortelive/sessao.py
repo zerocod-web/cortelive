@@ -467,7 +467,8 @@ class Sessao:
                 "inicio_na_live": round(ini, 2), "fim_na_live": round(fim, 2),
                 "inicio_hms": _hms(ini), "fim_hms": _hms(fim), "duracao": round(fim - ini, 2),
                 "momento_na_live": round(job["evento"], 2), "momento_hms": _hms(job["evento"]),
-                "pontuacao": round(job["nota"], 2), "nota_juiz": None, "juiz": "heurística",
+                "pontuacao": round(job["nota"], 2), "nota_juiz": job["sinais"].get("nota_gpt"),
+                "juiz": job["sinais"].get("juiz", "heurística"),
                 "sinais": job["sinais"], "motivos": job["motivos"],
                 "titulo_sugerido": job["titulo"], "motivo": job["motivo"],
                 "modelo": cfg["modelo"], "modelo_usado": r.get("modelo"), "estilo_legenda": cfg["legenda"],
@@ -508,6 +509,8 @@ class Sessao:
             cap.start()
         log.info("Acompanhando a live." + (" Para parar: Ctrl+C." if self.terminal else ""))
 
+        from .gpt import Juiz
+        juiz = Juiz(log.aviso)
         sel = momento.Seletor(cfg)
         hist_notas = {}
         quentes_titulo = list(cfg["palavras_quentes"]) + list(cfg.get("palavras_apoio", []))
@@ -586,7 +589,7 @@ class Sessao:
                 return True
 
             sel.passo(notas, fl.palavras, disponivel, limite, notas_ate, limiar, list(cap.emendas), aceitar,
-                      pendente, final)
+                      pendente, final, juiz=juiz.avaliar)
 
         exe = cf.ThreadPoolExecutor(max_workers=1, initializer=log.usar, initargs=(log.atual(),))
         reinicios_fala = [0]

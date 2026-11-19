@@ -48,26 +48,6 @@ def ler_json(caminho: Path):
         return {}
 
 
-def localizar_codex():
-    if cli := shutil.which("codex.exe"):
-        return cli
-    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
-    if not powershell.is_file():
-        return None
-    resultado = subprocess.run(
-        [str(powershell), "-NoProfile", "-NonInteractive", "-Command",
-         "Get-AppxPackage -Name OpenAI.Codex | Select-Object -First 1 -ExpandProperty InstallLocation"],
-        capture_output=True, text=True, errors="replace", timeout=6,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    instalacao = resultado.stdout.strip()
-    if resultado.returncode == 0 and instalacao:
-        cli = Path(instalacao) / "app/resources/codex.exe"
-        if cli.is_file():
-            return str(cli)
-    return None
-
-
 def ler_config_postagem(raiz: Path):
     dados = ler_json(raiz / "painel_config.json")
     for antiga, atual in CHAVES_ANTIGAS_POSTAGEM.items():
@@ -111,6 +91,7 @@ class ApiPainel:
         self.raiz = Path(raiz).resolve()
         self.python = self.raiz / ".venv" / "Scripts" / "python.exe"
         self.trava_config = threading.Lock()
+        self.trava_exclusao = threading.Lock()
 
     def ambiente(self):
         env = os.environ.copy()
@@ -164,34 +145,6 @@ class ApiPainel:
 
     def pasta_cortes(self):
         return Path(self.config_motor()["pasta_saida"])
-
-    def codex(self, acao):
-        cli = localizar_codex()
-        if not cli:
-            return {"estado": "ausente"}
-        env = self.ambiente()
-        env.pop("OPENAI_API_KEY", None)
-        env.pop("CODEX_API_KEY", None)
-        opcoes = {
-            "cwd": self.raiz, "env": env, "stdin": subprocess.DEVNULL,
-            "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        }
-        status = subprocess.run(
-            [cli, "login", "status"], capture_output=True, encoding="utf-8", errors="replace",
-            timeout=6, **opcoes,
-        )
-        conectado = status.returncode == 0 and "Logged in using ChatGPT" in (status.stdout + status.stderr)
-        if acao == "status":
-            return {"estado": "conectado" if conectado else "desconectado"}
-        if not conectado:
-            subprocess.Popen([cli, "login"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **opcoes)
-            return {"estado": "aguardando"}
-        pasta = self.pasta_cortes()
-        pasta.mkdir(parents=True, exist_ok=True)
-        resultado = subprocess.run([cli, "app", str(pasta)], capture_output=True, timeout=15, **opcoes)
-        if resultado.returncode:
-            raise ErroApi(502, "Não consegui abrir o Codex Desktop. Confira se o aplicativo está instalado.")
-        return {"estado": "aberto"}
 
     def dentro_dos_cortes(self, texto, video=True):
         pasta = self.pasta_cortes()
@@ -249,6 +202,27 @@ class ApiPainel:
                 "postado": postagem["postado"], "postagem": postagem, "destino": destino.estado_copia(video),
             })
         return itens
+
+    def excluir_corte(self, corpo):
+        from cortelive import pastas
+        from painel import lixeira
+
+        with self.trava_exclusao:
+            texto = campo(corpo, "caminho")
+            video = self.dentro_dos_cortes(texto)
+            meta = pastas.meta_do_video(video)
+            dados = ler_json(meta) if meta else {}
+            fonte = ler_json(pastas.sessao_json_do_video(video)).get("fonte")
+            if (Path(texto) != video or dados.get("arquivo") != video.name
+                    or video.parent.name.casefold() == pastas.SEM_LEGENDA.casefold()
+                    or (isinstance(fonte, str) and "://" not in fonte
+                        and (self.raiz / fonte).resolve() == video)):
+                raise ErroApi(400, "Escolha um MP4 gerado pelo CorteLive.")
+            try:
+                lixeira.reciclar(video)
+            except (OSError, subprocess.SubprocessError):
+                raise ErroApi(409, "Não foi possível enviar o corte à Lixeira. Confira se ele está em uso e se a unidade tem Lixeira.") from None
+        return {"mensagem": "O MP4 do corte foi enviado à Lixeira."}
 
     def miniatura(self, video):
         from cortelive import pastas
@@ -607,10 +581,10 @@ class ApiPainel:
             return despachar_rota_dev(self, metodo, acoes, url, corpo)
         acao = acoes[0] if len(acoes) == 1 else ""
         consultas = {("cortes", ""), ("miniatura", ""), ("postar", "status"), ("autopost", "fila"),
-                     ("drive", "detectar"), ("codex", "status")}
+                     ("drive", "detectar"), ("gpt", "status")}
         acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""), ("postar", "conectar"),
-                      ("postar", "conectar-postiz"), ("postar", "enviar"), ("codex", "iniciar"),
-                      ("drive", "enviar"), ("cortes", "postado"),
+                      ("postar", "conectar-postiz"), ("postar", "enviar"), ("gpt", "conectar"),
+                      ("drive", "enviar"), ("cortes", "postado"), ("cortes", "excluir"),
                       *(("autopost", a) for a in ("gerar", "editar", "aprovar", "rejeitar", "processar",
                                                  "cancelar", "editar-agendado"))}
         par = grupo, acao
@@ -621,11 +595,17 @@ class ApiPainel:
             raise ErroApi(405, "Método não permitido.")
         if grupo == "config-postagem":
             return self.postagem(metodo, corpo)
-        if grupo == "codex":
-            return self.codex(acao)
+        if grupo == "gpt":
+            from cortelive.gpt import conectar, FalhaGPT
+            try:
+                return conectar(acao, corpo, self.ambiente())
+            except FalhaGPT as erro:
+                raise ErroApi(400, str(erro)) from None
         if grupo == "drive":
             return self.drive(acao, metodo, corpo)
         if grupo == "cortes":
+            if acao == "excluir":
+                return self.excluir_corte(corpo)
             if acao == "postado":
                 return self.marcar_postado(corpo)
             return {"cortes": self.listar_cortes()}

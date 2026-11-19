@@ -46,7 +46,6 @@
               <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/>
             </svg>
             <span>Postar</span>
-            <span id="badge-fila-contagem" class="mini-pilula" hidden>0</span>
           </button>
           <button type="button" class="aba-btn" id="aba-btn-config" data-aba="config">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -463,95 +462,33 @@
 
         <!-- ABA 3: CONFIGURAÇÕES -->
         <div id="aba-painel-config" class="pilha-secoes" hidden>
-          <section class="painel-card contas-card" aria-labelledby="titulo-codex">
+          <section class="painel-card contas-card" aria-labelledby="titulo-gpt">
             <div>
-              <h2 id="titulo-codex" class="titulo-secao">Codex</h2>
-              <p class="texto-apoio">Use sua assinatura do ChatGPT. As tarefas abrem no Codex Desktop com a pasta de cortes do CorteLive.</p>
+              <h2 id="titulo-gpt" class="titulo-secao">Conexão com GPT</h2>
+              <p class="texto-apoio">O GPT avalia trechos da transcrição e ajuda a escolher os melhores momentos. Quando a conta atinge o limite, o CorteLive continua cortando com a seleção local.</p>
             </div>
-            <div>
-              <button type="button" id="btn-codex" class="btn btn-secundario" aria-describedby="feedback-codex" disabled>Verificando conexão…</button>
-            </div>
-            <p id="feedback-codex" class="ajuda-campo" role="status"></p>
-          </section>
-          <section class="painel-card contas-card" aria-labelledby="titulo-historico">
-            <div>
-              <h2 id="titulo-historico" class="titulo-secao">Histórico</h2>
-              <p class="texto-apoio">Apaga as mensagens antigas e os registros das lives que já terminaram. Seus vídeos e cortes não são apagados, e uma live em andamento não é afetada.</p>
-            </div>
-            <div>
-              <button type="button" id="btn-apagar-historico" class="btn btn-perigo">
-                <span>Apagar histórico</span>
-              </button>
-            </div>
-            <p id="feedback-historico" class="ajuda-campo" role="status" aria-live="polite" hidden></p>
-          </section>
-          <section class="painel-card contas-card" aria-labelledby="titulo-enviar-erro">
-            <div>
-              <h2 id="titulo-enviar-erro" class="titulo-secao">Algo deu errado?</h2>
-              <p class="texto-apoio">Cria um arquivo na Área de Trabalho com o registro do que aconteceu, para você mandar ao Gabriel pelo WhatsApp. Nada é enviado pela internet. Senhas, chaves, e-mails e o seu nome no Windows são apagados do arquivo. Seus vídeos não vão junto.</p>
-            </div>
-            <div>
-              <button type="button" id="btn-enviar-erro-config" class="btn btn-primario btn-enviar-erro"><span class="rotulo-enviar-erro">Enviar erro para o Gabriel</span></button>
-            </div>
-            <p id="feedback-enviar-erro" class="ajuda-campo" role="status" aria-live="polite" hidden></p>
+            <form id="form-gpt" class="form-drive">
+              <label for="modo-gpt" class="campo-rotulo">Forma de conexão</label>
+              <select id="modo-gpt" class="campo-select">
+                <option value="local">Somente seleção local</option>
+                <option value="chatgpt">Minha conta ChatGPT</option>
+                <option value="api">Chave da API OpenAI</option>
+              </select>
+              <p id="ajuda-chatgpt" class="ajuda-campo">O CorteLive usa a sessão do Codex neste computador.</p>
+              <div id="opcoes-api" class="campo-grupo" hidden>
+                <label for="chave-gpt" class="campo-rotulo">Chave do projeto OpenAI</label>
+                <input id="chave-gpt" class="campo-texto" type="password" autocomplete="off" spellcheck="false" maxlength="512">
+                <p class="ajuda-campo">O GPT-4.1 mini usa os tokens diários dos projetos elegíveis com compartilhamento ativo. O excedente pode ser cobrado.
+                  <a href="https://platform.openai.com/settings/organization/data-controls/sharing" target="_blank" rel="noopener noreferrer">Conferir elegibilidade na OpenAI</a></p>
+              </div>
+              <div><button id="btn-gpt" class="btn btn-primario" type="submit">Conectar</button></div>
+            </form>
+            <p id="estado-gpt" class="ajuda-campo" role="status"></p>
           </section>
         </div>
 
         <!-- ABA 2: POSTAR E CONTAS (cortelive.postar + cortelive.autopost + autopost_navegador) -->
         <div id="aba-painel-contas" class="pilha-secoes" hidden>
-          <section class="painel-card contas-card" aria-labelledby="titulo-drive">
-            <div>
-              <h2 id="titulo-drive" class="titulo-secao">Google Drive</h2>
-              <p class="texto-apoio">Escolha uma pasta sincronizada pelo Google Drive para computador. Depois, encontre os cortes nessa mesma pasta pelo celular.</p>
-            </div>
-            <form id="form-drive" class="form-drive">
-              <fieldset id="campos-drive" class="campos-drive" disabled>
-                <label class="switch-linha" for="chk-drive">
-                  <span class="switch-textos">
-                    <strong>Copiar novos cortes automaticamente</strong>
-                    <span>Você também pode escolher quais cortes enviar pela lista de cortes prontos.</span>
-                  </span>
-                  <input type="checkbox" role="switch" id="chk-drive" class="switch-input">
-                </label>
-                <div>
-                  <label class="campo-rotulo" for="pasta-drive">Pasta do Drive</label>
-                  <div class="drive-pasta">
-                    <input type="text" class="campo-texto" id="pasta-drive" aria-describedby="feedback-drive" autocomplete="off" spellcheck="false">
-                    <button type="button" id="btn-detectar-drive" class="btn btn-secundario">Encontrar pasta</button>
-                  </div>
-                  <div id="sugestoes-drive" class="sugestoes-drive" role="group" aria-label="Pastas encontradas" hidden></div>
-                </div>
-                <label class="drive-txt"><input type="checkbox" id="chk-drive-txt"> Levar também um arquivo de texto com título e legenda</label>
-                <label class="drive-txt"><input type="checkbox" id="chk-drive-mover"> Organizar cortes marcados em uma subpasta “postados” no Drive</label>
-                <button type="submit" id="btn-salvar-drive" class="btn btn-primario">Salvar preferências do Drive</button>
-              </fieldset>
-              <p id="feedback-drive" class="ajuda-campo" role="status">Carregando preferências do Drive…</p>
-              <p id="ultima-copia-drive" class="ajuda-campo" role="status" hidden></p>
-            </form>
-          </section>
-          <section class="painel-card contas-card postiz-card" aria-labelledby="titulo-postiz">
-            <div class="contas-cabecalho">
-              <h2 id="titulo-postiz" class="titulo-secao">Conectar Postiz</h2>
-              <span id="status-postiz" class="selo-etapa" role="status">Verificando conexão…</span>
-            </div>
-            <div id="guia-postiz" class="guia-postiz">
-              <ol>
-                <li>Crie sua conta em <a href="https://postiz.com/" target="_blank" rel="noopener noreferrer">postiz.com</a>.</li>
-                <li>Conecte YouTube, Instagram ou TikTok pelo Postiz.</li>
-                <li>Copie a chave em <strong>Settings → Public API</strong>.</li>
-              </ol>
-              <img src="img/estado-sem-contas.png" width="104" height="104" alt="">
-            </div>
-            <form id="form-postiz" novalidate>
-              <label class="campo-rotulo" for="chave-postiz">Chave de API do Postiz</label>
-              <div class="postiz-conexao">
-                <input type="password" class="campo-texto" id="chave-postiz" autocomplete="off" spellcheck="false" aria-describedby="erro-postiz" required>
-                <button type="submit" class="btn btn-primario" id="btn-conectar-postiz">Conectar</button>
-              </div>
-              <p id="erro-postiz" class="erro-campo" role="alert" hidden></p>
-            </form>
-            <ul id="canais-postiz" class="grade-canais" aria-label="Canais do Postiz" hidden></ul>
-          </section>
           <section class="painel-card contas-card" aria-labelledby="titulo-cortes-longos">
             <div class="contas-cabecalho">
               <div>
@@ -575,88 +512,7 @@
             </div>
             <p id="feedback-cortes-longos" class="ajuda-campo" role="status" hidden></p>
           </section>
-          <!-- 1) Interruptores de Configuração Automática -->
-          <section class="painel-card contas-card" aria-labelledby="titulo-automacao-postar">
-            <div class="contas-cabecalho">
-              <div>
-                <h2 id="titulo-automacao-postar" class="titulo-secao">Automação de postagem</h2>
-                <p class="subtitulo-secao">Escolha se os novos cortes entram sozinhos na fila de publicação.</p>
-              </div>
-            </div>
 
-            <div class="grade-switches">
-              <label class="switch-linha" for="chk-postar-sozinho">
-                <div class="switch-textos">
-                  <strong>Postar sozinho</strong>
-                  <span>Gera título, legenda e hashtags automaticamente assim que cada corte termina</span>
-                </div>
-                <input type="checkbox" role="switch" id="chk-postar-sozinho" class="switch-input">
-              </label>
-
-              <label class="switch-linha" for="chk-revisar-antes">
-                <div class="switch-textos">
-                  <strong>Revisar antes</strong>
-                  <span>Segura o corte na fila abaixo para você editar o título e aprovar antes de publicar</span>
-                </div>
-                <input type="checkbox" role="switch" id="chk-revisar-antes" class="switch-input" checked>
-              </label>
-            </div>
-            <form id="form-limites-postagem" class="limites-postagem">
-              <fieldset id="campos-limites-postagem" class="grupo-escolha">
-                <legend class="campo-rotulo">Limites e canais</legend>
-                <div class="grade-limites-postagem">
-                  <div class="campo-grupo">
-                    <label class="campo-rotulo" for="postar-max-dia">Máximo por dia em cada rede</label>
-                    <input id="postar-max-dia" class="campo-texto" type="number" min="1" step="1" value="48" required>
-                  </div>
-                  <div class="campo-grupo">
-                    <label class="campo-rotulo" for="postar-intervalo-min">Esperar entre posts (minutos)</label>
-                    <input id="postar-intervalo-min" class="campo-texto" type="number" min="0" step="1" value="30" aria-describedby="ajuda-intervalo-postagem" required>
-                    <p id="ajuda-intervalo-postagem" class="ajuda-campo">Use 0 para desativar a espera.</p>
-                  </div>
-                </div>
-                <fieldset class="grupo-escolha canais-postagem-config">
-                  <legend class="campo-rotulo">Canais que recebem os cortes</legend>
-                  <label class="check-pilula">
-                    <input id="postar-todos-canais" type="checkbox" checked>
-                    <span>Todos os canais do Postiz</span>
-                  </label>
-                  <div id="postar-canais-opcoes" class="opcoes-canais-postagem" hidden></div>
-                  <p id="postar-canais-sem-opcoes" class="ajuda-campo">Conecte o Postiz para escolher canais específicos.</p>
-                </fieldset>
-                <label class="switch-linha" for="chk-postar-rodizio">
-                  <span class="switch-textos">
-                    <strong>Rodízio entre contas da mesma rede</strong>
-                    <span>Alterna os envios entre os canais selecionados em cada rede.</span>
-                  </span>
-                  <input type="checkbox" role="switch" id="chk-postar-rodizio" class="switch-input">
-                </label>
-              </fieldset>
-              <p class="subtitulo-secao aviso-prioridade-postagem">Cortes com nota maior saem primeiro; os que sobram esperam até 48 h.</p>
-              <div class="acoes-limites-postagem">
-                <button type="submit" class="btn btn-secundario" id="btn-salvar-limites-postagem">Salvar limites e canais</button>
-                <p id="feedback-limites-postagem" class="ajuda-campo" role="status"></p>
-              </div>
-            </form>
-          </section>
-
-          <!-- 2) Fila de Postagem (cortelive.autopost) -->
-          <section class="painel-card contas-card" aria-labelledby="titulo-fila-autopost">
-            <div class="contas-cabecalho">
-              <div>
-                <h2 id="titulo-fila-autopost" class="titulo-secao">Fila de postagem</h2>
-                <p class="subtitulo-secao">Os cortes agendados saem pelo Postiz mesmo com o PC desligado.</p>
-              </div>
-              <button type="button" id="btn-recarregar-fila" class="btn btn-secundario btn-compacto">
-                <span>Atualizar fila</span>
-              </button>
-            </div>
-
-            <div id="fila-vazia" class="vazio-fila">
-              Nenhum corte na fila de postagem. Clique em <strong>Postar</strong> em qualquer corte pronto para preparar o envio.
-            </div>
-            <div id="lista-fila-autopost" class="lista-fila" hidden></div>
-          </section>
 
           <!-- 3) Contas Oficiais (cortelive.postar) -->
           <details class="painel-card outras-postagens">
@@ -676,7 +532,7 @@
               </svg>
               <p>Módulo de postagem em breve nesta instalação.</p>
             </div>
-            <p id="aviso-postagem-direta" class="subtitulo-secao" hidden>Para usar as contas oficiais de cada rede, conecte-as pelo Postiz.</p>
+            <p id="aviso-postagem-direta" class="subtitulo-secao" hidden>O envio direto usa as contas já configuradas neste computador.</p>
 
             <div class="grade-contas" id="lista-redes-contas">
               <article class="conta-item" data-rede="youtube">
@@ -821,7 +677,6 @@
 
       <div class="modal-rodape">
         <button type="button" id="btn-cancelar-postar" class="btn btn-secundario">Fechar</button>
-        <button type="button" id="btn-enfileirar-postar" class="btn btn-secundario" hidden>Pôr na fila (revisar)</button>
         <button type="submit" id="btn-confirmar-postar" class="btn btn-primario" hidden>Enviar agora</button>
       </div>
     </form>

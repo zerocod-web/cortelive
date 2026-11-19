@@ -171,6 +171,42 @@
       recarregarTudoPostagem();
       if (!carregouConfigDrive) carregarConfigDrive();
     }
+    if (abaAtiva === "config") consultarCodex();
+  }
+
+  async function consultarCodex(porClique = false) {
+    const botao = el("btn-codex");
+    const feedback = el("feedback-codex");
+    if (botao.getAttribute("aria-busy") === "true") return;
+    const acao = porClique && ["conectado", "desconectado"].includes(botao.dataset.estado);
+    const rotulo = botao.textContent;
+    const devolverFoco = document.activeElement === botao;
+    botao.setAttribute("aria-busy", "true");
+    botao.textContent = acao ? "Abrindo…" : "Verificando conexão…";
+    botao.disabled = true;
+    const res = acao ? await api("/api/codex/iniciar", "POST", {}) : await api("/api/codex/status");
+    botao.removeAttribute("aria-busy");
+    botao.disabled = false;
+    if (devolverFoco && document.activeElement === document.body) botao.focus();
+    if (!res.ok) {
+      botao.textContent = botao.dataset.estado ? rotulo : "Verificar Codex";
+      feedbackAcao(feedback, res.erro || "Não consegui verificar o Codex.", true);
+      return;
+    }
+    botao.dataset.estado = res.estado === "aberto" ? "conectado" : res.estado;
+    if (res.estado === "conectado" || res.estado === "aberto") {
+      botao.textContent = "Abrir Codex nos cortes";
+      feedbackAcao(feedback, res.estado === "aberto" ? "A pasta de cortes foi enviada ao Codex Desktop." : "Conta do ChatGPT conectada.");
+    } else if (res.estado === "desconectado") {
+      botao.textContent = "Conectar com ChatGPT";
+      feedbackAcao(feedback, "Entre com a conta do ChatGPT que tem a sua assinatura.");
+    } else if (res.estado === "aguardando") {
+      botao.textContent = "Verificar conexão";
+      feedbackAcao(feedback, "Conclua o login no navegador e volte ao CorteLive.");
+    } else {
+      botao.textContent = "Verificar Codex";
+      feedbackAcao(feedback, "Instale o Codex para Windows e verifique novamente.");
+    }
   }
 
   async function apagarHistorico() {
@@ -1764,6 +1800,10 @@
     el("aba-btn-cortar").addEventListener("click", () => alternarAba("cortar"));
     el("aba-btn-contas").addEventListener("click", () => alternarAba("contas"));
     el("aba-btn-config").addEventListener("click", () => alternarAba("config"));
+    el("btn-codex").addEventListener("click", () => consultarCodex(true));
+    window.addEventListener("focus", () => {
+      if (abaAtiva === "config" && el("btn-codex").dataset.estado === "aguardando") consultarCodex();
+    });
     el("btn-apagar-historico").addEventListener("click", apagarHistorico);
     document.querySelectorAll(".btn-enviar-erro").forEach((b) => b.addEventListener("click", enviarErroParaGabriel));
     el("form-postiz").addEventListener("submit", conectarPostiz);

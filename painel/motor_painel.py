@@ -12,6 +12,7 @@ import hmac
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,6 +46,26 @@ def ler_json(caminho: Path):
         return dados if isinstance(dados, dict) else {}
     except (OSError, ValueError):
         return {}
+
+
+def localizar_codex():
+    if cli := shutil.which("codex.exe"):
+        return cli
+    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    if not powershell.is_file():
+        return None
+    resultado = subprocess.run(
+        [str(powershell), "-NoProfile", "-NonInteractive", "-Command",
+         "Get-AppxPackage -Name OpenAI.Codex | Select-Object -First 1 -ExpandProperty InstallLocation"],
+        capture_output=True, text=True, errors="replace", timeout=6,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    instalacao = resultado.stdout.strip()
+    if resultado.returncode == 0 and instalacao:
+        cli = Path(instalacao) / "app/resources/codex.exe"
+        if cli.is_file():
+            return str(cli)
+    return None
 
 
 def ler_config_postagem(raiz: Path):
@@ -143,6 +164,34 @@ class ApiPainel:
 
     def pasta_cortes(self):
         return Path(self.config_motor()["pasta_saida"])
+
+    def codex(self, acao):
+        cli = localizar_codex()
+        if not cli:
+            return {"estado": "ausente"}
+        env = self.ambiente()
+        env.pop("OPENAI_API_KEY", None)
+        env.pop("CODEX_API_KEY", None)
+        opcoes = {
+            "cwd": self.raiz, "env": env, "stdin": subprocess.DEVNULL,
+            "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        }
+        status = subprocess.run(
+            [cli, "login", "status"], capture_output=True, encoding="utf-8", errors="replace",
+            timeout=6, **opcoes,
+        )
+        conectado = status.returncode == 0 and "Logged in using ChatGPT" in (status.stdout + status.stderr)
+        if acao == "status":
+            return {"estado": "conectado" if conectado else "desconectado"}
+        if not conectado:
+            subprocess.Popen([cli, "login"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **opcoes)
+            return {"estado": "aguardando"}
+        pasta = self.pasta_cortes()
+        pasta.mkdir(parents=True, exist_ok=True)
+        resultado = subprocess.run([cli, "app", str(pasta)], capture_output=True, timeout=15, **opcoes)
+        if resultado.returncode:
+            raise ErroApi(502, "Não consegui abrir o Codex Desktop. Confira se o aplicativo está instalado.")
+        return {"estado": "aberto"}
 
     def dentro_dos_cortes(self, texto, video=True):
         pasta = self.pasta_cortes()
@@ -558,9 +607,9 @@ class ApiPainel:
             return despachar_rota_dev(self, metodo, acoes, url, corpo)
         acao = acoes[0] if len(acoes) == 1 else ""
         consultas = {("cortes", ""), ("miniatura", ""), ("postar", "status"), ("autopost", "fila"),
-                     ("drive", "detectar")}
+                     ("drive", "detectar"), ("codex", "status")}
         acoes_post = {("historico", "apagar"), ("enviar-erro", ""), ("abrir-video", ""), ("abrir-pasta", ""), ("postar", "conectar"),
-                      ("postar", "conectar-postiz"), ("postar", "enviar"),
+                      ("postar", "conectar-postiz"), ("postar", "enviar"), ("codex", "iniciar"),
                       ("drive", "enviar"), ("cortes", "postado"),
                       *(("autopost", a) for a in ("gerar", "editar", "aprovar", "rejeitar", "processar",
                                                  "cancelar", "editar-agendado"))}
@@ -572,6 +621,8 @@ class ApiPainel:
             raise ErroApi(405, "Método não permitido.")
         if grupo == "config-postagem":
             return self.postagem(metodo, corpo)
+        if grupo == "codex":
+            return self.codex(acao)
         if grupo == "drive":
             return self.drive(acao, metodo, corpo)
         if grupo == "cortes":
@@ -740,13 +791,15 @@ def escutar_stdin(parar_ev: threading.Event, entrada, comandos,
                 return
             acao, _, ident = cmd.partition(" ")
             if acao == "adicionar-live":
+                campos = ident.split()
+                if len(campos) not in (1, 3):
+                    continue
                 try:
-                    bruto = linha.strip().partition(" ")[2].strip()
-                    fonte = bytes.fromhex(bruto).decode("utf-8").strip()
+                    valores = tuple(bytes.fromhex(campo).decode("utf-8").strip() for campo in campos)
                 except (ValueError, UnicodeDecodeError):
-                    fonte = ""
-                if fonte and len(fonte) <= 4096 and not any(c in fonte for c in "\r\n"):
-                    comandos.put(("adicionar", fonte))
+                    continue
+                if all(v and len(v) <= 4096 and not any(c in v for c in "\r\n") for v in valores):
+                    comandos.put(("adicionar", *valores))
                     if acordar_ev is not None:
                         acordar_ev.set()
                 continue
@@ -949,6 +1002,7 @@ def main(argv=None):
         # le de novo a cada live (inclusive as adicionadas com a sessao ja rodando): ligar "cortes de 1 min" vale
         # para a proxima live iniciada, sem reabrir o app
         sessao.cfg_extra.update(config_postagem(Path.cwd()))
+        sessao.cfg_extra["recuo_sem_cam"] = []
         sessao.terminal = unica_cel[0]
         return sessao
 
@@ -1071,7 +1125,7 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
     ultimo_corte_em = 0.0
     cortes_por_id: dict[str, int] = {}
 
-    def adicionar_live(fonte):
+    def adicionar_live(fonte, modelo=None, legenda=None):
         """Entra mais uma live na sessão em andamento (mesmo caminho da largada)."""
         existente = sup.lives.get(fonte)
         if existente is not None and not existente.encerrar:
@@ -1085,14 +1139,17 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
             for lv0 in lives.values():       # a 1ª live deixa de ser "única": passa a repetir se cair
                 if lv0.s is not None:
                     lv0.s.terminal = False
-        sup.adicionar(str(Path(fonte).resolve()) if eh_arq else fonte, arquivo=eh_arq)
         chave = str(Path(fonte).resolve()) if eh_arq else fonte
+        args = None
+        if modelo is not None:
+            args = types.SimpleNamespace(**{**vars(sup.a), "modelo": modelo, "legenda": legenda})
+        sup.adicionar(chave, arquivo=eh_arq, args=args)
         lv = sup.lives.get(chave)
         if lv is not None and all(lv is not x for x in lives.values()):
             lives[uuid.uuid4().hex] = lv
 
     for _c in (adicoes_iniciais or []):
-        adicionar_live(_c[1])
+        adicionar_live(*_c[1:])
 
     def estados():
         dados = []
@@ -1123,7 +1180,7 @@ def acompanhar_multiplas(sup, parar_ev, modo_resumo, comandos, unica=False,
             while not comandos.empty():
                 cmd = comandos.get_nowait()
                 if isinstance(cmd, tuple):
-                    adicionar_live(cmd[1])
+                    adicionar_live(*cmd[1:])
                     continue
                 lv = lives.get(cmd)
                 if lv and not lv.terminou and not lv.encerrar:

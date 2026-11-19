@@ -155,7 +155,7 @@ class Supervisor:
         if not self.painel:
             print(self.eventos[-1], flush=True)
 
-    def adicionar(self, fonte, arquivo=False):
+    def adicionar(self, fonte, arquivo=False, args=None):
         lv = self.lives.get(fonte)
         if lv and not lv.encerrar:
             return
@@ -164,7 +164,7 @@ class Supervisor:
         base, n = canal, 2
         while canal in usados:                 # mesmo canal duas vezes: pasta/cam são por canal
             canal, n = f"{base}_{n}", n + 1
-        lv = Live(fonte, arquivo, canal, self.a, self.criar)
+        lv = Live(fonte, arquivo, canal, self.a if args is None else args, self.criar)
         self.lives[fonte] = lv
         lv.iniciar()
         self.evento(f"+ {canal} adicionada")

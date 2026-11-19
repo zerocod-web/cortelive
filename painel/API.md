@@ -18,7 +18,7 @@ Use polling de `GET /api/estado` durante corte e instalação. O snapshot pode s
 | GET `/api/estado` | `{ok, versao, pasta_raiz, instalado, modo_descricao, instalacao, sessao, cortes}`. |
 | POST `/api/instalar` | `{}` → `{ok:true}`. Começa a instalação em segundo plano. |
 | GET `/api/log-instalacao` | `{ok, log}`. |
-| POST `/api/cortar` | `{fonte, modelo?, legenda?}` → `{ok:true}`. `fonte` é link HTTP(S) ou caminho de um vídeo local. Padrões `cam-em-cima` e `opus`. |
+| POST `/api/cortar` | `{fonte, modelo?, legenda?}` → `{ok:true}`. `fonte` é link HTTP(S) ou caminho de um vídeo local. Cada fonte usa o modelo e a legenda enviados, inclusive durante uma sessão ativa. Padrões `cam-em-cima` e `opus`. |
 | POST `/api/parar` | `{}` → `{ok:true}`. Solicita o encerramento após os cortes em andamento. |
 | GET `/api/cortes` | `{ok, cortes:[...]}`, do mais recente para o mais antigo. |
 | POST `/api/abrir-video` | `{caminho}` → `{ok:true}`. Abre um MP4 da pasta de cortes no reprodutor do Windows. |

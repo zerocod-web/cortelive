@@ -541,14 +541,16 @@ RECUO_PADRAO = ["jogo-fundo-desfocado", "jogo-tela-cheia-crop"]   # Fundo desfoc
 
 
 def _modelo_efetivo(nome, cam, sw, sh, recuo=None):
-    """Cam-em-cima sem cam achada NUNCA sai: troca para o 1º modelo da lista `recuo` (config.toml `recuo_sem_cam`;
-    padrão desfocado, depois tela cheia). Devolve (modelo, motivo_do_recuo ou False)."""
+    """Usa a câmera detectada quando disponível. Sem câmera, recuo=[] mantém o recorte do preset.
+
+    Uma lista de recuo não vazia autoriza a troca de modelo. None usa a lista padrão.
+    """
     m = carregar("modelo", nome)
     if m["tipo"] == "cam-em-cima":
         if cam is not None:
             x, y, w, h = cam
             m = dict(m, cam={"x": x / sw, "y": y / sh, "w": w / sw, "h": h / sh})
-        else:
+        elif recuo != []:
             for alt in (recuo or RECUO_PADRAO):
                 try:
                     ma = carregar("modelo", alt)

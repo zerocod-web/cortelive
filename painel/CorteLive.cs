@@ -617,8 +617,9 @@ namespace CorteLivePainel
                 using (NetworkStream ns = client.GetStream())
                 {
                     string metodo, caminho, corpo;
-                    if (!LerRequisicaoHttp(ns, out metodo, out caminho, out corpo)) return;
-                    Roteador(ns, metodo, caminho, corpo);
+                    Dictionary<string, string> cabecalhos;
+                    if (!LerRequisicaoHttp(ns, out metodo, out caminho, out corpo, out cabecalhos)) return;
+                    Roteador(ns, metodo, caminho, corpo, cabecalhos);
                 }
             }
             catch { }
@@ -628,11 +629,13 @@ namespace CorteLivePainel
             }
         }
 
-        private static bool LerRequisicaoHttp(NetworkStream ns, out string metodo, out string caminho, out string corpo)
+        private static bool LerRequisicaoHttp(NetworkStream ns, out string metodo, out string caminho, out string corpo,
+            out Dictionary<string, string> cabecalhos)
         {
             metodo = "";
             caminho = "/";
             corpo = "";
+            cabecalhos = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             List<byte> headerBytes = new List<byte>(2048);
             int b;
@@ -659,15 +662,16 @@ namespace CorteLivePainel
             metodo = p0[0].Trim().ToUpperInvariant();
             caminho = p0[1].Trim();
 
-            int contentLength = 0;
             for (int i = 1; i < linhas.Length; i++)
             {
-                if (linhas[i].StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
-                {
-                    int.TryParse(linhas[i].Substring(15).Trim(), out contentLength);
-                }
+                int separador = linhas[i].IndexOf(':');
+                if (separador > 0)
+                    cabecalhos[linhas[i].Substring(0, separador)] = linhas[i].Substring(separador + 1).Trim();
             }
 
+            string tamanho;
+            int contentLength = 0;
+            if (cabecalhos.TryGetValue("Content-Length", out tamanho)) int.TryParse(tamanho, out contentLength);
             if (contentLength > 0 && contentLength < 1048576)
             {
                 byte[] buf = new byte[contentLength];
@@ -1060,11 +1064,25 @@ namespace CorteLivePainel
             return false;
         }
 
-        private static void Roteador(NetworkStream ns, string metodo, string caminhoBruto, string corpo)
+        private static void Roteador(NetworkStream ns, string metodo, string caminhoBruto, string corpo,
+            Dictionary<string, string> cabecalhos)
         {
             string rota = caminhoBruto;
             int idxQ = rota.IndexOf('?');
             if (idxQ >= 0) rota = rota.Substring(0, idxQ);
+
+            if (rota == "/api/codex/status" || rota == "/api/codex/iniciar")
+            {
+                string host, origem;
+                string hostPainel = "127.0.0.1:" + Porta;
+                cabecalhos.TryGetValue("Host", out host);
+                cabecalhos.TryGetValue("Origin", out origem);
+                if (host != hostPainel || ((metodo == "POST" || origem != null) && origem != "http://" + hostPainel))
+                    EnviarJson(ns, 403, new { ok = false, erro = "Abra a conexão com Codex pelo painel do CorteLive." });
+                else if (!RepassarAoMotorApiLocal(ns, metodo, caminhoBruto, corpo))
+                    EnviarJson(ns, 503, new { ok = false, erro = "O motor local está indisponível." });
+                return;
+            }
 
             if (rota == "/api/ping")
             {
@@ -1967,13 +1985,15 @@ namespace CorteLivePainel
             List<string> fontes = SepararFontes(fonteBruta);
             if (fontes.Count == 0) return "Informe o link da live ou escolha um arquivo de vídeo.";
 
+            string mod = string.IsNullOrWhiteSpace(modelo) ? "cam-em-cima" : modelo.Trim();
+            string leg = string.IsNullOrWhiteSpace(legenda) ? "opus" : legenda.Trim();
             string vpy = Path.Combine(Raiz, @".venv\Scripts\python.exe");
             string motor = Path.Combine(Raiz, @"painel\motor_painel.py");
             if (!File.Exists(vpy)) return "O CorteLive ainda não foi instalado nesta pasta.";
 
             lock (LockSessao)
             {
-                if (SessaoRodando) return AdicionarLiveNaSessao(fontes);
+                if (SessaoRodando) return AdicionarLiveNaSessao(fontes, mod, leg);
                 SessaoRodando = true; SessaoLives.Clear();
                 SessaoEstado = "iniciando";
                 SessaoCanal = "";
@@ -1987,9 +2007,6 @@ namespace CorteLivePainel
                 SessaoErro = null;
                 SessaoLinhasLog.Clear();
             }
-
-            string mod = string.IsNullOrWhiteSpace(modelo) ? "cam-em-cima" : modelo.Trim();
-            string leg = string.IsNullOrWhiteSpace(legenda) ? "opus" : legenda.Trim();
 
             string extraArgs = "";
             string modoArq = Path.Combine(Raiz, @"instalador\modo.txt");
@@ -2022,7 +2039,7 @@ namespace CorteLivePainel
 
         // Sessão já em andamento: manda as novas lives ao mesmo motor (cada uma ganha seu cartão e seu Parar).
         // Chamado com LockSessao já travado.
-        private static string AdicionarLiveNaSessao(List<string> fontes)
+        private static string AdicionarLiveNaSessao(List<string> fontes, string modelo, string legenda)
         {
             Process p = ProcSessao;
             if (p == null) return "A sessão ainda está iniciando. Tente de novo em instantes.";
@@ -2030,15 +2047,20 @@ namespace CorteLivePainel
                 return "A sessão está finalizando. Aguarde terminar para iniciar outra live.";
             try
             {
+                string opcoes = HexUtf8(modelo) + " " + HexUtf8(legenda);
                 foreach (string f in fontes)
                 {
-                    string hex = BitConverter.ToString(Encoding.UTF8.GetBytes(f)).Replace("-", "").ToLowerInvariant();
-                    p.StandardInput.WriteLine("adicionar-live " + hex);
+                    p.StandardInput.WriteLine("adicionar-live " + HexUtf8(f) + " " + opcoes);
                 }
                 p.StandardInput.Flush();
             }
             catch { return "Não foi possível adicionar a live agora."; }
             return null;
+        }
+
+        private static string HexUtf8(string valor)
+        {
+            return BitConverter.ToString(Encoding.UTF8.GetBytes(valor)).Replace("-", "").ToLowerInvariant();
         }
 
         private static void ExecutarSessaoThread(string vpy, string argumentos)

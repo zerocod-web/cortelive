@@ -312,7 +312,13 @@ class Juiz:
             _vaga.release()
             self.indisponivel()
             return "local", None
-        self._pedido = {"fila": fila, "t0": time.monotonic(), "fs": fs, "disponivel": disponivel,
+        # a transcrição enviada pode começar no meio de uma frase (logo depois do corte anterior)
+        antes = [w for w in palavras if w["e"] <= fs[0]["s"]]
+        ant = antes[-1] if antes else None
+        abre0 = ant is None or momento._terminal(ant["w"]) or (
+            fs[0]["s"] - ant["e"] >= 0.6 and momento._lim(ant["w"]) not in momento.SOLTAS
+            and not ant["w"].rstrip().endswith(","))
+        self._pedido = {"fila": fila, "t0": time.monotonic(), "fs": fs, "disponivel": disponivel, "abre0": abre0,
                         "min": duracao_min, "alvo": alvo, "max": duracao_max, "modo": atual["modo"]}
         return self._colher(min_ini, final, espera=self.prazo)
 
@@ -352,6 +358,11 @@ class Juiz:
         passos = 0
         while ultimo + 1 < len(fs) and not _fecha(fs, ultimo) and passos < 4:
             ultimo, passos = ultimo + 1, passos + 1
+        abre = lambda i: pedido.get("abre0", True) if i == 0 else _fecha(fs, i - 1)
+        if not abre(primeiro):      # sem espaço para recuar até onde a frase abre: começa na próxima que abre
+            primeiro = next((k for k in range(primeiro + 1, pico + 1) if abre(k)), primeiro)
+        if not _fecha(fs, ultimo):  # sem achar onde a frase fecha: termina na última que fecha depois do pico
+            ultimo = next((k for k in range(ultimo - 1, pico - 1, -1) if _fecha(fs, k)), ultimo)
         dur = lambda: fs[ultimo]["e"] - fs[primeiro]["s"]
         # curto: puxa contexto de antes (frase que abre); sem mais contexto, completa depois da reação
         while dur() < pedido["alvo"]:

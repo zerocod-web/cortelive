@@ -237,3 +237,20 @@ def test_corte_que_termina_na_borda_da_transcricao_espera_o_resto(monkeypatch):
     assert juiz.selecionar(palavras, palavras[-1]["e"] + 0.5, 0, 20, 90) == ("gpt", None)
     modo, corte = _juiz(monkeypatch, responder).selecionar(palavras, palavras[-1]["e"] + 0.5, 0, 20, 90, final=True)
     assert corte is not None
+
+
+def test_sem_espaco_para_recuar_comeca_na_proxima_frase_que_abre(monkeypatch):
+    # o corte anterior termina no meio de 'e eu ia falando disso.': recuar até onde a frase abre é proibido
+    frases = [f"assunto velho número {i} encerrado." for i in range(6)] + ["e eu ia falando disso."] + \
+             [f"Agora sim história nova {i} completa." for i in range(20)]
+    palavras = _fala(frases)
+    meio = next(w for w in palavras if w["w"] == "ia")
+
+    def responder(contexto):
+        p = _linha(contexto, "ia falando")
+        return f'{{"primeiro":{p},"ultimo":{p + 14},"momento":{p + 3},"nota":7}}'
+
+    juiz = _juiz(monkeypatch, responder)
+    modo, corte = juiz.selecionar(palavras, palavras[-1]["e"] + 1, meio["s"], 20, 90, alvo_min=20)
+    primeira = next(w for w in palavras if w["w"] == "Agora")
+    assert abs(corte["janela"]["ini"] - primeira["s"]) < 0.3
